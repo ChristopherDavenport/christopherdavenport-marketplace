@@ -1,0 +1,6 @@
+{
+  "name": "financial-accounting",
+  "description": "Financial institution accounting fundamentals (journals, ledgers, sub-ledgers, chart of accounts) and US GAAP (FASB ASC) reference for FI operations.",
+  "version": "0.1.0",
+  "author": { "name": "Chris Davenport" }
+}

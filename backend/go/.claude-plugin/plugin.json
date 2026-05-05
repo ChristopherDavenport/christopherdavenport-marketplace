@@ -1,0 +1,8 @@
+{
+  "name": "go",
+  "description": "Go language best practices synthesizing Effective Go, the Google and Uber style guides, and the Go Code Review Comments — covering naming, control flow, errors, interfaces, concurrency, generics, testing, modules, tooling, and modern stdlib (context, log/slog, errors.Is/As, iter.Seq).",
+  "version": "0.1.0",
+  "author": {
+    "name": "Chris Davenport"
+  }
+}

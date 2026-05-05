@@ -1,0 +1,59 @@
+{
+  "name": "christopherdavenport",
+  "description": "Chris Davenport's personal Claude Code skills and agents.",
+  "owner": {
+    "name": "Chris Davenport"
+  },
+  "plugins": [
+    {
+      "name": "financial-accounting",
+      "source": "./knowledge/financial-accounting",
+      "description": "Financial institution accounting fundamentals (journals, ledgers, sub-ledgers, chart of accounts) and US GAAP (FASB ASC) reference for FI operations."
+    },
+    {
+      "name": "financial-regs",
+      "source": "./knowledge/financial-regs",
+      "description": "US financial regulation lookup and compliance analysis."
+    },
+    {
+      "name": "lit",
+      "source": "./frontend/lit",
+      "description": "Lit web component library expertise."
+    },
+    {
+      "name": "lit-router",
+      "source": "./frontend/lit-router",
+      "description": "@lit-labs/router expertise."
+    },
+    {
+      "name": "jh-design-system",
+      "source": "./frontend/jh-design-system",
+      "description": "Jack Henry Design System (jackhenry.design/v2) — components, foundations, tokens, content."
+    },
+    {
+      "name": "go",
+      "source": "./backend/go",
+      "description": "Go language best practices — Effective Go, Google + Uber style guides, Code Review Comments, modern stdlib (errors, context, slog, generics)."
+    },
+    {
+      "name": "spanner",
+      "source": "./backend/spanner",
+      "description": "Google Cloud Spanner best practices — schema design, interleaving, indexes, transactions, query/DML optimization, schema evolution, and the Go client SDK."
+    },
+    {
+      "name": "sqlite",
+      "source": "./backend/sqlite",
+      "description": "SQLite best practices — STRICT tables, the must-set pragmas (WAL, busy_timeout, foreign_keys, synchronous=NORMAL), BEGIN IMMEDIATE vs DEFERRED, indexes and EXPLAIN QUERY PLAN, JSON1/JSONB with generated-column indexing, the Go client (database/sql with mattn/go-sqlite3 or modernc.org/sqlite), and server-side production use (Litestream/LiteFS/Turso/D1)."
+    },
+    {
+      "name": "pubsub",
+      "source": "./backend/pubsub",
+      "description": "Google Cloud Pub/Sub best practices — topics & schemas, subscription types, delivery guarantees, ordering, dead-letter, ack deadline / lease, publisher batching, and the Go client SDK."
+    },
+    {
+      "name": "typescript",
+      "source": "./backend/typescript",
+      "description": "TypeScript best practices — type system, generics, utility & advanced types, discriminated unions, classes & OOP, error handling, async & cancellation, immutability, modules, strict tsconfig, naming, testing, plus a dedicated section on functional patterns."
+    }
+  ]
+}
