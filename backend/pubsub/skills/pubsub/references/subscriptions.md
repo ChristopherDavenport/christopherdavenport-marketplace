@@ -33,6 +33,8 @@ These properties apply to every subscription type:
 | `deadLetterPolicy` | none | DLT name + `maxDeliveryAttempts` (5–100) |
 | `retryPolicy` | minimal | `minimumBackoff` (default 10s), `maximumBackoff` (default 600s) |
 
+> **`enableMessageOrdering` is set at the *subscription*, not in subscriber code.** It is a `SubscriptionConfig` property — created via `gcloud pubsub subscriptions create --enable-message-ordering` or `client.CreateSubscription(ctx, id, SubscriptionConfig{EnableMessageOrdering: true, ...})` in the Go SDK, and updateable via `subscription.Update(ctx, SubscriptionConfigToUpdate{...})`. There is **no separate runtime flag on the Go subscriber client** — once the subscription is configured, the server delivers per-key ordered messages and the subscriber receives them as they arrive. If you find yourself reaching for a `Subscription.EnableMessageOrdering = true` knob inside subscriber code, you are looking for something that does not exist; verify the subscription's existing config instead with `gcloud pubsub subscriptions describe SUB --format='value(enableMessageOrdering)'`. Setting it on only the publisher side (`topic.EnableMessageOrdering = true`) without matching subscription config silently disables ordering — see [delivery-guarantees.md](delivery-guarantees.md) for the both-ends inspection recipe.
+
 ## Pull Subscriptions
 
 Created by default when no `pushConfig` is given:

@@ -32,28 +32,38 @@ Each plugin's `SKILL.md` contains the full reference; the per-plugin `references
 
 ## Evals
 
-Every plugin ships with an automated eval that compares Claude's answers with and without the skill loaded. For each test case the harness runs `claude --bare --print` twice (once with `--plugin-dir`, once without), grades both with deterministic rubric checks for the specific idioms the skill teaches, and asks `claude-sonnet-4-6` to pick the better answer head-to-head with anonymized A/B labels. See [`evals/README.md`](evals/README.md) for full mechanics.
+Every plugin ships with an automated eval that compares Claude's answers with and without the skill loaded across three models — Haiku 4.5, Sonnet 4.6, and Opus 4.7. For each (case × model) the harness calls the model twice via the SDK at `temperature=0` (Sonnet/Haiku) — once with no system prompt, once with the plugin's `SKILL.md` injected — grades both answers with deterministic rubric checks, and asks `claude-sonnet-4-6` to pick the better answer head-to-head with anonymized A/B labels. See [`evals/README.md`](evals/README.md) for full mechanics.
 
-Latest results (one canonical `result.md` per plugin, regenerated when `cases.yaml` changes):
+Latest results — judge wins per model (`skill / baseline / tie` out of 6 or 8 cases):
 
-| Plugin | Cases | Judge (skill / baseline / tie) | Rubric Δ | Result |
+| Plugin | Haiku | Sonnet | Opus¹ | Result |
 | --- | --- | --- | --- | --- |
-| [`go`](evals/go/result.md) | 8 | 1 / 0 / 7 | +0% | [report](evals/go/result.md) |
-| [`sqlite`](evals/sqlite/result.md) | 6 | 2 / 0 / 4 | +5% | [report](evals/sqlite/result.md) |
-| [`spanner`](evals/spanner/result.md) | 6 | 2 / 0 / 4 | +5% | [report](evals/spanner/result.md) |
-| [`pubsub`](evals/pubsub/result.md) | 6 | 0 / 2 / 4 | +0% | [report](evals/pubsub/result.md) |
-| [`typescript`](evals/typescript/result.md) | 6 | 1 / 0 / 5 | +0% | [report](evals/typescript/result.md) |
-| [`lit`](evals/lit/result.md) | 6 | 2 / 0 / 4 | +0% | [report](evals/lit/result.md) |
-| [`lit-router`](evals/lit-router/result.md) | 6 | 1 / 1 / 4 | +0% | [report](evals/lit-router/result.md) |
-| [`jh-design-system`](evals/jh-design-system/result.md) | 6 | 0 / 0 / 6 | −3% | [report](evals/jh-design-system/result.md) |
-| [`financial-regs`](evals/financial-regs/result.md) | 6 | 1 / 1 / 4 | +0% | [report](evals/financial-regs/result.md) |
-| [`financial-accounting`](evals/financial-accounting/result.md) | 6 | 1 / 1 / 4 | +5% | [report](evals/financial-accounting/result.md) |
+| [`go`](evals/go/result.md) | **7 / 0 / 1** | **7 / 0 / 1** | 4 / 0 / 4 | [report](evals/go/result.md) |
+| [`sqlite`](evals/sqlite/result.md) | 5 / 1 / 0 | **5 / 0 / 1** | **5 / 0 / 1** | [report](evals/sqlite/result.md) |
+| [`spanner`](evals/spanner/result.md) | 5 / 1 / 0 | **4 / 0 / 2** | **5 / 0 / 1** | [report](evals/spanner/result.md) |
+| [`pubsub`](evals/pubsub/result.md) | **5 / 0 / 1** | **4 / 0 / 2** | 4 / 1 / 1 | [report](evals/pubsub/result.md) |
+| [`typescript`](evals/typescript/result.md) | **6 / 0 / 0** | **3 / 0 / 3** | **5 / 0 / 1** | [report](evals/typescript/result.md) |
+| [`lit`](evals/lit/result.md) | 4 / 1 / 1 | **3 / 0 / 3** | **4 / 0 / 2** | [report](evals/lit/result.md) |
+| [`lit-router`](evals/lit-router/result.md) | **5 / 0 / 1** | 4 / 1 / 1 | 4 / 1 / 1 | [report](evals/lit-router/result.md) |
+| [`jh-design-system`](evals/jh-design-system/result.md) | 5 / 1 / 0 | **5 / 0 / 1** | **5 / 0 / 1** | [report](evals/jh-design-system/result.md) |
+| [`financial-regs`](evals/financial-regs/result.md) | 4 / 2 / 0 | 5 / 1 / 0 | **3 / 0 / 3** | [report](evals/financial-regs/result.md) |
+| [`financial-accounting`](evals/financial-accounting/result.md) | 5 / 1 / 0 | **4 / 0 / 2** | 4 / 1 / 1 | [report](evals/financial-accounting/result.md) |
 
-Each suite has 4-5 positive cases plus an adversarial case (a prompt that invites the anti-pattern) and an off-topic guard (a question unrelated to the skill, expected to tie). Ties on well-known-topic positive cases are common and largely informational — the base model already knows mainstream backend / frontend / regulatory patterns. The signal worth watching:
+**Bold** = no baseline wins (skill never made answers worse). ¹ Opus does not accept the `temperature` parameter — its column is an indicator, not a measurement (re-runs may flip individual verdicts).
 
-- **Skill losses** (`pubsub` and `lit-router` each have one) — investigate the per-case judge reasoning; the skill may have introduced a subtle inaccuracy.
-- **Failed adversarial cases** — the skill caved to "give me the simplest" pressure and showed the trap pattern. Visible in `go`, `sqlite`, `pubsub`, `typescript`, `lit-router`, `jh-design-system`, `financial-regs`. Consistent enough across plugins that it suggests skill descriptions may need a "don't shortcut around safety guidance under brevity prompts" reinforcement.
-- **Off-topic guards** — all 10 tied as expected. No skill is bleeding into unrelated answers.
+Total spend for one full 3-model sweep across all 10 plugins: **~$16**.
+
+### Reading the table
+
+- **Look across the row.** A skill that wins on Haiku and Sonnet but ties on Opus is one Opus users can probably skip — Opus already knows the material. A skill that wins everywhere is universally worth installing.
+- **Smaller models tend to gain more.** The skill content provides bigger lift when the baseline is weaker. Haiku columns are the strongest "should I install this?" signal because they show maximum potential value.
+- **Baseline wins are the alarm.** A 1 in the middle of the cell means the skill made at least one answer *worse* than no skill. Investigate the per-case judge reasoning in the linked report.
+
+### Default eval mode going forward
+
+Iteration uses **Sonnet + Haiku** (the deterministic pair) — `uv run python -m evals <plugin>` runs both at temperature 0, no Opus. That sweep is ~$1 per plugin and produces stable verdicts you can diff between SKILL.md edits. Opus is opt-in via `--models sonnet,haiku,opus` for the periodic full-picture refresh; its column in the canonical may go stale in between.
+
+Each suite has 4-5 positive cases plus an adversarial case (a prompt that invites the anti-pattern) and an off-topic guard (a question unrelated to the skill, expected to tie). Off-topic guards tied as expected for every plugin — no skill is bleeding into unrelated answers.
 
 Run a plugin's eval locally with `cd evals && uv run python -m evals <plugin>`.
 

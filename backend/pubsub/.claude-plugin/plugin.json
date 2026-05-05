@@ -1,7 +1,7 @@
 {
   "name": "pubsub",
   "description": "Google Cloud Pub/Sub best practices — topics & schemas (Avro/Protobuf, BACKWARD/FORWARD compatibility), subscription types (pull / push / BigQuery / Cloud Storage export), delivery guarantees (at-least-once vs exactly-once), ordering keys, dead-letter topics, ack deadline / lease management, publisher batching & flow control, and the Go client SDK (cloud.google.com/go/pubsub).",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Chris Davenport"
   }

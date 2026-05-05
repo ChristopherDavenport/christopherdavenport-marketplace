@@ -2,21 +2,25 @@
 
 Automated tests that show, for a given plugin in this marketplace, that loading its skill measurably improves Claude's responses on relevant tasks.
 
-For each test case, the harness invokes `claude --print` twice — once with no skills loaded (`--bare`), once with the plugin under test loaded (`--bare --plugin-dir <plugin>`) — then scores both answers two ways:
+For each test case, the harness asks the model to answer a prompt twice — once with no skill loaded, once with the plugin's `SKILL.md` available — then scores both answers two ways:
 
 1. **Rubric checks** — deterministic regex/keyword checks for specific idioms the skill teaches (e.g. `%w` for error wrapping, `context.Context` for goroutine lifetimes).
 2. **LLM-as-judge** — head-to-head comparison by `claude-sonnet-4-6`, with the answers anonymized and randomized to avoid position bias.
 
-Both runs use `--bare`, so they share the same auth path and disable hooks / auto-memory / `CLAUDE.md` auto-discovery — only plugin availability differs. That makes the comparison fair.
+## Two backends
+
+| Backend | Default? | Model | Reproducibility | What it measures |
+|---|---|---|---|---|
+| **SDK direct** | ✅ yes | `claude-sonnet-4-6` (`temperature=0`) | Verdicts and rubric pass-rates stable across re-runs (response text varies slightly due to distributed-inference jitter, but the *signal* — winner, criterion hits — is stable). | "Does the SKILL.md content move the answer?" The skill body is injected into the system prompt; nothing else differs between baseline and skill runs. |
+| **CLI subprocess** (`--via-cli`) | no | Whatever the CLI defaults to (currently `claude-opus-4-7`, which **does not accept the `temperature` parameter** and so cannot be pinned). | Higher run-to-run variance. Same case can flip judge winner across runs. | "Does the actual `--plugin-dir` skill-discovery path produce a better answer end-to-end?" Exercises the real harness layer — useful as a periodic integration check. |
+
+The two modes report different absolute numbers because they use different models and different ways of injecting skill content. Don't compare an SDK headline against a CLI headline; compare each against itself across iterations. The committed canonical `evals/<plugin>/result.{md,json}` is always the SDK result for cross-plugin comparability; CLI runs land only in the gitignored `evals/results/` scratch dir.
 
 ## Prerequisites
 
-- `claude` on `PATH` (the Claude Code CLI).
 - Python 3.11+.
-- Auth for both the CLI runs and the SDK judge call. The harness mirrors the CLI's provider selection:
-  - **Direct API**: `ANTHROPIC_API_KEY` exported.
-  - **Vertex AI**: `CLAUDE_CODE_USE_VERTEX=1` and `ANTHROPIC_VERTEX_PROJECT_ID` set, plus `gcloud auth application-default login` done. Install with the `vertex` extra.
-  - **Bedrock**: `CLAUDE_CODE_USE_BEDROCK=1` and standard AWS credentials. Install with the `bedrock` extra.
+- For the default SDK backend: provider creds (one of `ANTHROPIC_API_KEY`, `CLAUDE_CODE_USE_VERTEX=1` + `ANTHROPIC_VERTEX_PROJECT_ID` + `gcloud auth application-default login`, or `CLAUDE_CODE_USE_BEDROCK=1` + AWS creds).
+- For `--via-cli`: `claude` on `PATH` (the Claude Code CLI), plus the same provider creds.
 
 ## Install
 
@@ -31,17 +35,17 @@ uv sync --extra bedrock       # Bedrock
 ## Run
 
 ```sh
-# Full Go suite (~3-5 min, ~$1-3 of API spend):
+# Default — SDK backend, deterministic, recommended for iteration:
 uv run python -m evals go
 
-# Single case for a quick smoke test (~30s, ~$0.05):
+# Single case (cheap smoke):
 uv run python -m evals go --cases error-wrapping
 
-# Multiple cases:
-uv run python -m evals go --cases error-wrapping goroutine-lifetime
+# Periodic integration check via the actual CLI plugin-loading path:
+uv run python -m evals go --via-cli
 ```
 
-Output lands in `evals/results/<plugin>-<UTC-iso>.{json,md}`. The JSON is the full structured record; the Markdown is the human-readable report (skim the headline + summary table, then dive into per-case detail).
+The default-backend run overwrites `evals/<plugin>/result.{md,json}` (committed canonical). Both backends additionally write a timestamped copy to `evals/results/<plugin>-<UTC>.{md,json}` (gitignored scratch).
 
 ## What "improved" means
 

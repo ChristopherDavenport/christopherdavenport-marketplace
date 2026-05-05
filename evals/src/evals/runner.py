@@ -1,4 +1,4 @@
-"""Orchestrator: load a plugin's cases, run baseline + skill, score, report."""
+"""Orchestrator: load a plugin's cases, run baseline + skill across N models, score, report."""
 
 from __future__ import annotations
 
@@ -18,12 +18,15 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from . import cli_runner, judge, report, rubric
+from . import inference, judge, report, rubric
 
 EVALS_DIR = Path(__file__).resolve().parents[2]
 RESULTS_DIR = EVALS_DIR / "results"
 
 VALID_EXPECTATIONS = {"skill_wins", "tie", "skill_wins_strict"}
+
+# Up to 3 models per case; bound the inner pool to that.
+_MAX_MODEL_WORKERS = 3
 
 
 def _expectation_met(
@@ -87,18 +90,25 @@ def _filter_cases(
     return [by_id[w] for w in wanted]
 
 
-def _run_one(
+def _run_one_model(
     case: dict[str, Any],
     plugin_dir: Path,
     rng_seed: int,
+    via_cli: bool,
+    model_alias: str,
 ) -> dict[str, Any]:
+    """Run baseline + skill + judge for ONE (case, model) pair."""
     prompt = case["prompt"]
     rubric_spec = case.get("rubric", [])
     expectation = case["expectation"]
     criterion_names = [c["name"] for c in rubric_spec]
 
-    baseline = cli_runner.run(prompt, plugin_dir=None)
-    skill = cli_runner.run(prompt, plugin_dir=str(plugin_dir))
+    if via_cli:
+        baseline = inference.cli_run(prompt, plugin_dir=None, model_alias=model_alias)
+        skill = inference.cli_run(prompt, plugin_dir=plugin_dir, model_alias=model_alias)
+    else:
+        baseline = inference.sdk_run(prompt, plugin_dir=None, model_alias=model_alias)
+        skill = inference.sdk_run(prompt, plugin_dir=plugin_dir, model_alias=model_alias)
 
     baseline_checks = rubric.grade(rubric_spec, baseline.text)
     skill_checks = rubric.grade(rubric_spec, skill.text)
@@ -115,9 +125,6 @@ def _run_one(
     met = _expectation_met(expectation, verdict.winner, skill_checks)
 
     return {
-        "id": case["id"],
-        "prompt": prompt,
-        "expectation": expectation,
         "expectation_met": met,
         "baseline": {
             "text": baseline.text,
@@ -139,21 +146,67 @@ def _run_one(
     }
 
 
+def _run_one_case(
+    case: dict[str, Any],
+    plugin_dir: Path,
+    case_idx: int,
+    via_cli: bool,
+    models: list[str],
+) -> dict[str, Any]:
+    """Run all models for one case. Models run in parallel under SDK; serial under CLI."""
+    per_model: dict[str, dict[str, Any]] = {}
+
+    # CLI subprocess concurrency would crush the local `claude` invocation —
+    # serialize models within a case for CLI; parallelize for SDK.
+    inner_workers = 1 if via_cli else min(_MAX_MODEL_WORKERS, len(models))
+
+    if inner_workers == 1:
+        for m_idx, alias in enumerate(models):
+            seed = case_idx * 100 + m_idx
+            per_model[alias] = _run_one_model(case, plugin_dir, seed, via_cli, alias)
+    else:
+        with ThreadPoolExecutor(max_workers=inner_workers) as pool:
+            futs = {
+                pool.submit(
+                    _run_one_model, case, plugin_dir, case_idx * 100 + m_idx, via_cli, alias
+                ): alias
+                for m_idx, alias in enumerate(models)
+            }
+            for f in as_completed(futs):
+                alias = futs[f]
+                per_model[alias] = f.result()
+
+    return {
+        "id": case["id"],
+        "prompt": case["prompt"],
+        "expectation": case["expectation"],
+        "judge_focus": case.get("judge_focus", ""),
+        "models": per_model,
+    }
+
+
 def run_plugin(
     plugin: str,
     case_ids: list[str] | None,
     workers: int,
     console: Console,
+    *,
+    models: list[str],
+    via_cli: bool = False,
 ) -> Path:
     plugin_dir, all_cases = _load_plugin(plugin)
     cases = _filter_cases(all_cases, case_ids)
 
+    backend_label = "CLI subprocess" if via_cli else "SDK direct"
     console.print(
-        f"[bold]Running {len(cases)} case(s) for plugin "
+        f"[bold]Running {len(cases)} case(s) × {len(models)} model(s) for plugin "
         f"[green]{plugin}[/green][/bold]"
     )
     console.print(f"  plugin dir: [dim]{plugin_dir}[/dim]")
-    console.print(f"  workers:    [dim]{workers}[/dim]")
+    console.print(f"  backend:    [dim]{backend_label}[/dim]")
+    console.print(f"  models:     [dim]{', '.join(models)}[/dim]")
+    console.print(f"  workers:    [dim]{workers} cases × "
+                  f"{1 if via_cli else min(_MAX_MODEL_WORKERS, len(models))} models[/dim]")
 
     results: list[dict[str, Any] | None] = [None] * len(cases)
     failures: list[tuple[str, Exception]] = []
@@ -170,7 +223,7 @@ def run_plugin(
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {
-                pool.submit(_run_one, case, plugin_dir, idx): (idx, case["id"])
+                pool.submit(_run_one_case, case, plugin_dir, idx, via_cli, models): (idx, case["id"])
                 for idx, case in enumerate(cases)
             }
             for fut in as_completed(futures):
@@ -185,7 +238,9 @@ def run_plugin(
                     progress.advance(task_id)
 
     completed = [r for r in results if r is not None]
-    payload = report.serialize_results(plugin, completed)
+    payload = report.serialize_results(plugin, completed, models)
+    payload["backend"] = "cli" if via_cli else "sdk"
+    payload["models"] = models
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     stamp = _dt.datetime.now(_dt.UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -195,10 +250,11 @@ def run_plugin(
     report.write_json(json_path, payload)
     report.write_markdown(md_path, payload)
 
-    # Canonical, committed-friendly copy alongside cases.yaml. Overwritten on
-    # every full run; reviewers can diff to see how a skill change moved the
-    # numbers. The timestamped scratch above is gitignored.
-    if not case_ids:
+    # Canonical copy alongside cases.yaml. Overwritten on every full SDK run so
+    # reviewers can diff to see how a skill change moved the numbers. CLI runs
+    # go only to the gitignored scratch dir so the canonical stays a consistent
+    # comparison surface across plugins.
+    if not case_ids and not via_cli:
         canonical_md = EVALS_DIR / plugin / "result.md"
         canonical_json = EVALS_DIR / plugin / "result.json"
         report.write_json(canonical_json, payload)
@@ -208,22 +264,18 @@ def run_plugin(
     s = payload["summary"]
     console.rule(f"[bold]Results: {plugin}")
     if s:
-        met_color = "green" if s["expectations_met"] == s["n_cases"] else "yellow"
-        console.print(
-            f"Expectations met: "
-            f"[{met_color}]{s['expectations_met']}/{s['n_cases']}[/{met_color}]"
-        )
-        console.print(
-            f"Judge: skill [green]{s['judge_wins_for_skill']}[/green] · "
-            f"baseline [red]{s['judge_wins_for_baseline']}[/red] · "
-            f"ties [yellow]{s['judge_ties']}[/yellow]"
-        )
-        console.print(
-            f"Rubric: baseline {s['baseline_rubric_pass_rate']:.0%} → "
-            f"skill {s['skill_rubric_pass_rate']:.0%} "
-            f"(Δ {s['rubric_delta']:+.0%})"
-        )
-        console.print(f"CLI cost: ${s['total_cli_cost_usd']:.2f}")
+        for alias in models:
+            ms = s["per_model"][alias]
+            met_color = "green" if ms["expectations_met"] == ms["n_cases"] else "yellow"
+            console.print(
+                f"[bold]{alias:6s}[/bold]  "
+                f"expectations [{met_color}]{ms['expectations_met']}/{ms['n_cases']}[/{met_color}]  "
+                f"judge skill [green]{ms['judge_wins_for_skill']}[/green]/"
+                f"baseline [red]{ms['judge_wins_for_baseline']}[/red]/"
+                f"ties [yellow]{ms['judge_ties']}[/yellow]  "
+                f"rubric Δ {ms['rubric_delta']:+.0%}"
+            )
+        console.print(f"\nTotal cost: ${s['total_cost_usd']:.2f}")
     if failures:
         console.print(f"[red]{len(failures)} case(s) failed[/red]")
     console.print(f"\n  json: [cyan]{json_path}[/cyan]")

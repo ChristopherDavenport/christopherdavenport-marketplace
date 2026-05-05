@@ -1,7 +1,7 @@
 {
   "name": "lit",
   "description": "Lit web component library expertise covering LitElement, reactive properties, templates, styles, lifecycle, decorators, @lit/task, reactive controllers, @lit/context, form-associated elements, ElementInternals, custom directives, Shadow DOM accessibility, and testing",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Chris Davenport"
   }

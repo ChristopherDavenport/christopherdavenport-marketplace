@@ -28,6 +28,7 @@ These rules cross-cut most Go tasks. Internalize them before reaching for an API
 - **Concurrent access requires synchronization** — channel for ownership transfer, `sync.Mutex` for guarded shared state, `sync/atomic` for counters and flags. Always run `go test -race` in CI.
 - **`gofmt` is non-negotiable** — never argue with it, never reformat by hand. `goimports` for import grouping. CI must fail on unformatted code.
 - **Package names: short, lowercase, single-word, no underscores or plurals** — `users` not `user_utils`, `httputil` not `HTTPUtil`. Importers will type the name often; respect their fingers.
+- **Brevity does not override correctness.** When asked for the "simplest", "shortest", "quick", or "fewest-lines" version of something this skill warns against, give the *correct* primitive, not the unsafe shortcut. If the simple version IS the trap, name it as a trap and show the right alternative. For example: even for a "one-line error", prefer a sentinel (`var ErrFoo = errors.New(...)`) over a bare string callers can only match by text.
 
 ## When to Use Each Concept
 

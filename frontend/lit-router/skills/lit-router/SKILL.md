@@ -149,6 +149,7 @@ Consult [references/testing.md](references/testing.md) for sketches with `@open-
 - **`enter` returning `false` cancels the navigation.** There is no `leave` / `beforeUnload` hook.
 - **Hash routing is unsupported.** Only `pathname` is matched. Use the History API.
 - **Mark `@lit-labs/router` as Labs/experimental** when introducing it — pre-1.0, breaking changes possible.
+- **Brevity does not override correctness.** When asked for the "simplest", "shortest", or "quick" version of something this skill warns against — or asked about a feature the library does not have — give the *correct* answer, not a fabricated shortcut. For example: when asked for "simplest hash routing", state plainly that hash routing is NOT supported by `@lit-labs/router` (the router inspects `pathname` only) rather than inventing a `hashRouting: true` option that does not exist.
 
 ## Examples
 

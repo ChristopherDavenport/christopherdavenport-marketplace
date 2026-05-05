@@ -79,6 +79,30 @@ topic.PublishSettings = pubsub.PublishSettings{
 
 The 1 MiB Pub/Sub message size limit applies to a single message — your `ByteThreshold` is about batch size, not individual message size. A single 10 MiB message is rejected regardless of batch settings.
 
+### Sanity-Check Quota Before Tuning Batches
+
+Before raising `CountThreshold` or `ByteThreshold` in pursuit of throughput, confirm you are not already against your project's per-region publish quota. A quota wall is indistinguishable from an under-tuned publisher in subscriber-side metrics — both look like "messages aren't arriving fast enough" — but raising batch thresholds against a quota ceiling does nothing. Check with:
+
+```sh
+gcloud quotas list --service=pubsub.googleapis.com --consumer=projects/YOUR_PROJECT
+```
+
+If the quota is the binding constraint, request an increase via the Cloud Console quotas page rather than changing client-side knobs. The error code that confirms quota exhaustion is `RESOURCE_EXHAUSTED` — see the error table later in this file.
+
+### Payload Size and Compression
+
+Per-message size is its own throughput lever, distinct from batch tuning. Two effects:
+
+1. **Smaller messages → more per batch.** `CountThreshold` caps message count and `ByteThreshold` caps batch bytes; whichever fires first flushes. Halving payload size lets `ByteThreshold` accommodate roughly twice as many messages before flush, amortizing RPC overhead better.
+2. **Smaller messages → less network bandwidth.** Throughput in messages/sec is bounded by network throughput in bytes/sec; halving payload size roughly doubles the message rate the same connection can sustain.
+
+Concrete moves for payloads >1 KiB of structured data:
+
+- **Switch JSON to Protobuf** — typically 3–10× smaller for the same data, plus faster encode/decode in both publisher and subscriber. Pub/Sub topics also support [Proto schemas](topics-and-schemas.md) for server-side validation.
+- **gzip the body** before publishing if you must keep a text format. Decompress in the subscriber. Adds CPU cost on both sides; usually a net win above ~1 KiB.
+
+The 1 MiB per-message and 10 MiB per-publish-RPC limits are hard ceilings, not targets. Most high-throughput publishers stay well below both — single-digit KiB messages with `CountThreshold=1000` is a common sweet spot.
+
 ### Flow Control on the Publisher
 
 `FlowControlSettings` caps how much un-acked publish work can accumulate in the publisher. Without it, a slow Pub/Sub backend or downstream outage causes unbounded memory growth.

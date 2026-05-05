@@ -77,6 +77,7 @@ If a fetch fails, say so and fall back to the structural information in the rele
 - For tokens, always recommend the **alias** (or a **style hook** when overriding a single component); never recommend a raw global token in product code.
 - When the site documents a component that doesn't exist in the source yet (e.g. table sub-cells at the time of writing), say so explicitly — site docs can be ahead of implementation.
 - Surface accessibility notes when the source page provides them.
+- **Brevity does not override correctness.** When asked for a "quick", "simplest", or "shortest" answer about a JH component or token, do not invent tag names, attributes, or token names to satisfy the request faster. If a component (e.g. `<jh-table>` with sortable columns and pagination) cannot be verified in `custom-elements.json` because the source does not yet implement it, say that explicitly and point at the gap — never fabricate a code example that looks plausible. Inventing API to look helpful is the worst failure mode this skill can have.
 
 ## Out of Scope
 

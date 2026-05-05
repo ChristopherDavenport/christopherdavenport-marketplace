@@ -2,453 +2,1351 @@
   "plugin": "typescript",
   "summary": {
     "n_cases": 6,
-    "expectations_met": 2,
+    "models": [
+      "sonnet",
+      "haiku",
+      "opus"
+    ],
+    "per_model": {
+      "sonnet": {
+        "n_cases": 6,
+        "expectations_met": 4,
+        "judge_wins_for_skill": 3,
+        "judge_wins_for_baseline": 0,
+        "judge_ties": 3,
+        "n_scored": 5,
+        "baseline_rubric_pass_rate": 0.8667,
+        "skill_rubric_pass_rate": 1.0,
+        "rubric_delta": 0.1333,
+        "cost_usd": 0.2098
+      },
+      "haiku": {
+        "n_cases": 6,
+        "expectations_met": 5,
+        "judge_wins_for_skill": 6,
+        "judge_wins_for_baseline": 0,
+        "judge_ties": 0,
+        "n_scored": 5,
+        "baseline_rubric_pass_rate": 0.7333,
+        "skill_rubric_pass_rate": 0.9333,
+        "rubric_delta": 0.2,
+        "cost_usd": 0.0687
+      },
+      "opus": {
+        "n_cases": 6,
+        "expectations_met": 6,
+        "judge_wins_for_skill": 5,
+        "judge_wins_for_baseline": 0,
+        "judge_ties": 1,
+        "n_scored": 5,
+        "baseline_rubric_pass_rate": 0.8667,
+        "skill_rubric_pass_rate": 0.8667,
+        "rubric_delta": 0.0,
+        "cost_usd": 1.2463
+      }
+    },
     "by_expectation": {
       "skill_wins": {
         "total": 4,
-        "met": 1
+        "met": {
+          "sonnet": 2,
+          "haiku": 4,
+          "opus": 4
+        }
       },
       "skill_wins_strict": {
         "total": 1,
-        "met": 0
+        "met": {
+          "sonnet": 1,
+          "haiku": 1,
+          "opus": 1
+        }
       },
       "tie": {
         "total": 1,
-        "met": 1
+        "met": {
+          "sonnet": 1,
+          "haiku": 0,
+          "opus": 1
+        }
       }
     },
-    "judge_wins_for_skill": 1,
-    "judge_wins_for_baseline": 0,
-    "judge_ties": 5,
-    "n_scored": 5,
-    "baseline_rubric_pass_rate": 0.8667,
-    "skill_rubric_pass_rate": 0.8667,
-    "rubric_delta": 0.0,
-    "total_cli_cost_usd": 0.3943
+    "total_cost_usd": 1.5248
   },
   "cases": [
     {
       "id": "discriminated-union-exhaustive",
       "prompt": "I have a TypeScript type representing a request lifecycle:\n`type Request = { kind: \"pending\" } | { kind: \"ok\", value: string } | { kind: \"error\", message: string }`.\nShow me how to handle all variants in a function and ensure that\nif I add a new variant later, the compiler will catch all the\nplaces I forgot to update.\n",
       "expectation": "skill_wins",
-      "expectation_met": false,
-      "baseline": {
-        "text": "# Exhaustive Handling with a `never` Helper\n\nThe trick is to add a default branch that assigns the value to `never`. Since `never` accepts no values, the compiler will reject any code that reaches it with an unhandled variant.\n\n```ts\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string };\n\n// Helper that crashes at runtime AND fails to type-check\n// if `x` could be anything other than `never`.\nfunction assertNever(x: never): never {\n  throw new Error(`Unhandled variant: ${JSON.stringify(x)}`);\n}\n\nfunction describe(req: Request): string {\n  switch (req.kind) {\n    case \"pending\":\n      return \"Still working...\";\n    case \"ok\":\n      return `Success: ${req.value}`;\n    case \"error\":\n      return `Failed: ${req.message}`;\n    default:\n      // If every case above is handled, `req` is narrowed to `never` here.\n      return assertNever(req);\n  }\n}\n```\n\n## Why this works\n\nInside each `case`, TypeScript narrows `req` based on the `kind` discriminant. After all known cases are handled, the only type left for `req` is `never`. Passing it to `assertNever(x: never)` type-checks fine — *until* you add a new variant.\n\n## What happens when you add a variant\n\nSuppose later you extend the type:\n\n```ts\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string }\n  | { kind: \"cancelled\"; reason: string };   // 👈 new\n```\n\nNow in `describe`, the `default` branch sees `req` narrowed to `{ kind: \"cancelled\"; reason: string }`, not `never`. The compiler errors:\n\n```\nArgument of type '{ kind: \"cancelled\"; reason: string; }'\nis not assignable to parameter of type 'never'.\n```\n\nEvery `switch` that uses `assertNever` will light up across your codebase, pointing you to exactly the spots that need updating.\n\n## Bonus: enforce return-type exhaustiveness without a default\n\nIf your function has a non-`void` return type, you can also rely on TypeScript's \"not all code paths return a value\" check by omitting the `default`:\n\n```ts\nfunction describe(req: Request): string {\n  switch (req.kind) {\n    case \"pending\": return \"Still working...\";\n    case \"ok\":      return `Success: ${req.value}`;\n    case \"error\":   return `Failed: ${req.message}`;\n  }\n  // No return here — adding a new variant makes this a compile error.\n}\n```\n\nThis works as long as `noImplicitReturns` is enabled in `tsconfig.json`. The `assertNever` pattern is more robust though — it works for `void`-returning functions and gives a clear runtime error if a bad value sneaks in from untyped code (e.g. JSON from the network).",
-        "cost_usd": 0.043434499999999994,
-        "rubric": [
-          {
-            "name": "uses switch on discriminant",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "switch (req.kind",
-            "why": "canonical pattern"
+      "judge_focus": "The better answer uses a switch on the discriminant with a\n`default: const _: never = x` exhaustive check, not casts or\nruntime assertions.\n",
+      "models": {
+        "haiku": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Exhaustive Pattern Matching in TypeScript\n\nHere are several approaches to ensure the compiler catches missing cases when you add new variants:\n\n## 1. **Switch with Exhaustiveness Check (Recommended)**\n\n```typescript\ntype Request = \n  | { kind: \"pending\" } \n  | { kind: \"ok\"; value: string } \n  | { kind: \"error\"; message: string };\n\nfunction handleRequest(req: Request): string {\n  switch (req.kind) {\n    case \"pending\":\n      return \"Loading...\";\n    case \"ok\":\n      return `Success: ${req.value}`;\n    case \"error\":\n      return `Error: ${req.message}`;\n    default:\n      // This will cause a compile error if you add a new variant\n      const _exhaustive: never = req;\n      return _exhaustive;\n  }\n}\n```\n\n**How it works:** If you add a new variant, `req` won't be `never` anymore, and TypeScript will error on the assignment.\n\n## 2. **Helper Function for Extra Safety**\n\n```typescript\nfunction assertNever(value: never): never {\n  throw new Error(`Unhandled value: ${value}`);\n}\n\nfunction handleRequest(req: Request): string {\n  switch (req.kind) {\n    case \"pending\":\n      return \"Loading...\";\n    case \"ok\":\n      return `Success: ${req.value}`;\n    case \"error\":\n      return `Error: ${req.message}`;\n    default:\n      return assertNever(req);\n  }\n}\n```\n\n## 3. **If-Else with Type Narrowing**\n\n```typescript\nfunction handleRequest(req: Request): string {\n  if (req.kind === \"pending\") {\n    return \"Loading...\";\n  } else if (req.kind === \"ok\") {\n    return `Success: ${req.value}`;\n  } else if (req.kind === \"error\") {\n    return `Error: ${req.message}`;\n  } else {\n    const _exhaustive: never = req;\n    return _exhaustive;\n  }\n}\n```\n\n## 4. **Object Map Pattern (Functional)**\n\n```typescript\nconst handlers: Record<Request[\"kind\"], (req: Request & { kind: any }) => string> = {\n  pending: () => \"Loading...\",\n  ok: (req) => `Success: ${req.value}`,\n  error: (req) => `Error: ${req.message}`,\n};\n\nfunction handleRequest(req: Request): string {\n  return handlers[req.kind](req);\n}\n```\n\n⚠️ **Note:** This pattern is less type-safe because `Record` doesn't enforce that all keys are handled.\n\n## 5. **Better Object Map with Type Safety**\n\n```typescript\ntype Handlers = {\n  [K in Request[\"kind\"]]: (req: Extract<Request, { kind: K }>) => string;\n};\n\nconst handlers: Handlers = {\n  pending: () => \"Loading...\",\n  ok: (req) => `Success: ${req.value}`,\n  error: (req) => `Error: ${req.message}`,\n};\n\nfunction handleRequest(req: Request): string {\n  return handlers[req.kind](req);\n}\n```\n\n✅ **This is fully type-safe!** Adding a new variant will cause a compile error here.\n\n## Testing It Out\n\n```typescript\n// Add a new variant\ntype Request = \n  | { kind: \"pending\" } \n  | { kind: \"ok\"; value: string } \n  | { kind: \"error\"; message: string }\n  | { kind: \"loading\"; progress: number }; // ← New variant\n\n// ❌ Compile error in switch approach:\n// Type 'Request' is not assignable to type 'never'\n\n// ❌ Compile error in object map approach:\n// Property 'loading' is missing in type 'Handlers'\n```\n\n## Recommendation\n\nUse **approach #1 (switch with `never`)** or **approach #5 (typed object map)** depending on your preference:\n- **Switch**: More explicit, easier to read\n- **Object map**: More functional, easier to compose\n\nBoth guarantee exhaustiveness checking! 🎯",
+            "cost_usd": 0.005124,
+            "rubric": [
+              {
+                "name": "uses switch on discriminant",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "switch (req.kind",
+                "why": "canonical pattern"
+              },
+              {
+                "name": "uses never-typed exhaustiveness check",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": ": never",
+                "why": "the specific compile-time guarantee"
+              },
+              {
+                "name": "avoids any",
+                "kind": "must_not_contain",
+                "passed": false,
+                "evidence": ": any",
+                "why": "idiomatic answer never reaches for any here"
+              }
+            ],
+            "rubric_pass_rate": 0.6666666666666666
           },
-          {
-            "name": "uses never-typed exhaustiveness check",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": ": never",
-            "why": "the specific compile-time guarantee"
+          "skill": {
+            "text": "# Handling Discriminated Unions with Exhaustiveness\n\nYour `Request` type is a **discriminated union** — the `kind` field tags each variant. Here's how to ensure the compiler catches missing cases when you add a new variant.\n\n## Pattern: `never`-Based Exhaustive Default\n\nUse a `switch` on the discriminant with a `default` case that assigns to `never`:\n\n```typescript\ntype Request = \n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string };\n\nfunction handleRequest(req: Request): string {\n  switch (req.kind) {\n    case \"pending\":\n      return \"Loading...\";\n    case \"ok\":\n      return `Success: ${req.value}`;\n    case \"error\":\n      return `Error: ${req.message}`;\n    default:\n      const _exhaustive: never = req;\n      throw new Error(`Unhandled variant: ${_exhaustive}`);\n  }\n}\n```\n\n**Why this works:**\n- Each `case` narrows `req` to that variant's type.\n- If you add a new variant (e.g., `{ kind: \"timeout\" }`), the `default` case receives a value that is *not* `never` — TypeScript reports: `Type '{ kind: \"timeout\" }' is not assignable to type 'never'`.\n- The `throw` is unreachable in correct code but documents intent: \"this should never happen.\"\n\n---\n\n## Adding a New Variant: Compiler Catches It\n\nSuppose you add a timeout variant:\n\n```typescript\ntype Request = \n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string }\n  | { kind: \"timeout\" };  // ← new variant\n```\n\nNow `handleRequest` fails to compile:\n\n```\nType '{ kind: \"timeout\"; }' is not assignable to type 'never'.\n```\n\nYou're forced to add the case:\n\n```typescript\nfunction handleRequest(req: Request): string {\n  switch (req.kind) {\n    case \"pending\":\n      return \"Loading...\";\n    case \"ok\":\n      return `Success: ${req.value}`;\n    case \"error\":\n      return `Error: ${req.message}`;\n    case \"timeout\":  // ← compiler forced this\n      return \"Request timed out\";\n    default:\n      const _exhaustive: never = req;\n      throw new Error(`Unhandled variant: ${_exhaustive}`);\n  }\n}\n```\n\n---\n\n## Alternative: `if`/`else` with Exhaustiveness\n\nIf you prefer `if`/`else`, the same pattern works:\n\n```typescript\nfunction handleRequest(req: Request): string {\n  if (req.kind === \"pending\") {\n    return \"Loading...\";\n  } else if (req.kind === \"ok\") {\n    return `Success: ${req.value}`;\n  } else if (req.kind === \"error\") {\n    return `Error: ${req.message}`;\n  } else {\n    const _exhaustive: never = req;\n    throw new Error(`Unhandled variant: ${_exhaustive}`);\n  }\n}\n```\n\n---\n\n## Returning a Discriminated Union\n\nIf your function *produces* a `Request`, the same exhaustiveness pattern applies:\n\n```typescript\nfunction fetchUser(id: string): Request {\n  // Simulate async work\n  if (id === \"1\") {\n    return { kind: \"ok\", value: \"Alice\" };\n  } else if (id === \"2\") {\n    return { kind: \"error\", message: \"Not found\" };\n  } else {\n    return { kind: \"pending\" };\n  }\n}\n\n// Caller handles all variants:\nconst result = fetchUser(\"1\");\nswitch (result.kind) {\n  case \"pending\":\n    console.log(\"Still loading...\");\n    break;\n  case \"ok\":\n    console.log(\"User:\", result.value);\n    break;\n  case \"error\":\n    console.log(\"Failed:\", result.message);\n    break;\n  default:\n    const _exhaustive: never = result;\n    throw new Error(`Unhandled: ${_exhaustive}`);\n}\n```\n\n---\n\n## Why Not `as`?\n\nYou might be tempted to cast away the error:\n\n```typescript\n// ❌ DON'T DO THIS\ndefault:\n  throw new Error(`Unhandled: ${(req as never).kind}`);\n```\n\nThis **silences the compiler** — adding a new variant won't produce an error. You've deleted the only guarantee the compiler was about to give you. Always use the `never` assignment instead.\n\n---\n\n## Key Takeaways\n\n| Pattern | Benefit |\n|---------|---------|\n| `switch (x.kind)` with `default: const _: never = x` | Compiler error when you add a variant; forces update at every consumer |\n| `if (x.kind === \"...\") ... else { const _: never = x }` | Same exhaustiveness guarantee; more verbose but sometimes clearer |\n| `as` or `as any` | ❌ Silences the check; new variants slip through unnoticed |\n\nUse the `never` default everywhere you handle a discriminated union. It's the most powerful tool TypeScript gives you for catching refactoring mistakes at compile time.",
+            "cost_usd": 0.010973,
+            "rubric": [
+              {
+                "name": "uses switch on discriminant",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "switch (req.kind",
+                "why": "canonical pattern"
+              },
+              {
+                "name": "uses never-typed exhaustiveness check",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": ": never",
+                "why": "the specific compile-time guarantee"
+              },
+              {
+                "name": "avoids any",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "idiomatic answer never reaches for any here"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "avoids any",
-            "kind": "must_not_contain",
-            "passed": true,
-            "evidence": null,
-            "why": "idiomatic answer never reaches for any here"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers use a switch on the discriminant with a `never`-typed exhaustiveness check and avoid `any`. However, Answer B is more focused and idiomatic: it uses `const _exhaustive: never = req` (matching the rubric's exact pattern `const _: never = x`) as the primary recommendation without diluting it with less-safe alternatives like the `Record<Request['kind'], (req: Request & { kind: any }) => string>` pattern that Answer A includes. Answer B also explicitly warns against `as`/`as any` casts, directly addressing the rubric's 'avoids any' criterion, and keeps the presentation cleaner and more pedagogically sound.",
+            "per_criterion": [
+              {
+                "name": "uses switch on discriminant",
+                "better": "tie"
+              },
+              {
+                "name": "uses never-typed exhaustiveness check",
+                "better": "skill"
+              },
+              {
+                "name": "avoids any",
+                "better": "skill"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "skill": {
-        "text": "# Exhaustive Handling with the `never` Trick\n\nThe idiomatic pattern in TypeScript is to use a **discriminated union** (which you already have, via the `kind` field) combined with an **exhaustiveness check** using the `never` type. Here's how:\n\n```typescript\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string };\n\n// Helper that asserts a value is `never`. If a new variant is added\n// to `Request`, the compiler will reject the call to this function.\nfunction assertNever(x: never): never {\n  throw new Error(`Unhandled variant: ${JSON.stringify(x)}`);\n}\n\nfunction describe(req: Request): string {\n  switch (req.kind) {\n    case \"pending\":\n      return \"Still waiting...\";\n    case \"ok\":\n      // TypeScript narrows `req` to { kind: \"ok\"; value: string } here\n      return `Success: ${req.value}`;\n    case \"error\":\n      return `Failed: ${req.message}`;\n    default:\n      // If every case above is handled, `req` is narrowed to `never`.\n      return assertNever(req);\n  }\n}\n```\n\n## Why this works\n\nIn each `case` branch, TypeScript narrows the type of `req` based on the `kind` literal. After all known variants are handled, the only type remaining for `req` in the `default` branch is `never` — meaning \"this can't happen.\"\n\n## What happens when you add a variant\n\nSuppose you later extend the type:\n\n```typescript\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string }\n  | { kind: \"cancelled\"; reason: string }; // <-- new!\n```\n\nNow in `describe`, the `default` branch will see `req` as `{ kind: \"cancelled\"; reason: string }` instead of `never`. The call `assertNever(req)` will fail to compile with:\n\n```\nArgument of type '{ kind: \"cancelled\"; reason: string; }'\nis not assignable to parameter of type 'never'.\n```\n\nThe compiler error will fire at **every** `switch` (or `if/else` chain) where you forgot to add a `case \"cancelled\"` — exactly what you wanted.\n\n## Tips for stronger guarantees\n\n1. **Enable `strict` mode** in `tsconfig.json` (especially `strictNullChecks`) so narrowing works reliably.\n2. **Turn on `noFallthroughCasesInSwitch`** to prevent accidentally falling through a case without a `return`/`break`.\n3. **Prefer `switch` over `if`/`else if`** for unions — TypeScript's narrowing on `switch` over a literal discriminant is the most reliable.\n4. If you want exhaustiveness without throwing at runtime, you can use the assertion in a type-only position:\n\n   ```typescript\n   const _exhaustive: never = req; // compile-time only\n   ```\n\n5. For expression-style code, you can use a small helper to avoid the `default` boilerplate:\n\n   ```typescript\n   function match<R>(\n     req: Request,\n     handlers: {\n       pending: () => R;\n       ok: (v: string) => R;\n       error: (m: string) => R;\n     }\n   ): R {\n     switch (req.kind) {\n       case \"pending\": return handlers.pending();\n       case \"ok\":      return handlers.ok(req.value);\n       case \"error\":   return handlers.error(req.message);\n     }\n   }\n   ```\n\n   Adding a new variant to `Request` will force you to update the `handlers` object's type, again giving compile-time errors at every call site.\n\nThis pattern — discriminated unions + `assertNever` — is the TypeScript equivalent of exhaustive pattern matching in languages like Rust, Haskell, or OCaml.",
-        "cost_usd": 0.051534500000000004,
-        "rubric": [
-          {
-            "name": "uses switch on discriminant",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "switch (req.kind",
-            "why": "canonical pattern"
+        },
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Exhaustive Pattern Matching in TypeScript\n\nThe trick is to use a **`never`-typed helper** in the `default` case (or after the switch). TypeScript narrows the discriminated union as you handle each `kind`, so any unhandled variant will fail to be assignable to `never`.\n\n## The Pattern\n\n```typescript\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string };\n\n// Helper: if this is ever called, it means we missed a case.\nfunction assertNever(x: never): never {\n  throw new Error(`Unhandled variant: ${JSON.stringify(x)}`);\n}\n\nfunction describe(req: Request): string {\n  switch (req.kind) {\n    case \"pending\":\n      return \"Still waiting...\";\n    case \"ok\":\n      return `Got value: ${req.value}`;\n    case \"error\":\n      return `Failed: ${req.message}`;\n    default:\n      // At this point, `req` should be narrowed to `never`.\n      return assertNever(req);\n  }\n}\n```\n\n## How the Safety Net Works\n\nSuppose you later add a new variant:\n\n```typescript\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string }\n  | { kind: \"timeout\"; afterMs: number }; // ← new!\n```\n\nNow the `describe` function fails to compile:\n\n```\nArgument of type '{ kind: \"timeout\"; afterMs: number; }'\nis not assignable to parameter of type 'never'.\n```\n\nThe error pinpoints **every** function that uses `assertNever` and forgot to handle the new case. Fix them all, and the project compiles again.\n\n## Bonus: Returning Values Exhaustively\n\nYou can also use this with expressions, which is even cleaner because TypeScript will check the return type too:\n\n```typescript\nfunction statusCode(req: Request): number {\n  switch (req.kind) {\n    case \"pending\": return 102;\n    case \"ok\":      return 200;\n    case \"error\":   return 500;\n    default:        return assertNever(req);\n  }\n}\n```\n\n## Why Not Just `default: throw`?\n\n```typescript\ndefault:\n  throw new Error(\"unreachable\"); // ❌ no compile-time check\n```\n\nWithout `assertNever`, TypeScript happily ignores missing cases because the `default` branch satisfies the return type. The `never` parameter is what turns a runtime guard into a **compile-time guarantee**.\n\n## Tip: Enforce Project-Wide\n\nEnable these in `tsconfig.json` to make the pattern even safer:\n\n```json\n{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"noFallthroughCasesInSwitch\": true\n  }\n}\n```\n\nWith `strict` on, TypeScript narrows discriminated unions properly, and `assertNever` becomes your compiler-enforced safety net for every variant added in the future.",
+            "cost_usd": 0.07438499999999999,
+            "rubric": [
+              {
+                "name": "uses switch on discriminant",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "switch (req.kind",
+                "why": "canonical pattern"
+              },
+              {
+                "name": "uses never-typed exhaustiveness check",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": ": never",
+                "why": "the specific compile-time guarantee"
+              },
+              {
+                "name": "avoids any",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "idiomatic answer never reaches for any here"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "uses never-typed exhaustiveness check",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": ": never",
-            "why": "the specific compile-time guarantee"
+          "skill": {
+            "text": "# Exhaustive Handling with a `never`-Based Default\n\nThe pattern: `switch` on the discriminant, then add a `default` branch that assigns the value to `never`. If a new variant is added, the value is no longer assignable to `never` and every `switch` becomes a compile error.\n\n```ts\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string };\n\nfunction describe(req: Request): string {\n  switch (req.kind) {\n    case \"pending\":\n      return \"still working...\";\n    case \"ok\":\n      return `got: ${req.value}`;\n    case \"error\":\n      return `failed: ${req.message}`;\n    default: {\n      // If a new variant is added to `Request`, `req` is no longer `never`\n      // here, and this line becomes a compile error.\n      const _exhaustive: never = req;\n      throw new Error(`unhandled request kind: ${JSON.stringify(req)}`);\n    }\n  }\n}\n```\n\n## How it works\n\nInside each `case`, TypeScript narrows `req` to that variant — so `req.value` is available in `\"ok\"` and `req.message` in `\"error\"`, with no casts. By the time control reaches `default`, every known variant has been excluded, so `req` is narrowed to `never`. Assigning to a `never`-typed local is the trick that turns \"I forgot a case\" into a type error.\n\nThe `throw` is also important: it covers the runtime case where some untyped caller passes an invalid value (e.g. data from JSON), so you get a real error instead of `undefined`.\n\n## Reusable helper\n\nIf you do this in many places, factor the default branch into a helper:\n\n```ts\nfunction assertNever(x: never): never {\n  throw new Error(`unhandled variant: ${JSON.stringify(x)}`);\n}\n\nfunction describe(req: Request): string {\n  switch (req.kind) {\n    case \"pending\": return \"still working...\";\n    case \"ok\":      return `got: ${req.value}`;\n    case \"error\":   return `failed: ${req.message}`;\n    default:        return assertNever(req);\n  }\n}\n```\n\n`assertNever` returns `never`, which lets you use it as the `return` expression — keeping the function tidy while preserving exhaustiveness.\n\n## Proving it catches missing cases\n\nAdd a fourth variant and watch what happens:\n\n```ts\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string }\n  | { kind: \"cancelled\"; reason: string };   // new variant\n```\n\nNow `describe` fails to compile:\n\n```\nArgument of type '{ kind: \"cancelled\"; reason: string; }'\n  is not assignable to parameter of type 'never'.\n```\n\nThe error points at the `default` branch of every `switch` you forgot to update — which is exactly what you wanted.\n\n## A couple of related tips\n\n- **Return the result of the switch** (as above) rather than assigning to a `let` and returning it after. With `noImplicitReturns` enabled, TypeScript will additionally verify that every branch returns.\n- **Avoid `if/else if` chains** for this — they don't give you the same exhaustiveness guarantee unless you end with the same `assertNever` pattern in the final `else`. `switch` on the tag is the clearest form.\n- **Don't `as` your way out of it.** If a `case` body has a type error, the fix is almost never `req as SomeVariant` — the narrowing is already correct; the bug is elsewhere.",
+            "cost_usd": 0.180825,
+            "rubric": [
+              {
+                "name": "uses switch on discriminant",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "switch (req.kind",
+                "why": "canonical pattern"
+              },
+              {
+                "name": "uses never-typed exhaustiveness check",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": ": never",
+                "why": "the specific compile-time guarantee"
+              },
+              {
+                "name": "avoids any",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "idiomatic answer never reaches for any here"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "avoids any",
-            "kind": "must_not_contain",
-            "passed": true,
-            "evidence": null,
-            "why": "idiomatic answer never reaches for any here"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly use a switch on the discriminant with a never-typed exhaustiveness check and avoid `any`. Answer A is slightly more comprehensive: it shows both the inline `const _exhaustive: never = req` pattern AND the `assertNever` helper, explicitly demonstrating the pattern the rubric focuses on (the `const _: never = x` form) before refactoring to the helper. Answer B jumps straight to `assertNever` without showing the inline form. Answer A also provides more practical guidance (noImplicitReturns tip, warning against if/else chains, avoiding `as` casts), making it more educational overall.",
+            "per_criterion": [
+              {
+                "name": "uses switch on discriminant",
+                "better": "tie"
+              },
+              {
+                "name": "uses never-typed exhaustiveness check",
+                "better": "skill"
+              },
+              {
+                "name": "avoids any",
+                "better": "tie"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "judge": {
-        "winner": "tie",
-        "reasoning": "Both answers correctly implement the switch-on-discriminant pattern with an assertNever exhaustiveness check and avoid any casts. Answer A provides slightly more tips and a match helper, while Answer B includes a useful bonus section on noImplicitReturns. Both are essentially equivalent in correctness and idiomaticity for the core criteria.",
-        "per_criterion": [
-          {
-            "name": "uses switch on discriminant",
-            "better": "tie"
+        },
+        "sonnet": {
+          "expectation_met": false,
+          "baseline": {
+            "text": "## Exhaustive Pattern Matching in TypeScript\n\nThe key technique is using a **never-typed exhaustive check** — if all variants are handled, the `default` branch receives type `never`. If you add a new variant and forget to handle it, the compiler errors at that branch.\n\n```typescript\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string };\n\n// ─── Exhaustive check helper ───────────────────────────────────────────────\n//\n// If every variant is handled above this call, TypeScript infers `value` as\n// `never` and the function compiles fine.  If a variant is missing, the\n// unhandled type flows into `value`, causing a type error right here.\n\nfunction assertNever(value: never, message?: string): never {\n  throw new Error(message ?? `Unhandled variant: ${JSON.stringify(value)}`);\n}\n\n// ─── Handler ───────────────────────────────────────────────────────────────\n\nfunction handleRequest(request: Request): string {\n  switch (request.kind) {\n    case \"pending\":\n      return \"Loading…\";\n\n    case \"ok\":\n      return `Success: ${request.value}`; // TS knows `value` exists here\n\n    case \"error\":\n      return `Error: ${request.message}`; // TS knows `message` exists here\n\n    default:\n      // If all variants are covered, `request` is `never` here — good.\n      // If you add a new variant and forget a case, TS errors:\n      //   Argument of type '{ kind: \"new\" }' is not assignable to 'never'\n      return assertNever(request, `Unexpected request kind: ${JSON.stringify(request)}`);\n  }\n}\n\n// ─── Usage ─────────────────────────────────────────────────────────────────\n\nconst examples: Request[] = [\n  { kind: \"pending\" },\n  { kind: \"ok\", value: \"Hello!\" },\n  { kind: \"error\", message: \"Network failure\" },\n];\n\nexamples.forEach((r) => console.log(handleRequest(r)));\n// Loading…\n// Success: Hello!\n// Error: Network failure\n```\n\n---\n\n## What Happens When You Add a New Variant\n\n```typescript\n// 1. Add the new variant to the union\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string }\n  | { kind: \"cancelled\"; reason: string }; // 👈 new\n\n// 2. Forget to add a case in handleRequest → compiler error:\n//\n//   Argument of type '{ kind: \"cancelled\"; reason: string }'\n//   is not assignable to parameter of type 'never'.\n//\n// The error points exactly to `assertNever(request)` in every\n// switch that is missing the new case.\n```\n\n---\n\n## Bonus: Reusable `match` Helper (no switch needed)\n\nFor a more functional style, you can enforce exhaustiveness through the type system on the handler object itself:\n\n```typescript\ntype MatchHandlers<T extends { kind: string }, R> = {\n  [K in T[\"kind\"]]: (variant: Extract<T, { kind: K }>) => R;\n};\n\nfunction match<T extends { kind: string }, R>(\n  value: T,\n  handlers: MatchHandlers<T, R>\n): R {\n  // The cast is safe: we know value.kind is a key of handlers\n  return (handlers as Record<string, (v: T) => R>)[value.kind](value);\n}\n\n// Usage — missing any key is a compile-time error\nconst result = match(examples[1], {\n  pending: ()      => \"Loading…\",\n  ok:      (r)     => `Success: ${r.value}`,\n  error:   (r)     => `Error: ${r.message}`,\n  // Forget `cancelled` after adding it → TS error:\n  // Property 'cancelled' is missing in type ...\n});\n```\n\n---\n\n## Key Takeaways\n\n| Technique | How exhaustiveness is enforced |\n|---|---|\n| `switch` + `assertNever` | Unhandled variant flows into `never` parameter → type error |\n| `match` helper | Object literal must have a key for every `kind` → type error |\n\nBoth approaches give you **compile-time safety with zero runtime overhead** for the check itself — `assertNever` only runs if you somehow bypass the type system (e.g., an unsafe cast).",
+            "cost_usd": 0.016977,
+            "rubric": [
+              {
+                "name": "uses switch on discriminant",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "switch (request.kind",
+                "why": "canonical pattern"
+              },
+              {
+                "name": "uses never-typed exhaustiveness check",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": ": never",
+                "why": "the specific compile-time guarantee"
+              },
+              {
+                "name": "avoids any",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "idiomatic answer never reaches for any here"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "uses never-typed exhaustiveness check",
-            "better": "tie"
+          "skill": {
+            "text": "## Exhaustive Discriminated Union Handling\n\nThe key is a `never`-typed default branch. When you add a variant, TypeScript can no longer assign it to `never`, and the function becomes a compile error at every unhandled switch.\n\n```typescript\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string };\n\n// The exhaustiveness sentinel. Placing it in a shared module means\n// every switch that imports it gets the same guarantee.\nfunction assertNever(value: never, message?: string): never {\n  throw new Error(message ?? `Unhandled variant: ${JSON.stringify(value)}`);\n}\n\nfunction describeRequest(request: Request): string {\n  switch (request.kind) {\n    case \"pending\":\n      return \"Loading…\";\n    case \"ok\":\n      return `Success: ${request.value}`;   // request is narrowed to { kind: \"ok\"; value: string }\n    case \"error\":\n      return `Error: ${request.message}`;   // request is narrowed to { kind: \"error\"; message: string }\n    default:\n      // If every variant is handled above, `request` is `never` here.\n      // If you add a new variant and forget this branch, the compiler\n      // flags this line: \"Argument of type 'NewVariant' is not assignable\n      // to parameter of type 'never'.\"\n      return assertNever(request, `Unhandled request kind: ${(request as { kind: string }).kind}`);\n  }\n}\n```\n\n### What happens when you add a variant\n\n```typescript\ntype Request =\n  | { kind: \"pending\" }\n  | { kind: \"ok\"; value: string }\n  | { kind: \"error\"; message: string }\n  | { kind: \"cancelled\"; reason: string };  // ← new variant added\n```\n\n`describeRequest` now produces a compile error immediately:\n\n```\nArgument of type '{ kind: \"cancelled\"; reason: string }' is not\nassignable to parameter of type 'never'.\n```\n\nThe error points directly at the `assertNever` call — no runtime surprise, no silent fallthrough.\n\n---\n\n### Returning a value from each branch (generic helper)\n\nWhen you need to map a `Request` to a value rather than just describe it, a `match` helper makes the exhaustiveness requirement part of the call site's type signature:\n\n```typescript\ntype RequestHandlers<T> = {\n  pending: () => T;\n  ok: (value: string) => T;\n  error: (message: string) => T;\n};\n\nfunction matchRequest<T>(request: Request, handlers: RequestHandlers<T>): T {\n  switch (request.kind) {\n    case \"pending\": return handlers.pending();\n    case \"ok\":      return handlers.ok(request.value);\n    case \"error\":   return handlers.error(request.message);\n    default:        return assertNever(request);\n  }\n}\n\n// Call site — the object literal must satisfy RequestHandlers<string>.\n// Adding a variant to Request makes RequestHandlers require a new key,\n// so every matchRequest call site becomes a compile error too.\nconst label = matchRequest(request, {\n  pending: ()        => \"Loading…\",\n  ok:      (value)   => `Success: ${value}`,\n  error:   (message) => `Error: ${message}`,\n});\n```\n\n`RequestHandlers<T>` is a mapped type over the union's tags, so adding `\"cancelled\"` to `Request` forces you to add `cancelled` to every `RequestHandlers` object — the compiler catches every call site, not just the switch.\n\n---\n\n### Key mechanics\n\n| Mechanism | What it does |\n|---|---|\n| `switch` on the tag field | Narrows the type in each `case` branch |\n| `never` in the `default` | Proves statically that all variants are covered |\n| `assertNever(x: never)` | Converts the static proof into a runtime guard |\n| `RequestHandlers<T>` object type | Propagates the exhaustiveness requirement to every call site |\n\nThe `assertNever` throw is a safety net for the impossible case — if the value somehow reaches it at runtime (e.g., data from an untyped boundary), you get a clear error instead of silent `undefined`.",
+            "cost_usd": 0.029157000000000002,
+            "rubric": [
+              {
+                "name": "uses switch on discriminant",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "switch (request.kind",
+                "why": "canonical pattern"
+              },
+              {
+                "name": "uses never-typed exhaustiveness check",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": ": never",
+                "why": "the specific compile-time guarantee"
+              },
+              {
+                "name": "avoids any",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "idiomatic answer never reaches for any here"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "avoids any",
-            "better": "tie"
+          "judge": {
+            "winner": "tie",
+            "reasoning": "Both answers correctly implement the switch-on-discriminant pattern with a never-typed exhaustiveness check via assertNever, and both avoid `any` in the core handler. The minor differences are that Answer A uses a cast `(request as { kind: string }).kind` in the assertNever message (introducing a small `any`-adjacent cast), while Answer B uses `JSON.stringify(request)` cleanly. Answer B's bonus `match` helper uses a `Record<string, ...>` cast internally but is more type-safe at the call site. Overall both answers are essentially equivalent in quality and correctness for the focus criteria.",
+            "per_criterion": [
+              {
+                "name": "uses switch on discriminant",
+                "better": "tie"
+              },
+              {
+                "name": "uses never-typed exhaustiveness check",
+                "better": "tie"
+              },
+              {
+                "name": "avoids any",
+                "better": "baseline"
+              }
+            ]
           }
-        ]
+        }
       }
     },
     {
       "id": "satisfies-vs-annotation",
       "prompt": "What's the difference between writing `const config: Config = { ... }`\nand `const config = { ... } satisfies Config` in TypeScript? When\nshould I use `satisfies`?\n",
       "expectation": "skill_wins",
-      "expectation_met": false,
-      "baseline": {
-        "text": "# Type Annotation vs `satisfies` in TypeScript\n\nThese two approaches look similar but behave very differently. The key difference is **how the type of `config` is inferred**.\n\n## Type Annotation: `const config: Config = { ... }`\n\nThis **widens** the type of `config` to `Config`. The variable loses any information about its specific literal values.\n\n```typescript\ntype Config = {\n  mode: \"dev\" | \"prod\";\n  features: Record<string, boolean>;\n};\n\nconst config: Config = {\n  mode: \"dev\",\n  features: { darkMode: true, beta: false },\n};\n\nconfig.mode;            // type: \"dev\" | \"prod\"\nconfig.features.beta;   // type: boolean | undefined\nconfig.features.foo;    // type: boolean | undefined  (no error!)\n```\n\n## `satisfies`: `const config = { ... } satisfies Config`\n\nThis **validates** the object against `Config` without widening. You get the benefits of type-checking *and* keep the precise inferred type.\n\n```typescript\nconst config = {\n  mode: \"dev\",\n  features: { darkMode: true, beta: false },\n} satisfies Config;\n\nconfig.mode;            // type: \"dev\"  (literal preserved!)\nconfig.features.beta;   // type: boolean (not undefined)\nconfig.features.foo;    // ❌ Error: Property 'foo' does not exist\n```\n\n## When to Use Each\n\n**Use `satisfies` when you want to:**\n- Preserve literal types and exact keys for downstream inference\n- Catch typos/extra properties on `Record`-style types\n- Build a value that must conform to a contract but is also consumed elsewhere with stronger guarantees (e.g., route maps, config objects, discriminated lookups)\n- Get autocomplete for keys without losing the actual subset you defined\n\n**Use `: Type` annotation when you want to:**\n- Allow the variable to later be reassigned to any valid `Config`\n- Intentionally widen (e.g., a mutable container that may grow)\n- Document the contract at the binding site, and you don't care about narrower inference\n\n## A Concrete Example\n\n```typescript\ntype Routes = Record<string, { path: string }>;\n\n// With annotation — keys are lost\nconst routesA: Routes = {\n  home: { path: \"/\" },\n  about: { path: \"/about\" },\n};\nroutesA.hme;  // type: { path: string } | undefined  (typo not caught!)\n\n// With satisfies — keys preserved, typos caught at use sites\nconst routesB = {\n  home: { path: \"/\" },\n  about: { path: \"/about\" },\n} satisfies Routes;\nroutesB.hme;  // ❌ Error: Property 'hme' does not exist\ntype RouteName = keyof typeof routesB;  // \"home\" | \"about\"\n```\n\n## Rule of Thumb\n\n> Reach for `satisfies` by default for constants and configuration. Reach for `: Type` only when you genuinely need the broader type — typically for variables that will be reassigned or passed through APIs that expect the wider shape.",
-        "cost_usd": 0.0409655,
-        "rubric": [
-          {
-            "name": "mentions widening from annotation",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "widen",
-            "why": "the actual semantic difference"
+      "judge_focus": "The better answer explains that `: T` widens the inferred type to T,\nwhile `satisfies T` validates the shape without widening — preserving\nliteral types for downstream inference.\n",
+      "models": {
+        "haiku": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# `const config: Config = {...}` vs `satisfies Config`\n\nThese look similar but have important differences in how TypeScript infers types:\n\n## Type Annotation (`as Config`)\n\n```typescript\nconst config: Config = {\n  apiUrl: \"https://api.example.com\",\n  timeout: 5000,\n  retries: 3\n};\n\n// TypeScript infers: Config\nconfig.apiUrl // string (from Config type)\n```\n\n**What happens:**\n- TypeScript **widens** the type to `Config`\n- Literal types are lost (`5000` becomes `number`)\n- You get type safety but lose specificity\n\n## `satisfies` Operator\n\n```typescript\nconst config = {\n  apiUrl: \"https://api.example.com\",\n  timeout: 5000,\n  retries: 3\n} satisfies Config;\n\n// TypeScript infers: { apiUrl: string; timeout: 5000; retries: 3 }\nconfig.timeout // 5000 (literal type preserved!)\n```\n\n**What happens:**\n- TypeScript **preserves** literal types\n- Still validates against `Config`\n- You get both type safety AND specificity\n\n## Practical Example\n\n```typescript\ntype Theme = {\n  colors: Record<string, string>;\n  spacing: Record<string, number>;\n};\n\n// ❌ Type annotation - loses literal types\nconst theme1: Theme = {\n  colors: { primary: \"#000\", secondary: \"#fff\" },\n  spacing: { small: 4, large: 16 }\n};\ntheme1.spacing.small // number (not 4)\n\n// ✅ satisfies - preserves literal types\nconst theme2 = {\n  colors: { primary: \"#000\", secondary: \"#fff\" },\n  spacing: { small: 4, large: 16 }\n} satisfies Theme;\ntheme2.spacing.small // 4 (literal type!)\n```\n\n## When to Use `satisfies`\n\n| Scenario | Use `satisfies` |\n|----------|---|\n| **Config objects** | ✅ Yes - preserve exact values |\n| **Const assertions** | ✅ Yes - better than `as const` |\n| **Route definitions** | ✅ Yes - keep literal path types |\n| **API responses** | ❌ No - you want the general type |\n| **Function parameters** | ❌ No - use type annotations |\n\n## Real-World Example: Routes\n\n```typescript\ntype Route = {\n  path: string;\n  name: string;\n  component: React.ComponentType;\n};\n\n// ✅ Better - preserves literal path types\nconst routes = [\n  { path: \"/home\", name: \"Home\", component: HomePage },\n  { path: \"/about\", name: \"About\", component: AboutPage }\n] satisfies Route[];\n\n// Now you can use routes[0].path as \"/home\" (literal)\n// instead of just string\n\n// vs ❌ Type annotation loses specificity\nconst routes: Route[] = [...]; // path is just string\n```\n\n## Key Takeaway\n\nUse `satisfies` when you want:\n- ✅ Type validation (like type annotations)\n- ✅ Literal type preservation (unlike type annotations)\n- ✅ Better IDE autocomplete and inference\n\nIt's especially useful for **configuration objects, constants, and anything where the exact literal value matters**.",
+            "cost_usd": 0.004045,
+            "rubric": [
+              {
+                "name": "mentions widening from annotation",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "widen",
+                "why": "the actual semantic difference"
+              },
+              {
+                "name": "uses satisfies keyword",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "satisfies",
+                "why": "the operator under discussion"
+              },
+              {
+                "name": "mentions preserving literal / narrow inferred type",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "preserv",
+                "why": "the value of satisfies"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "uses satisfies keyword",
-            "kind": "must_contain",
-            "passed": true,
-            "evidence": "satisfies",
-            "why": "the operator under discussion"
+          "skill": {
+            "text": "# `const config: Config = { ... }` vs `const config = { ... } satisfies Config`\n\nThe difference is **type inference width**. Both validate that the object matches `Config`, but they differ in what type the compiler infers for `config` afterward.\n\n## The Core Difference\n\n```typescript\ntype Config = {\n  mode: \"dev\" | \"prod\";\n  port: number;\n};\n\n// ❌ Annotation: widens to Config\nconst config1: Config = {\n  mode: \"dev\",\n  port: 3000,\n};\n// config1.mode is \"dev\" | \"prod\" (widened)\n\n// ✅ satisfies: preserves the narrow inferred type\nconst config2 = {\n  mode: \"dev\",\n  port: 3000,\n} satisfies Config;\n// config2.mode is \"dev\" (narrow literal)\n```\n\nWith `: Config`, the compiler validates the shape, then **widens** the inferred type to `Config`. With `satisfies Config`, the compiler validates the shape but **preserves the narrow inferred type** — `\"dev\"` stays `\"dev\"`, not `\"dev\" | \"prod\"`.\n\n## Why This Matters\n\n**Scenario 1: You need the narrow type downstream**\n\n```typescript\nconst config = {\n  mode: \"dev\",\n  port: 3000,\n} satisfies Config;\n\n// ✅ Works: mode is \"dev\", so this is safe\nif (config.mode === \"dev\") {\n  console.log(\"Development mode\");\n}\n\n// ✅ Works: TypeScript knows mode is exactly \"dev\"\ntype IsDev = typeof config.mode extends \"dev\" ? true : false; // true\n\n// ❌ With `: Config`, this would be false (mode is \"dev\" | \"prod\")\n```\n\n**Scenario 2: Discriminated unions in config**\n\n```typescript\ntype AppConfig =\n  | { env: \"dev\"; debugPort: number }\n  | { env: \"prod\"; logLevel: \"error\" | \"warn\" };\n\n// ❌ With annotation, you lose the discriminant\nconst config1: AppConfig = {\n  env: \"dev\",\n  debugPort: 9229,\n};\n// config1.env is \"dev\" | \"prod\" — you can't narrow by it!\n\n// ✅ With satisfies, the discriminant stays narrow\nconst config2 = {\n  env: \"dev\",\n  debugPort: 9229,\n} satisfies AppConfig;\n// config2.env is \"dev\" — you can narrow by it\n```\n\n**Scenario 3: Literal arrays and tuples**\n\n```typescript\ntype Routes = readonly string[];\n\n// ❌ Annotation: widens to string[]\nconst routes1: Routes = [\"home\", \"about\", \"contact\"];\n// routes1[0] is string\n\n// ✅ satisfies: preserves literal tuple\nconst routes2 = [\"home\", \"about\", \"contact\"] satisfies Routes;\n// routes2[0] is \"home\" | \"about\" | \"contact\"\n// routes2.length is 3 (not number)\n```\n\n## When to Use Each\n\n| Use case | Use | Why |\n|---|---|---|\n| You need the narrow inferred type downstream | `satisfies T` | Validates shape; preserves literal types for further narrowing |\n| You want to widen to the declared type | `: T` | Explicit intent; useful when you want to forget the literal values |\n| Discriminated union config / state | `satisfies T` | Discriminant stays narrow; narrowing by tag works |\n| Literal arrays / tuples you'll index into | `satisfies T` | Preserves tuple length and element literals |\n| Simple data object with no downstream narrowing | Either (stylistic) | Both work; `satisfies` is slightly more modern |\n| Function parameter or exported value | `: T` | Explicit contract; callers see the declared type, not the inferred one |\n| Const assertion (`as const`) + validation | `satisfies T` | Combine: `{ ... } as const satisfies Config` locks literals *and* validates |\n\n## Combining `as const` and `satisfies`\n\nThe most powerful pattern: lock literals with `as const`, then validate the shape:\n\n```typescript\nconst config = {\n  mode: \"dev\",\n  port: 3000,\n  features: [\"auth\", \"api\"],\n} as const satisfies Config;\n\n// ✓ mode is \"dev\" (not \"dev\" | \"prod\")\n// ✓ port is 3000 (not number)\n// ✓ features is readonly [\"auth\", \"api\"] (not string[])\n// ✓ Validates against Config shape\n```\n\nThis is the idiom for **immutable, validated, literal-preserving** config.\n\n## Rule of Thumb\n\n- **Default to `satisfies`** when defining a const object — it validates without throwing away type information.\n- **Use `: T`** when you explicitly want to widen (e.g., a function parameter that accepts `Config` and you don't care about the literal values), or when declaring a public API (exported values should have an explicit declared type, not an inferred one).",
+            "cost_usd": 0.010634000000000001,
+            "rubric": [
+              {
+                "name": "mentions widening from annotation",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "widen",
+                "why": "the actual semantic difference"
+              },
+              {
+                "name": "uses satisfies keyword",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "satisfies",
+                "why": "the operator under discussion"
+              },
+              {
+                "name": "mentions preserving literal / narrow inferred type",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "preserv",
+                "why": "the value of satisfies"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions preserving literal / narrow inferred type",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "preserv",
-            "why": "the value of satisfies"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Answer A more thoroughly explains the widening behavior with `: T` annotation versus the literal-type-preserving behavior of `satisfies`, using clear discriminated union and tuple examples that directly illustrate why the distinction matters for downstream inference. It also covers the powerful `as const satisfies` pattern and provides a nuanced rule of thumb for when to use each. Answer B is correct but shallower, and its example with `Record<string, number>` actually doesn't demonstrate literal preservation well since Record values are typed as `number` anyway.",
+            "per_criterion": [
+              {
+                "name": "mentions widening from annotation",
+                "better": "skill"
+              },
+              {
+                "name": "uses satisfies keyword",
+                "better": "tie"
+              },
+              {
+                "name": "mentions preserving literal / narrow inferred type",
+                "better": "skill"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "skill": {
-        "text": "# Type Annotation vs `satisfies` in TypeScript\n\nBoth approaches validate that your value conforms to `Config`, but they preserve type information differently.\n\n## `const config: Config = { ... }`\n\nThis **widens** the value to the declared type. The variable's type becomes exactly `Config` — you lose information about the specific literal values you wrote.\n\n```ts\ntype Config = {\n  env: \"dev\" | \"prod\";\n  features: Record<string, boolean>;\n};\n\nconst config: Config = {\n  env: \"dev\",\n  features: { darkMode: true, beta: false },\n};\n\nconfig.env;              // type: \"dev\" | \"prod\"\nconfig.features.darkMode; // type: boolean | undefined  ❌\nconfig.features.unknown;  // type: boolean | undefined  (no error)\n```\n\n## `const config = { ... } satisfies Config`\n\nThis **validates** the value against `Config` *without widening it*. The variable keeps its narrow, inferred type.\n\n```ts\nconst config = {\n  env: \"dev\",\n  features: { darkMode: true, beta: false },\n} satisfies Config;\n\nconfig.env;              // type: \"dev\"  ✅ (literal preserved)\nconfig.features.darkMode; // type: boolean  ✅ (key known to exist)\nconfig.features.unknown;  // ❌ Property 'unknown' does not exist\n```\n\nYou still get an error if the object doesn't match `Config`:\n\n```ts\nconst bad = {\n  env: \"staging\",  // ❌ not assignable to \"dev\" | \"prod\"\n  features: {},\n} satisfies Config;\n```\n\n## When to use `satisfies`\n\nReach for `satisfies` when you want **type checking without losing precision**:\n\n1. **Const-like config objects** where you want to preserve literal types and known keys.\n2. **Discriminated union members** where you want the narrower variant retained:\n   ```ts\n   const action = { type: \"increment\", by: 1 } satisfies Action;\n   // action.type stays \"increment\", not the full union\n   ```\n3. **Records with known keys** — you constrain to `Record<string, T>` while keeping autocomplete on actual keys.\n4. **Lookup tables / route maps** where you want both validation *and* `keyof typeof` to work usefully.\n5. **Returning literals from functions** while ensuring they conform to a contract.\n\n## When to use a type annotation instead\n\n- **Mutable variables** (`let`) where the variable should accept any valid `Config` later.\n- **Public API surfaces** where you deliberately want callers to see the wide type, not implementation details.\n- **Function parameters and return type signatures** — `satisfies` doesn't apply here; use annotations.\n- When you actually want the value widened (e.g., to allow reassignment to other valid shapes).\n\n## Rule of thumb\n\n> Use `satisfies` to **check** a value against a type. Use `: Type` to **declare** that a binding *is* that type.\n\nIf you're writing a const literal and want both safety and the most precise inferred type, `satisfies` is almost always the better tool.",
-        "cost_usd": 0.0411455,
-        "rubric": [
-          {
-            "name": "mentions widening from annotation",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "widen",
-            "why": "the actual semantic difference"
+        },
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Type Annotation vs `satisfies`\n\nThe key difference is **what type TypeScript infers for the variable**.\n\n## Type Annotation: `const config: Config = { ... }`\n\nThe variable's type becomes `Config`. You lose any information about the *specific* values you wrote.\n\n```ts\ntype Config = { env: string; port: number };\n\nconst config: Config = { env: \"prod\", port: 3000 };\n// config.env is `string`, not `\"prod\"`\n```\n\n## `satisfies`: `const config = { ... } satisfies Config`\n\nTypeScript **checks** that the value matches `Config`, but the variable keeps its narrow, inferred type.\n\n```ts\nconst config = { env: \"prod\", port: 3000 } satisfies Config;\n// config.env is `\"prod\"` (literal type preserved)\n```\n\n## A Concrete Example Where It Matters\n\n```ts\ntype Routes = Record<string, { method: \"GET\" | \"POST\"; path: string }>;\n\n// With annotation — you lose the specific keys\nconst routes1: Routes = {\n  home: { method: \"GET\", path: \"/\" },\n  login: { method: \"POST\", path: \"/login\" },\n};\nroutes1.home;     // OK\nroutes1.typoo;    // Also OK ❌ (any string key is allowed)\n\n// With satisfies — you keep the specific keys\nconst routes2 = {\n  home: { method: \"GET\", path: \"/\" },\n  login: { method: \"POST\", path: \"/login\" },\n} satisfies Routes;\nroutes2.home;     // OK\nroutes2.typoo;    // ❌ Error: property doesn't exist\n```\n\n## Catching Invalid Values\n\nBoth will catch type errors:\n\n```ts\nconst bad = { env: \"prod\", port: \"3000\" } satisfies Config;\n// ❌ Error: string is not assignable to number\n```\n\n## When to Use `satisfies`\n\nUse `satisfies` when you want to:\n\n1. **Validate** a value against a type, but\n2. **Preserve** the specific inferred type for downstream use.\n\nCommon cases:\n- Config objects, route tables, lookup maps where you want autocomplete on specific keys\n- Preserving literal types (`\"GET\"` instead of `string`)\n- Discriminated unions where you need the narrow variant later\n\n## When to Use `: Type`\n\n- When you genuinely want the variable to be the wider type (e.g., function parameters, public API surface)\n- When you want to rely on contextual typing inside the object literal (e.g., parameter types of inline callbacks get inferred from `Config`)\n\n## Rule of thumb\n\n> Use `satisfies` for **values you'll use locally and want precise types for**. Use `: Type` for **values that should behave as the abstract type**.",
+            "cost_usd": 0.06693,
+            "rubric": [
+              {
+                "name": "mentions widening from annotation",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "wider",
+                "why": "the actual semantic difference"
+              },
+              {
+                "name": "uses satisfies keyword",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "satisfies",
+                "why": "the operator under discussion"
+              },
+              {
+                "name": "mentions preserving literal / narrow inferred type",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "preserv",
+                "why": "the value of satisfies"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "uses satisfies keyword",
-            "kind": "must_contain",
-            "passed": true,
-            "evidence": "satisfies",
-            "why": "the operator under discussion"
+          "skill": {
+            "text": "# `: T` vs `satisfies T`\n\nBoth validate that the object conforms to `Config`, but they differ in **what type the variable ends up with**.\n\n## The key difference\n\n```ts\ntype Config = {\n  port: number;\n  mode: \"dev\" | \"prod\";\n  features: string[];\n};\n\n// Annotation: variable's type IS Config (widened)\nconst a: Config = {\n  port: 3000,\n  mode: \"dev\",\n  features: [\"auth\", \"logging\"],\n};\n// a.mode is \"dev\" | \"prod\"\n// a.features is string[]\n\n// satisfies: variable keeps its narrow inferred type\nconst b = {\n  port: 3000,\n  mode: \"dev\",\n  features: [\"auth\", \"logging\"],\n} satisfies Config;\n// b.mode is \"dev\"  ← preserved literal!\n// b.features is string[]\n```\n\nWith `: Config`, the variable's type *becomes* `Config`. With `satisfies Config`, the compiler **checks** the literal against `Config` but the variable keeps the narrow type it inferred from the literal.\n\n## Why this matters\n\n### 1. Preserves literal types\n\n```ts\nconst routes = {\n  home: \"/\",\n  about: \"/about\",\n  contact: \"/contact\",\n} satisfies Record<string, string>;\n\nroutes.home;  // type is \"/\", not string\n// You can use it in places that need the exact literal:\ntype HomeRoute = typeof routes.home;  // \"/\"\n```\n\nWith `: Record<string, string>`, every value would just be `string`.\n\n### 2. Preserves known keys\n\n```ts\nconst handlers = {\n  click: () => {},\n  hover: () => {},\n} satisfies Record<string, () => void>;\n\nhandlers.click;   // ✅ known to exist\nhandlers.scroll;  // ❌ Property 'scroll' does not exist\n```\n\nWith `: Record<string, () => void>`, `handlers.scroll` would be `() => void` (since any string key is allowed), and you'd lose the closed set of known keys.\n\n### 3. Catches excess properties and shape errors — same as `:`\n\n```ts\nconst c = {\n  port: 3000,\n  mode: \"dev\",\n  features: [],\n  extra: true,  // ❌ caught by satisfies, just like :\n} satisfies Config;\n```\n\n## When to use which\n\n| Use | When |\n|---|---|\n| `satisfies T` | Object/array literals where you want both validation **and** narrow inferred types — config objects, route maps, lookup tables, enum-like records |\n| `: T` on a variable | Rare. Mainly when you genuinely want to widen (e.g., declare an empty array as `string[]` rather than `never[]`) |\n| `: T` on parameters / return types | Always — these are contracts, not inference sites |\n\n## Rule of thumb\n\nFor a `const` initialized with a literal: **prefer `satisfies T`**. You get the type check without throwing away the precise type the compiler just inferred.\n\nOften combined with `as const` for maximum narrowness:\n\n```ts\nconst config = {\n  port: 3000,\n  mode: \"dev\",\n  features: [\"auth\"],\n} as const satisfies Config;\n// config.features is now readonly [\"auth\"]\n```",
+            "cost_usd": 0.17134500000000003,
+            "rubric": [
+              {
+                "name": "mentions widening from annotation",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "widen",
+                "why": "the actual semantic difference"
+              },
+              {
+                "name": "uses satisfies keyword",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "satisfies",
+                "why": "the operator under discussion"
+              },
+              {
+                "name": "mentions preserving literal / narrow inferred type",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "preserv",
+                "why": "the value of satisfies"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions preserving literal / narrow inferred type",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "preserv",
-            "why": "the value of satisfies"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers cover the core distinction well, but Answer B is more thorough and precise. It explicitly explains that `: T` widens the variable's type to T while `satisfies T` preserves the narrow inferred type, includes the valuable `as const satisfies` combination, and provides a cleaner table for when to use each. Answer A is solid but slightly less precise on the widening explanation and misses the `as const` combination.",
+            "per_criterion": [
+              {
+                "name": "mentions widening from annotation",
+                "better": "skill"
+              },
+              {
+                "name": "uses satisfies keyword",
+                "better": "tie"
+              },
+              {
+                "name": "mentions preserving literal / narrow inferred type",
+                "better": "skill"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "judge": {
-        "winner": "tie",
-        "reasoning": "Both answers are excellent and cover all three rubric criteria thoroughly. Answer A uses a slightly more concrete example with `features` and route maps, while Answer B adds a discriminated union example and a cleaner 'check vs declare' rule of thumb. Both explain widening, satisfies, and literal type preservation with equal clarity and correctness.",
-        "per_criterion": [
-          {
-            "name": "mentions widening from annotation",
-            "better": "tie"
+        },
+        "sonnet": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "## `const config: Config = {...}` vs `const config = {...} satisfies Config`\n\nThese two approaches handle type checking differently in subtle but important ways.\n\n---\n\n## The Core Difference\n\n### Type Annotation (`: Config`)\nTypeScript **widens** the type to `Config` — you lose information about the specific values.\n\n```typescript\ntype Config = {\n  port: number;\n  env: \"development\" | \"production\";\n  features: string[];\n};\n\nconst config: Config = {\n  port: 3000,\n  env: \"development\",\n  features: [\"auth\", \"logging\"],\n};\n\n// TypeScript only knows these types:\nconfig.port;     // number  (not 3000)\nconfig.env;      // \"development\" | \"production\"  (not just \"development\")\nconfig.features; // string[]  (not [\"auth\", \"logging\"])\n```\n\n### `satisfies` Operator\nTypeScript **validates** against `Config` but **preserves** the literal/inferred type.\n\n```typescript\nconst config = {\n  port: 3000,\n  env: \"development\",\n  features: [\"auth\", \"logging\"],\n} satisfies Config;\n\n// TypeScript knows the narrower types:\nconfig.port;     // 3000  (literal type!)\nconfig.env;      // \"development\"  (narrower!)\nconfig.features; // string[]\n```\n\n---\n\n## Practical Examples\n\n### Example 1: Catching errors while keeping narrow types\n\n```typescript\ntype Routes = Record<string, { path: string; exact?: boolean }>;\n\nconst routes = {\n  home: { path: \"/\" },\n  about: { path: \"/about\", exact: true },\n  typo: { pth: \"/oops\" }, // ✅ Error caught! 'pth' is not valid\n} satisfies Routes;\n\n// Still get autocomplete on specific keys:\nroutes.home.path;  // ✅ TypeScript knows 'home' exists\nroutes.xyz;        // ❌ Error: property doesn't exist\n```\n\n```typescript\n// With annotation, you lose key specificity:\nconst routes: Routes = { ... };\nroutes.home; // ✅ works\nroutes.xyz;  // ✅ also \"works\" — no error! (bad)\n```\n\n### Example 2: Tuple vs Array preservation\n\n```typescript\ntype Point = { coords: number[] };\n\n// With satisfies — preserves tuple type\nconst p1 = {\n  coords: [10, 20],\n} satisfies Point;\n\nconst [x, y] = p1.coords; // ✅ Works, inferred as number[]\np1.coords[0];              // number\n\n// With annotation — same here, but consider:\ntype Config = { color: [number, number, number] | string };\n\nconst c1 = { color: [255, 0, 0] } satisfies Config;\nc1.color[0]; // ✅ number — TypeScript knows it's a tuple\n\nconst c2: Config = { color: [255, 0, 0] };\nc2.color[0]; // ❌ Error! Could be string, no index access\n```\n\n### Example 3: Method return types\n\n```typescript\ntype Handler = {\n  handle: (input: string) => string | number;\n};\n\nconst myHandler = {\n  handle: (input: string) => input.length, // returns number\n} satisfies Handler;\n\nconst result = myHandler.handle(\"hello\");\n//    ^? number  (not string | number!)\n\n// With annotation:\nconst myHandler2: Handler = {\n  handle: (input: string) => input.length,\n};\nconst result2 = myHandler2.handle(\"hello\");\n//    ^? string | number  (widened — less useful)\n```\n\n---\n\n## Decision Guide\n\n```\nDo you need the variable to BE that type\n(e.g., pass it to a function expecting Config)?\n│\n├── YES → Use annotation: const x: Config = {...}\n│         The type IS Config, assignable everywhere Config is expected.\n│\n└── NO → Do you just want to validate the shape\n         while keeping specific types?\n         │\n         ├── YES → Use satisfies\n         │         Validates + preserves literal/narrow types\n         │\n         └── BOTH → Use both!\n                    const x: Config = {...} satisfies Config\n```\n\n### Using both together\n\n```typescript\n// Validates shape AND widens to Config for assignability\nconst config: Config = {\n  port: 3000,\n  env: \"development\",\n} satisfies Config;\n```\n\n---\n\n## Quick Reference\n\n| Feature | `: Type` | `satisfies Type` |\n|---|---|---|\n| Validates shape | ✅ | ✅ |\n| Catches extra properties | ✅ | ✅ |\n| Preserves literal types | ❌ | ✅ |\n| Preserves specific keys | ❌ | ✅ |\n| Assignable to that type | ✅ | ⚠️ (usually, not guaranteed) |\n| Available since | Always | TS 4.9 |\n\n---\n\n## Rule of Thumb\n\n- Use **`: Type`** when the variable needs to be treated as that type downstream\n- Use **`satisfies`** for config objects, lookup tables, and constants where you want **validation without losing specificity**\n- Use **both** when you need validation, specificity, *and* guaranteed assignability",
+            "cost_usd": 0.019665000000000002,
+            "rubric": [
+              {
+                "name": "mentions widening from annotation",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "widen",
+                "why": "the actual semantic difference"
+              },
+              {
+                "name": "uses satisfies keyword",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "satisfies",
+                "why": "the operator under discussion"
+              },
+              {
+                "name": "mentions preserving literal / narrow inferred type",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "preserv",
+                "why": "the value of satisfies"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "uses satisfies keyword",
-            "better": "tie"
+          "skill": {
+            "text": "Both validate that your object matches `Config`, but they differ in **what type the variable gets afterward**.\n\n## The core difference\n\n```typescript\ntype Config = {\n  port: number;\n  host: string;\n  mode: \"dev\" | \"prod\";\n};\n\n// ❌ Annotation widens the type\nconst config1: Config = {\n  port: 3000,\n  host: \"localhost\",\n  mode: \"dev\",\n};\n\nconfig1.port; // type: number   (lost the literal 3000)\nconfig1.mode; // type: \"dev\" | \"prod\"  (lost the literal \"dev\")\n\n\n// ✅ satisfies validates but preserves the narrow type\nconst config2 = {\n  port: 3000,\n  host: \"localhost\",\n  mode: \"dev\",\n} satisfies Config;\n\nconfig2.port; // type: 3000   ← literal preserved\nconfig2.mode; // type: \"dev\"  ← literal preserved\n```\n\nWith `: Config`, TypeScript widens the inferred type to `Config` — you get the validation, but you lose everything narrower than the annotation. With `satisfies Config`, TypeScript checks the shape against `Config` but keeps the inferred type of the expression itself.\n\n## What satisfies catches that `: Config` doesn't\n\nBoth catch missing required fields and wrong value types. `satisfies` additionally catches errors that `: Config` would silently accept through widening:\n\n```typescript\ntype Routes = {\n  [path: string]: { method: \"GET\" | \"POST\"; handler: string };\n};\n\nconst routes = {\n  \"/users\": { method: \"GET\", handler: \"getUsers\" },\n  \"/login\": { method: \"PAST\", handler: \"login\" }, // ← typo\n} satisfies Routes;\n//           ~~~~~~\n// Type '\"PAST\"' is not assignable to type '\"GET\" | \"POST\"'\n```\n\nThe annotation version catches this too — so for catching errors, they're equivalent. The difference is purely in what type flows forward.\n\n## When to use each\n\n**Use `satisfies` when** you need the narrow type downstream:\n\n```typescript\n// Autocomplete and exhaustiveness work on the literal \"dev\", not the union\nif (config2.mode === \"dev\") { ... }\n\n// Tuple positions are preserved (not widened to string[])\nconst palette = [\"#ff0000\", \"#00ff00\", \"#0000ff\"] satisfies string[];\npalette[0]; // type: \"#ff0000\", not string\n\n// Object keys stay as a known union, not just string\nconst handlers = {\n  click: (e: MouseEvent) => {},\n  keydown: (e: KeyboardEvent) => {},\n} satisfies Record<string, (e: Event) => void>;\n\ntype HandlerKey = keyof typeof handlers; // \"click\" | \"keydown\", not string\n```\n\n**Use `: Config` when** you *want* the wider type — typically when the value will be reassigned, passed to a function expecting `Config`, or when the narrow type would cause problems:\n\n```typescript\n// You want Config, not a specific literal shape, because it will change\nlet activeConfig: Config = getDefaultConfig();\nactiveConfig = loadFromEnv(); // fine — it's typed as Config\n\n// Function parameters: the annotation is on the parameter, not the call site\nfunction startServer(config: Config) { ... }\n```\n\n**Combine them** when you want both validation and a named type:\n\n```typescript\n// satisfies validates the shape; \"as Config\" isn't needed — the type is already compatible\n// Just use satisfies and let inference do the rest\nconst config = { port: 3000, host: \"localhost\", mode: \"dev\" } satisfies Config;\n\n// Or if you genuinely need the wider type stored:\nconst config: Config = { port: 3000, host: \"localhost\", mode: \"dev\" } satisfies Config;\n// This is redundant but not wrong — satisfies runs first, then the annotation widens\n```\n\n## Quick rule of thumb\n\n> Use `satisfies` when you want the compiler to *check* the shape but *remember* the details. Use `: T` when you want the compiler to *forget* the details and treat the value as `T`.\n\nIn practice, `satisfies` is the better default for module-level constants and configuration objects. Reach for `: T` when you're working with mutable state or when the wider type is what you actually need.",
+            "cost_usd": 0.02901,
+            "rubric": [
+              {
+                "name": "mentions widening from annotation",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "widen",
+                "why": "the actual semantic difference"
+              },
+              {
+                "name": "uses satisfies keyword",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "satisfies",
+                "why": "the operator under discussion"
+              },
+              {
+                "name": "mentions preserving literal / narrow inferred type",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "preserv",
+                "why": "the value of satisfies"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "mentions preserving literal / narrow inferred type",
-            "better": "tie"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers cover the core distinction well, but Answer B is more precise and idiomatic. It clearly articulates that `: T` widens the inferred type while `satisfies` validates without widening, and its examples are tighter and more illustrative of the key concept. Answer B also avoids a misleading claim in Answer A's table ('Assignable to that type: ⚠️ usually, not guaranteed' for satisfies is incorrect — satisfies does guarantee assignability to the checked type). Answer B's 'quick rule of thumb' is also more memorable and accurate.",
+            "per_criterion": [
+              {
+                "name": "mentions widening from annotation",
+                "better": "skill"
+              },
+              {
+                "name": "uses satisfies keyword",
+                "better": "tie"
+              },
+              {
+                "name": "mentions preserving literal / narrow inferred type",
+                "better": "tie"
+              }
+            ]
           }
-        ]
+        }
       }
     },
     {
       "id": "unknown-vs-any",
       "prompt": "I'm parsing JSON from an HTTP response in TypeScript. What type\nshould the parsed value have, and why?\n",
       "expectation": "skill_wins",
-      "expectation_met": false,
-      "baseline": {
-        "text": "# Parsing JSON in TypeScript: The Right Type\n\nThe parsed value should be typed as **`unknown`**, not `any`.\n\n## Why `unknown`?\n\nWhen you call `JSON.parse()`, TypeScript types the result as `any` by default. This is unsafe because `any` disables all type checking — you can access any property, call it as a function, or assign it anywhere without errors, even though the actual runtime value could be anything.\n\n`unknown` is the type-safe counterpart to `any`: it represents \"a value whose type we don't know yet,\" but TypeScript forces you to **narrow it** (via type guards, schema validation, etc.) before you can use it.\n\n## Example\n\n```ts\nasync function fetchUser(id: string) {\n  const res = await fetch(`/api/users/${id}`);\n  const data: unknown = await res.json(); // 👈 force unknown\n\n  // ❌ TS error — can't access properties on unknown\n  // return data.name;\n\n  // ✅ Narrow first\n  if (\n    typeof data === \"object\" &&\n    data !== null &&\n    \"name\" in data &&\n    typeof data.name === \"string\"\n  ) {\n    return data.name; // now typed as string\n  }\n\n  throw new Error(\"Invalid user response\");\n}\n```\n\n## In practice: use a validator\n\nHand-written type guards get tedious, so most teams use a runtime schema library that produces a properly typed value from `unknown`:\n\n```ts\nimport { z } from \"zod\";\n\nconst User = z.object({\n  id: z.string(),\n  name: z.string(),\n  email: z.string().email(),\n});\n\nconst data: unknown = await res.json();\nconst user = User.parse(data); // typed as { id: string; name: string; email: string }\n```\n\nOther popular options: **Valibot**, **ArkType**, **io-ts**, **TypeBox**, or `@effect/schema`.\n\n## The key principle\n\n**Data crossing a trust boundary** (network, disk, user input, `eval`) should enter your program as `unknown` and only become a concrete type after validation. This prevents runtime shape mismatches from silently corrupting your code — exactly the class of bug TypeScript is supposed to catch.",
-        "cost_usd": 0.03344775,
-        "rubric": [
-          {
-            "name": "recommends unknown",
-            "kind": "must_contain",
-            "passed": true,
-            "evidence": "unknown",
-            "why": "the right type at I/O boundary"
+      "judge_focus": "The better answer recommends `unknown` (forces narrowing) over `any`\n(silently disables typechecking), and shows a narrowing or validation\nstep.\n",
+      "models": {
+        "haiku": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Typing Parsed JSON in TypeScript\n\nThe parsed value should have type **`unknown`**, and here's why:\n\n## The Problem with `any`\n\n```typescript\n// ❌ Avoid this\nconst data: any = JSON.parse(response);\ndata.user.name.toUpperCase(); // No type checking!\n```\n\n`any` disables all type checking, defeating TypeScript's purpose.\n\n## The Correct Approach\n\n```typescript\n// ✅ Use unknown\nconst data: unknown = JSON.parse(response);\n\n// TypeScript forces you to narrow the type before using it\nif (typeof data === 'object' && data !== null && 'user' in data) {\n  console.log(data.user); // Still unknown here\n}\n```\n\n## Why `unknown`?\n\n1. **Type Safety**: You must validate/narrow the type before using it\n2. **Honest**: JSON.parse returns unpredictable data from external sources\n3. **Forces Validation**: Prevents runtime errors from unexpected structures\n\n## Practical Pattern: Type Guards\n\n```typescript\ninterface User {\n  name: string;\n  age: number;\n}\n\nfunction isUser(obj: unknown): obj is User {\n  return (\n    typeof obj === 'object' &&\n    obj !== null &&\n    'name' in obj &&\n    typeof obj.name === 'string' &&\n    'age' in obj &&\n    typeof obj.age === 'number'\n  );\n}\n\nconst data: unknown = JSON.parse(response);\nif (isUser(data)) {\n  console.log(data.name.toUpperCase()); // ✅ Safe!\n}\n```\n\n## With Libraries\n\nFor complex schemas, use validation libraries:\n\n```typescript\nimport { z } from 'zod';\n\nconst userSchema = z.object({\n  name: z.string(),\n  age: z.number(),\n});\n\nconst data = userSchema.parse(JSON.parse(response));\n// data is now properly typed as { name: string; age: number }\n```\n\n**Bottom line**: Start with `unknown`, then validate to your actual type.",
+            "cost_usd": 0.0025060000000000004,
+            "rubric": [
+              {
+                "name": "recommends unknown",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "unknown",
+                "why": "the right type at I/O boundary"
+              },
+              {
+                "name": "explains why not any",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "any` disable",
+                "why": "the trade-off"
+              },
+              {
+                "name": "shows narrowing or validation step",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "typeof",
+                "why": "unknown without narrowing is just slower any"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "explains why not any",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "any` disable",
-            "why": "the trade-off"
+          "skill": {
+            "text": "# Parsing JSON: Use `unknown`\n\nThe parsed value should have type **`unknown`**, not `any`. Here's why and how:\n\n## The Problem with `any`\n\n```typescript\n// ❌ Don't do this\nconst data: any = JSON.parse(response);\ndata.user.name.toUpperCase(); // No error, but crashes at runtime if shape is wrong\n```\n\n`any` disables *all* type checking downstream. If the JSON is malformed or the server changed its schema, you won't know until runtime.\n\n## The Right Approach: `unknown`\n\n```typescript\n// ✅ Do this\nconst data: unknown = JSON.parse(response);\n\n// Now you must narrow before use\nif (typeof data === \"object\" && data !== null && \"user\" in data) {\n  const user = data.user;\n  // Still unknown here; narrow further\n}\n```\n\n`unknown` forces you to validate the shape *before* using it. This is the whole point: **JSON from the network is untrusted input**.\n\n## Practical Pattern: Type Predicate + Assertion Function\n\nFor real code, combine a **type predicate** with a **type guard**:\n\n```typescript\n// Define the expected shape\ntype User = {\n  readonly id: number;\n  readonly name: string;\n  readonly email: string;\n};\n\n// Type predicate: narrows `unknown` to `User`\nfunction isUser(x: unknown): x is User {\n  return (\n    typeof x === \"object\" &&\n    x !== null &&\n    typeof (x as Record<string, unknown>).id === \"number\" &&\n    typeof (x as Record<string, unknown>).name === \"string\" &&\n    typeof (x as Record<string, unknown>).email === \"string\"\n  );\n}\n\n// Parse and validate in one step\nconst data: unknown = JSON.parse(response);\nif (!isUser(data)) {\n  throw new Error(\"Invalid user shape from server\");\n}\n\n// Now `data` is narrowed to `User`\nconsole.log(data.name.toUpperCase()); // ✅ Safe\n```\n\nOr use an **assertion function** if you want to throw on failure:\n\n```typescript\nfunction assertIsUser(x: unknown): asserts x is User {\n  if (\n    typeof x !== \"object\" ||\n    x === null ||\n    typeof (x as Record<string, unknown>).id !== \"number\" ||\n    typeof (x as Record<string, unknown>).name !== \"string\" ||\n    typeof (x as Record<string, unknown>).email !== \"string\"\n  ) {\n    throw new Error(\"Invalid user shape from server\");\n  }\n}\n\nconst data: unknown = JSON.parse(response);\nassertIsUser(data); // Throws if invalid\n// Now `data` is narrowed to `User`\n```\n\n## Why This Matters\n\n| Approach | Catches Schema Changes? | Catches Typos? | Crashes at Runtime? |\n|---|---|---|---|\n| `any` | ❌ No | ❌ No | ✅ Yes |\n| `unknown` + predicate | ✅ Yes | ✅ Yes | ❌ No |\n\nThe predicate/assertion function is your **runtime contract** with the server. When the API changes, your code fails *at the boundary*, not deep in your business logic.\n\n## For Larger Schemas: Use a Validation Library\n\nIf your JSON is complex, hand-rolled predicates get tedious. Consider a lightweight validator:\n\n```typescript\nimport { z } from \"zod\"; // or io-ts, valibot, etc.\n\nconst UserSchema = z.object({\n  id: z.number(),\n  name: z.string(),\n  email: z.string().email(),\n});\n\ntype User = z.infer<typeof UserSchema>;\n\nconst data = UserSchema.parse(JSON.parse(response));\n// `data` is now `User`, validated at runtime\n```\n\nBut the principle is the same: **`unknown` at the boundary, narrowed via validation before use**.",
+            "cost_usd": 0.00924,
+            "rubric": [
+              {
+                "name": "recommends unknown",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "unknown",
+                "why": "the right type at I/O boundary"
+              },
+              {
+                "name": "explains why not any",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "any` disable",
+                "why": "the trade-off"
+              },
+              {
+                "name": "shows narrowing or validation step",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "typeof",
+                "why": "unknown without narrowing is just slower any"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "shows narrowing or validation step",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "typeof",
-            "why": "unknown without narrowing is just slower any"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly recommend `unknown` over `any` and show narrowing/validation steps, but Answer B is more thorough and practical. It introduces assertion functions as an additional pattern, includes a comparison table that clearly illustrates the tradeoffs, and uses `Record<string, unknown>` casts in the type guard which is more idiomatic than using `in` operator alone for property access. Answer B also more explicitly frames JSON as 'untrusted input' and explains where failures should occur ('at the boundary, not deep in your business logic').",
+            "per_criterion": [
+              {
+                "name": "recommends unknown",
+                "better": "tie"
+              },
+              {
+                "name": "explains why not any",
+                "better": "skill"
+              },
+              {
+                "name": "shows narrowing or validation step",
+                "better": "skill"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "skill": {
-        "text": "# Parsing JSON in TypeScript: The Right Type\n\nThe parsed value should be typed as **`unknown`**, not `any`.\n\n## Why `unknown`?\n\nWhen you call `JSON.parse()` or `await response.json()`, TypeScript actually types the result as `any` by default — but that's a footgun, not a feature. Here's why `unknown` is the correct choice:\n\n### 1. `any` disables type checking entirely\n```ts\nconst data: any = await response.json();\ndata.user.name.toUpperCase(); // ✅ Compiles, 💥 crashes at runtime\ndata.foo.bar.baz();           // ✅ Compiles, 💥 crashes at runtime\n```\n`any` silently propagates through your codebase, infecting every value it touches.\n\n### 2. `unknown` forces you to validate\n```ts\nconst data: unknown = await response.json();\ndata.user.name; // ❌ Compile error: Object is of type 'unknown'\n```\nYou're forced to narrow the type before using it, which matches reality: **you don't actually know what the server sent you.**\n\n### 3. The server's contract is not a guarantee\nEven if your API \"should\" return `{ user: { name: string } }`, the response could be:\n- An error payload with a different shape\n- A newer/older API version\n- HTML from a misconfigured proxy\n- Malformed data from a bug\n\nThe TypeScript compiler can't verify what crosses the network boundary, so the type system shouldn't pretend it can.\n\n## The recommended pattern\n\nValidate at the boundary using a schema library like **Zod**, **Valibot**, or **ArkType**:\n\n```ts\nimport { z } from \"zod\";\n\nconst UserSchema = z.object({\n  user: z.object({ name: z.string() }),\n});\n\nconst response = await fetch(\"/api/user\");\nconst raw: unknown = await response.json();\nconst data = UserSchema.parse(raw); // typed as { user: { name: string } }\n```\n\nNow `data` has a precise, *trustworthy* type — earned through runtime validation, not assumed through wishful typing.\n\n## Summary\n\n| Type | Use it? | Why |\n|------|---------|-----|\n| `any` | ❌ | Silently disables type safety |\n| `unknown` | ✅ | Forces validation before use |\n| `MyInterface` | ⚠️ | Only after runtime validation |\n\n**Rule of thumb:** treat every value crossing a trust boundary (network, disk, user input) as `unknown` until proven otherwise.",
-        "cost_usd": 0.035772750000000006,
-        "rubric": [
-          {
-            "name": "recommends unknown",
-            "kind": "must_contain",
-            "passed": true,
-            "evidence": "unknown",
-            "why": "the right type at I/O boundary"
+        },
+        "sonnet": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "## Parsing JSON in TypeScript\n\nThe parsed value should be typed as **`unknown`**.\n\n```typescript\nconst response = await fetch('https://api.example.com/data');\nconst parsed: unknown = await response.json();\n```\n\n---\n\n### Why `unknown` and Not `any`?\n\n`response.json()` returns `Promise<any>` by default, but you should **explicitly annotate or cast to `unknown`** instead.\n\n| Type | Type-safe? | Requires validation? | Autocomplete? |\n|------|-----------|----------------------|---------------|\n| `any` | ❌ No | ❌ No | ❌ Unsound |\n| `unknown` | ✅ Yes | ✅ Yes | ✅ After narrowing |\n\n#### The problem with `any`\n```typescript\nconst parsed: any = await response.json();\n\n// TypeScript allows this — no error, but crashes at runtime\n// if the shape is wrong\nconsole.log(parsed.user.address.street.toUpperCase());\n```\n\n#### The benefit of `unknown`\n```typescript\nconst parsed: unknown = await response.json();\n\n// TypeScript FORCES you to narrow the type before using it\nconsole.log(parsed.user); // ❌ Error: Object is of type 'unknown'\n```\n\n---\n\n### Validating After Parsing\n\nYou must **narrow** the type before use. Common approaches:\n\n#### 1. Type Guard (manual)\n```typescript\ninterface User {\n  id: number;\n  name: string;\n}\n\nfunction isUser(value: unknown): value is User {\n  return (\n    typeof value === 'object' &&\n    value !== null &&\n    'id' in value &&\n    'name' in value\n  );\n}\n\nconst parsed: unknown = await response.json();\n\nif (isUser(parsed)) {\n  console.log(parsed.name); // ✅ Safe\n}\n```\n\n#### 2. Runtime Validation Library (recommended for complex schemas)\n```typescript\nimport { z } from 'zod';\n\nconst UserSchema = z.object({\n  id: z.number(),\n  name: z.string(),\n});\n\nconst parsed: unknown = await response.json();\nconst user = UserSchema.parse(parsed); // throws if invalid\nconsole.log(user.name); // ✅ Fully typed and validated\n```\n\n---\n\n### Key Takeaway\n\n> Use **`unknown`** because JSON can be *anything* at runtime — a string, number, array, object, or `null`. Using `unknown` forces you to **prove the shape** before accessing it, preventing entire classes of runtime errors that `any` silently allows.",
+            "cost_usd": 0.009512999999999999,
+            "rubric": [
+              {
+                "name": "recommends unknown",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "unknown",
+                "why": "the right type at I/O boundary"
+              },
+              {
+                "name": "explains why not any",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "any` silent",
+                "why": "the trade-off"
+              },
+              {
+                "name": "shows narrowing or validation step",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "typeof",
+                "why": "unknown without narrowing is just slower any"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "explains why not any",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "any` disable",
-            "why": "the trade-off"
+          "skill": {
+            "text": "## Use `unknown`, not `any`\n\n```typescript\nconst response = await fetch(url);\nconst data: unknown = await response.json();\n```\n\n### Why not `any`?\n\n`response.json()` returns `Promise<any>` in the standard lib. If you accept that `any` and pass it around, TypeScript stops checking every downstream use — silently. One typo in a property name, one wrong assumption about shape, and you get a runtime crash with no compile-time warning.\n\n```typescript\n// ❌ any — type checking is disabled from here on\nconst data: any = await response.json();\nconsole.log(data.user.nmae); // typo — compiles fine, crashes at runtime\n```\n\n`unknown` forces you to prove the shape before using it.\n\n```typescript\n// ✅ unknown — compiler won't let you touch it without narrowing first\nconst data: unknown = await response.json();\nconsole.log(data.user.name); // Error: 'data' is of type 'unknown'\n```\n\n---\n\n## Narrowing the value\n\nYou have three good options depending on how much rigor you need.\n\n### 1. Type predicate (lightweight, no dependencies)\n\nWrite a guard function that checks the shape at runtime and tells the compiler what you've verified:\n\n```typescript\ntype User = { id: number; name: string };\n\nfunction isUser(value: unknown): value is User {\n  return (\n    typeof value === \"object\" &&\n    value !== null &&\n    \"id\" in value &&\n    typeof (value as Record<string, unknown>).id === \"number\" &&\n    \"name\" in value &&\n    typeof (value as Record<string, unknown>).name === \"string\"\n  );\n}\n\nconst data: unknown = await response.json();\n\nif (!isUser(data)) {\n  throw new Error(\"Unexpected response shape\");\n}\n\n// data is User from here on\nconsole.log(data.name);\n```\n\n### 2. Assertion function (throws instead of returning false)\n\nUseful when an unexpected shape is always a hard error:\n\n```typescript\nfunction assertIsUser(value: unknown): asserts value is User {\n  if (!isUser(value)) {\n    throw new Error(`Expected User, got: ${JSON.stringify(value)}`);\n  }\n}\n\nconst data: unknown = await response.json();\nassertIsUser(data);\n// data is User — no if-branch needed\nconsole.log(data.name);\n```\n\n### 3. Validation library (recommended for production)\n\nFor complex or evolving schemas, hand-written guards become fragile. Libraries like [Zod](https://zod.dev), [Valibot](https://valibot.dev), or [ArkType](https://arktype.io) generate both the runtime check and the TypeScript type from a single schema definition:\n\n```typescript\nimport { z } from \"zod\";\n\nconst UserSchema = z.object({\n  id: z.number(),\n  name: z.string(),\n});\n\ntype User = z.infer<typeof UserSchema>; // { id: number; name: string }\n\nconst data: unknown = await response.json();\nconst user = UserSchema.parse(data); // throws ZodError with field-level detail if invalid\nconsole.log(user.name);\n```\n\n---\n\n## The one thing to avoid\n\n```typescript\n// ❌ type assertion — skips all runtime checking\nconst data = await response.json() as User;\n```\n\n`as User` is a compile-time lie. It tells the compiler \"trust me, this is a `User`\" without verifying anything at runtime. If the server returns a different shape, you get silent corruption or a crash, not a useful error.\n\n---\n\n## Summary\n\n| Approach | Type safety | Runtime check | Effort |\n|---|---|---|---|\n| Accept `any` | ❌ None | ❌ None | None |\n| `as User` assertion | ✅ Compile-time only | ❌ None | Minimal |\n| `unknown` + type predicate | ✅ Both | ✅ Yes | Low |\n| `unknown` + assertion function | ✅ Both | ✅ Yes | Low |\n| `unknown` + validation library | ✅ Both + error detail | ✅ Yes | Schema definition |\n\nStart with `unknown`. Narrow it with a type predicate for simple shapes, or a validation library for anything you'd put in production.",
+            "cost_usd": 0.029117999999999998,
+            "rubric": [
+              {
+                "name": "recommends unknown",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "unknown",
+                "why": "the right type at I/O boundary"
+              },
+              {
+                "name": "explains why not any",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "any — type checking is disable",
+                "why": "the trade-off"
+              },
+              {
+                "name": "shows narrowing or validation step",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "typeof",
+                "why": "unknown without narrowing is just slower any"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "shows narrowing or validation step",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "narrow",
-            "why": "unknown without narrowing is just slower any"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly recommend `unknown` and explain why `any` is problematic, but Answer B is more thorough and practical. It adds an assertion function pattern, explicitly warns against the `as User` type assertion anti-pattern (a common mistake), and provides a more rigorous type predicate that checks property types rather than just presence. The summary table in B is also more informative, covering more approaches with clearer tradeoffs.",
+            "per_criterion": [
+              {
+                "name": "recommends unknown",
+                "better": "tie"
+              },
+              {
+                "name": "explains why not any",
+                "better": "tie"
+              },
+              {
+                "name": "shows narrowing or validation step",
+                "better": "skill"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "judge": {
-        "winner": "tie",
-        "reasoning": "Both answers are excellent and cover all three rubric criteria thoroughly. Answer A provides a richer explanation of why `any` is dangerous with concrete crash examples and a summary table, while Answer B shows a more detailed manual narrowing example with type guards before introducing Zod. Both recommend `unknown`, explain why `any` is problematic, and demonstrate validation/narrowing steps.",
-        "per_criterion": [
-          {
-            "name": "recommends unknown",
-            "better": "tie"
+        },
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# The Correct Type: `unknown`\n\nWhen you parse JSON from an HTTP response, the result should be typed as **`unknown`**, not `any`.\n\n```ts\nconst response = await fetch('/api/data');\nconst data: unknown = await response.json();\n```\n\n## Why `unknown`?\n\n### 1. JSON could be literally anything\nA JSON response could be an object, array, string, number, boolean, or `null`. The TypeScript compiler has no way to know what shape the server actually returned.\n\n### 2. The server is outside your type system\nYour TypeScript types describe what you *expect*. They can't enforce what an external server *actually sends*. The network is an untrusted boundary.\n\n### 3. `unknown` forces validation; `any` doesn't\nThis is the key difference:\n\n```ts\n// With `any` — silently broken at runtime\nconst data: any = await response.json();\ndata.user.name.toUpperCase(); // compiles fine, may crash\n\n// With `unknown` — compiler forces you to check\nconst data: unknown = await response.json();\ndata.user.name.toUpperCase(); // ❌ Error: 'data' is of type 'unknown'\n```\n\n`unknown` is the type-safe counterpart of `any`: you can assign anything *to* it, but you can't do anything *with* it until you've narrowed it.\n\n## What `fetch` actually gives you\n\nNote that `Response.json()` in the DOM lib is typed as `Promise<any>` for historical/ergonomic reasons. You should explicitly annotate to `unknown` to opt into safety:\n\n```ts\nconst data: unknown = await response.json();\n```\n\n## How to use the value\n\nYou then need to validate the shape before using it. Options:\n\n**1. Manual type guards:**\n```ts\nfunction isUser(x: unknown): x is { name: string } {\n  return typeof x === 'object' && x !== null\n    && 'name' in x && typeof (x as any).name === 'string';\n}\n\nif (isUser(data)) {\n  console.log(data.name.toUpperCase()); // ✅ safe\n}\n```\n\n**2. A schema validation library** (recommended for non-trivial shapes) like **Zod**, **Valibot**, **ArkType**, or **io-ts**:\n\n```ts\nimport { z } from 'zod';\n\nconst User = z.object({ name: z.string() });\nconst data = User.parse(await response.json()); // throws if invalid\ndata.name.toUpperCase(); // ✅ typed and validated\n```\n\n## Summary\n\n| Type | Safe? | Why |\n|------|-------|-----|\n| `any` | ❌ | Disables type checking entirely |\n| `SomeInterface` | ❌ | A lie — TS trusts you, but the server might not comply |\n| `unknown` | ✅ | Honest about uncertainty; forces runtime validation |\n\nUse `unknown` and validate at the boundary. Once validated, you have a properly typed value you can trust everywhere downstream.",
+            "cost_usd": 0.07227,
+            "rubric": [
+              {
+                "name": "recommends unknown",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "unknown",
+                "why": "the right type at I/O boundary"
+              },
+              {
+                "name": "explains why not any",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "any` — silent",
+                "why": "the trade-off"
+              },
+              {
+                "name": "shows narrowing or validation step",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "typeof",
+                "why": "unknown without narrowing is just slower any"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "explains why not any",
-            "better": "skill"
+          "skill": {
+            "text": "# `unknown`, not `any`\n\n`JSON.parse` is typed to return `any` in the standard lib, but you should immediately narrow it to `unknown`:\n\n```ts\nconst data: unknown = JSON.parse(responseText);\n```\n\n## Why `unknown` and not `any`\n\n`any` opts out of type checking entirely. This compiles with no error:\n\n```ts\nconst data = JSON.parse(responseText);  // any\nconst name: string = data.user.profile.name;  // no check, no error\ndata.foo.bar.baz();                            // no check, no error\n```\n\nIf the response shape is wrong, you get a runtime `TypeError` (or worse, a silent bug downstream when `name` is actually `undefined`). The compiler had no chance to help.\n\n`unknown` flips this. The value is \"some value, shape not yet proven,\" and the compiler refuses every operation until you prove the shape:\n\n```ts\nconst data: unknown = JSON.parse(responseText);\nconst name: string = data.user.profile.name;\n//                   ~~~~ Object is of type 'unknown'.\n```\n\n## Narrowing the `unknown`\n\nYou have a few options depending on how much you trust the source:\n\n**1. A user-defined type predicate** — cheap, no dependency, good for small shapes:\n\n```ts\ntype User = { id: string; name: string };\n\nfunction isUser(x: unknown): x is User {\n  return (\n    typeof x === \"object\" && x !== null &&\n    \"id\" in x && typeof x.id === \"string\" &&\n    \"name\" in x && typeof x.name === \"string\"\n  );\n}\n\nconst data: unknown = JSON.parse(responseText);\nif (!isUser(data)) throw new Error(\"invalid user response\");\n// data is User from here on\n```\n\n**2. An assertion function** — same idea, but throws instead of returning a boolean, so the narrowing flows through the rest of the function:\n\n```ts\nfunction assertUser(x: unknown): asserts x is User {\n  if (!isUser(x)) throw new Error(\"invalid user response\");\n}\n\nconst data: unknown = JSON.parse(responseText);\nassertUser(data);\n// data is User from here on, no if-block needed\n```\n\n**3. A schema validator** (Zod, Valibot, ArkType, etc.) — for non-trivial shapes, where hand-written predicates become tedious and error-prone:\n\n```ts\nconst User = z.object({ id: z.string(), name: z.string() });\nconst data = User.parse(JSON.parse(responseText));  // typed as User, throws on mismatch\n```\n\n## What to avoid\n\n```ts\nconst data = JSON.parse(responseText) as User;  // ❌\n```\n\n`as` is a type assertion: you're telling the compiler \"trust me, this is a `User`\" with no runtime check. If the server returns `{ \"id\": 42 }` (number, not string), the compiler stays silent and you get a runtime error somewhere far away from the parse site. Assertions delete the very check the compiler was about to give you. The cost of a one-line type predicate or schema is almost always worth paying at an I/O boundary.\n\n## Summary\n\n- Type the result of `JSON.parse` as `unknown`.\n- Narrow it with a type predicate, assertion function, or schema validator before using it.\n- Never `as`-cast parsed JSON to your domain type — that's the trap `unknown` exists to prevent.",
+            "cost_usd": 0.174585,
+            "rubric": [
+              {
+                "name": "recommends unknown",
+                "kind": "must_contain",
+                "passed": true,
+                "evidence": "unknown",
+                "why": "the right type at I/O boundary"
+              },
+              {
+                "name": "explains why not any",
+                "kind": "any_of",
+                "passed": false,
+                "evidence": null,
+                "why": "the trade-off"
+              },
+              {
+                "name": "shows narrowing or validation step",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "typeof",
+                "why": "unknown without narrowing is just slower any"
+              }
+            ],
+            "rubric_pass_rate": 0.6666666666666666
           },
-          {
-            "name": "shows narrowing or validation step",
-            "better": "baseline"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers are excellent and cover all three rubric criteria well. Answer A edges out Answer B by providing more depth: it explicitly shows the compiler error from using `any`, covers assertion functions as a third narrowing option, and includes a dedicated 'What to avoid' section warning against `as`-casting. Answer B is also strong and includes a useful summary table, but Answer A's coverage is slightly more comprehensive and pedagogically thorough.",
+            "per_criterion": [
+              {
+                "name": "recommends unknown",
+                "better": "tie"
+              },
+              {
+                "name": "explains why not any",
+                "better": "skill"
+              },
+              {
+                "name": "shows narrowing or validation step",
+                "better": "skill"
+              }
+            ]
           }
-        ]
+        }
       }
     },
     {
       "id": "branded-types",
       "prompt": "In my TypeScript codebase I have UserId and OrderId, both currently\njust `string`. We have a bug where someone passed an OrderId to a\nfunction expecting a UserId and TypeScript didn't catch it. How do\nI prevent this kind of mistake?\n",
       "expectation": "skill_wins",
-      "expectation_met": true,
-      "baseline": {
-        "text": "Great question — this is a classic case of **primitive obsession**, and the fix in TypeScript is to use **branded (a.k.a. nominal/opaque) types**. TypeScript uses structural typing by default, so any two `string` aliases are interchangeable. You need to add a \"phantom\" property to make them distinct at the type level.\n\n## The pattern\n\n```ts\ndeclare const brand: unique symbol;\ntype Brand<T, B> = T & { readonly [brand]: B };\n\nexport type UserId  = Brand<string, \"UserId\">;\nexport type OrderId = Brand<string, \"OrderId\">;\n```\n\nNow `UserId` and `OrderId` are *not* assignable to each other, even though both are still `string` at runtime (zero cost).\n\n## Constructing values\n\nYou can't just assign a raw string anymore, which is the whole point. Provide smart constructors that do validation:\n\n```ts\nexport const UserId = (s: string): UserId => {\n  if (!/^usr_/.test(s)) throw new Error(`Invalid UserId: ${s}`);\n  return s as UserId;\n};\n\nexport const OrderId = (s: string): OrderId => {\n  if (!/^ord_/.test(s)) throw new Error(`Invalid OrderId: ${s}`);\n  return s as OrderId;\n};\n```\n\nThe `as` cast is isolated to one place, so the rest of your code stays honest.\n\n## What this catches\n\n```ts\nfunction getUser(id: UserId) { /* ... */ }\n\nconst orderId: OrderId = OrderId(\"ord_123\");\ngetUser(orderId);\n// ❌ Argument of type 'OrderId' is not assignable to parameter of type 'UserId'.\n```\n\n## Tips\n\n1. **Use a single shared `Brand` helper** — don't redefine the pattern per ID type.\n2. **Use `unique symbol`** (rather than a string property like `__brand`) so the brand can't be accidentally constructed from a plain object.\n3. **Brand at boundaries** — when data enters your system (HTTP, DB, JSON), validate and brand it once. Inside your code, just pass the branded type around.\n4. **Pair with a parser like Zod / Valibot / Effect Schema** if you want runtime validation and the branded type for free:\n   ```ts\n   const UserIdSchema = z.string().startsWith(\"usr_\").brand<\"UserId\">();\n   type UserId = z.infer<typeof UserIdSchema>;\n   ```\n5. **Apply liberally** — it's also great for `Email`, `Url`, `PositiveInt`, `IsoDateString`, currency amounts, etc. Anywhere a primitive carries domain meaning.\n\nThe runtime cost is zero; it's purely a compile-time guard. After you introduce it, the compiler will surface every existing place where IDs are getting crossed — exactly the bug you just hit.",
-        "cost_usd": 0.0422555,
-        "rubric": [
-          {
-            "name": "recommends branded types",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "brand",
-            "why": "the canonical TS pattern for nominal-flavored types"
+      "judge_focus": "The better answer reaches for branded (nominal) types using a\nphantom `__brand` property to make the types structurally distinct.\n",
+      "models": {
+        "haiku": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Nominal Types in TypeScript\n\nYou need **nominal typing** (also called \"branded types\"). Here are the best approaches:\n\n## 1. **Branded Types (Recommended)**\n\nCreate distinct types that TypeScript treats as different, even though they're both strings:\n\n```typescript\ntype UserId = string & { readonly __brand: \"UserId\" };\ntype OrderId = string & { readonly __brand: \"OrderId\" };\n\n// Helper functions to create branded types safely\nconst userId = (id: string): UserId => id as UserId;\nconst orderId = (id: string): OrderId => id as OrderId;\n\n// Now TypeScript catches the error\nfunction processUser(id: UserId) {\n  console.log(id);\n}\n\nconst myOrderId = orderId(\"order-123\");\nprocessUser(myOrderId); // ❌ Type error!\nprocessUser(userId(\"user-456\")); // ✅ OK\n```\n\n## 2. **Opaque Types (More Robust)**\n\nUse a class-based approach for stronger guarantees:\n\n```typescript\nclass UserId {\n  constructor(readonly value: string) {}\n}\n\nclass OrderId {\n  constructor(readonly value: string) {}\n}\n\nfunction processUser(id: UserId) {\n  console.log(id.value);\n}\n\nconst myOrderId = new OrderId(\"order-123\");\nprocessUser(myOrderId); // ❌ Type error!\nprocessUser(new UserId(\"user-456\")); // ✅ OK\n```\n\n## 3. **Enum-based (Lightweight)**\n\n```typescript\nenum UserIdBrand {}\nenum OrderIdBrand {}\n\ntype UserId = string & { readonly __brand: UserIdBrand };\ntype OrderId = string & { readonly __brand: OrderIdBrand };\n\nconst userId = (id: string): UserId => id as UserId;\nconst orderId = (id: string): OrderId => id as OrderId;\n```\n\n## Comparison\n\n| Approach | Runtime Cost | Type Safety | Ergonomics |\n|----------|-------------|-------------|-----------|\n| Branded types | None | Good | Good |\n| Classes | Small | Excellent | Requires `new` |\n| Enums | None | Good | Good |\n\n**I'd recommend branded types** for most cases—they're zero-cost abstractions with excellent type safety.",
+            "cost_usd": 0.002825,
+            "rubric": [
+              {
+                "name": "recommends branded types",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "brand",
+                "why": "the canonical TS pattern for nominal-flavored types"
+              },
+              {
+                "name": "shows __brand or similar phantom property",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "__brand",
+                "why": "concrete implementation"
+              },
+              {
+                "name": "explains structural typing as the cause",
+                "kind": "any_of",
+                "passed": false,
+                "evidence": null,
+                "why": "why TypeScript does not catch it by default"
+              }
+            ],
+            "rubric_pass_rate": 0.6666666666666666
           },
-          {
-            "name": "shows __brand or similar phantom property",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "__brand",
-            "why": "concrete implementation"
+          "skill": {
+            "text": "# Branded Types for Distinct Primitives\n\nYou need **branded types** (also called \"opaque types\" or \"nominal types\"). They let you create distinct types from the same primitive without runtime overhead.\n\n## The Pattern\n\n```typescript\n// Define each brand as a unique type\ntype UserId = string & { readonly __brand: \"UserId\" };\ntype OrderId = string & { readonly __brand: \"OrderId\" };\n\n// Helper to create branded values safely\nconst userId = (id: string): UserId => id as UserId;\nconst orderId = (id: string): OrderId => id as OrderId;\n\n// Now the function signature is type-safe\nfunction getUser(id: UserId): User {\n  // ...\n}\n\nfunction getOrder(id: OrderId): Order {\n  // ...\n}\n\n// ✅ Type-safe\nconst user = getUser(userId(\"user-123\"));\nconst order = getOrder(orderId(\"order-456\"));\n\n// ❌ Compile error: Argument of type 'OrderId' is not assignable to parameter of type 'UserId'\ngetUser(orderId(\"order-456\"));\n\n// ❌ Compile error: Argument of type 'string' is not assignable to parameter of type 'UserId'\ngetUser(\"user-123\");\n```\n\n## Why This Works\n\n- **Intersection with a unique object type** — `string & { readonly __brand: \"UserId\" }` is structurally distinct from `string & { readonly __brand: \"OrderId\" }`, even though both are strings at runtime.\n- **`as` only at the boundary** — the helper functions (`userId`, `orderId`) are the *only* place you cast. Everywhere else, the type system enforces the distinction.\n- **Zero runtime cost** — the `__brand` property is never actually created. It's a compile-time-only phantom type.\n\n## Scaling to Many IDs\n\nIf you have many branded types, create a reusable helper:\n\n```typescript\n// Generic brand helper\ntype Brand<T, B extends string> = T & { readonly __brand: B };\n\ntype UserId = Brand<string, \"UserId\">;\ntype OrderId = Brand<string, \"OrderId\">;\ntype ProductId = Brand<string, \"ProductId\">;\n\n// Generic constructor\nconst createBrand = <T, B extends string>(value: T): Brand<T, B> => value as Brand<T, B>;\n\nconst userId = (id: string) => createBrand<string, \"UserId\">(id);\nconst orderId = (id: string) => createBrand<string, \"OrderId\">(id);\nconst productId = (id: string) => createBrand<string, \"ProductId\">(id);\n```\n\n## Extracting the Raw Value\n\nWhen you need the underlying string (e.g., to serialize or log):\n\n```typescript\nfunction logUser(id: UserId) {\n  // Cast back to string when you need the raw value\n  console.log(\"User ID:\", id as string);\n}\n\n// Or use a helper\nconst unwrap = <T, B extends string>(branded: Brand<T, B>): T => branded as T;\n```\n\n## Common Pitfalls\n\n**Don't skip the helper:**\n```typescript\n// ❌ Bad: anyone can cast\ngetUser(\"user-123\" as UserId);\n\n// ✅ Good: only the helper can create a UserId\ngetUser(userId(\"user-123\"));\n```\n\n**Don't use `__brand` at runtime:**\n```typescript\n// ❌ This will fail at runtime\nif (id.__brand === \"UserId\") { ... }\n\n// ✅ Use a type predicate instead\nconst isUserId = (id: unknown): id is UserId => typeof id === \"string\";\n```\n\n**Brands don't prevent accidental mixing in plain objects:**\n```typescript\ntype User = { id: UserId; name: string };\n\n// ❌ Still compiles (structural typing)\nconst user: User = { id: \"raw-string\" as UserId, name: \"Alice\" };\n\n// ✅ Use a constructor or factory to enforce\nconst createUser = (id: UserId, name: string): User => ({ id, name });\n```\n\n## When to Use Branded Types\n\n| Scenario | Use Branded | Why |\n|---|---|---|\n| Distinct IDs (UserId, OrderId, ProductId) | ✅ Yes | Prevents accidental swaps; common source of bugs |\n| Validated strings (Email, URL, Slug) | ✅ Yes | Signals that the string has been validated |\n| Numeric units (Milliseconds, Pixels, Kilobytes) | ✅ Yes | Prevents mixing `1000` (ms) with `1000` (px) |\n| Generic \"string\" or \"number\" | ❌ No | Overhead without benefit |\n| Internal-only types | ❌ Maybe | If the type never crosses a module boundary, a plain `type` alias is simpler |\n\n## Combining with Validation\n\nFor validated strings, pair the brand with a validation function:\n\n```typescript\ntype Email = Brand<string, \"Email\">;\n\nconst createEmail = (input: string): Email | null => {\n  // Simple regex; use a real email validator in production\n  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(input)) {\n    return null;\n  }\n  return input as Email;\n};\n\nfunction sendEmail(to: Email, subject: string) {\n  // Guaranteed to be a valid email\n}\n\nconst email = createEmail(\"user@example.com\");\nif (email) {\n  sendEmail(email, \"Hello\");\n}\n```\n\nThis catches the bug at the source: you can't create an invalid `Email` in the first place.",
+            "cost_usd": 0.011354,
+            "rubric": [
+              {
+                "name": "recommends branded types",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "Brand",
+                "why": "the canonical TS pattern for nominal-flavored types"
+              },
+              {
+                "name": "shows __brand or similar phantom property",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "__brand",
+                "why": "concrete implementation"
+              },
+              {
+                "name": "explains structural typing as the cause",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "structural",
+                "why": "why TypeScript does not catch it by default"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "explains structural typing as the cause",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "structural",
-            "why": "why TypeScript does not catch it by default"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly recommend branded types with a `__brand` phantom property and explain structural typing as the root cause. However, Answer B is significantly more comprehensive and practical: it explains *why* the pattern works (structural distinctness, phantom types, zero runtime cost), provides a reusable generic `Brand<T, B>` helper for scaling, covers common pitfalls, and shows how to combine brands with validation. Answer A is correct but shallower, and its 'class-based' alternative actually uses structural typing which can still be fooled by duck typing.",
+            "per_criterion": [
+              {
+                "name": "recommends branded types",
+                "better": "tie"
+              },
+              {
+                "name": "shows __brand or similar phantom property",
+                "better": "tie"
+              },
+              {
+                "name": "explains structural typing as the cause",
+                "better": "skill"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "skill": {
-        "text": "# Preventing ID Mix-ups with Branded Types\n\nThis is a classic TypeScript pitfall. Since `type UserId = string` and `type OrderId = string` are just aliases, TypeScript treats them as structurally identical. The fix is **branded (or \"nominal\") types**.\n\n## The Pattern\n\n```typescript\ndeclare const brand: unique symbol;\ntype Brand<T, B> = T & { readonly [brand]: B };\n\ntype UserId = Brand<string, 'UserId'>;\ntype OrderId = Brand<string, 'OrderId'>;\n```\n\nNow `UserId` and `OrderId` are *not* assignable to each other, even though both are `string` at runtime.\n\n## Constructing Branded Values\n\nYou need a controlled way to create them. A common approach is a small \"smart constructor\":\n\n```typescript\nfunction UserId(raw: string): UserId {\n  // optional runtime validation\n  if (!/^u_[a-z0-9]+$/.test(raw)) {\n    throw new Error(`Invalid UserId: ${raw}`);\n  }\n  return raw as UserId;\n}\n\nfunction OrderId(raw: string): OrderId {\n  if (!/^o_[a-z0-9]+$/.test(raw)) {\n    throw new Error(`Invalid OrderId: ${raw}`);\n  }\n  return raw as OrderId;\n}\n```\n\n## Using Them\n\n```typescript\nfunction getUser(id: UserId) { /* ... */ }\n\nconst u = UserId('u_abc');\nconst o = OrderId('o_123');\n\ngetUser(u); // ✅ ok\ngetUser(o); // ❌ Argument of type 'OrderId' is not assignable to parameter of type 'UserId'\ngetUser('u_abc'); // ❌ raw string also rejected — must go through constructor\n```\n\n## Practical Tips\n\n1. **Centralize the brand helper.** Put `Brand<T, B>` in one shared module (e.g. `src/types/brand.ts`) and import it everywhere.\n2. **Force construction through smart constructors.** Don't sprinkle `as UserId` casts around the codebase — restrict the cast to one file per ID type. You can even enforce this with an ESLint rule banning `as UserId`/`as OrderId` outside that file.\n3. **Parse at the boundary.** When IDs come from JSON, the database, or HTTP params, validate and brand them once at the edge (e.g. inside your API layer or with a Zod schema using `.brand<'UserId'>()`). Internal code then trusts the type.\n4. **Zod shortcut** if you already use Zod:\n   ```typescript\n   const UserIdSchema = z.string().regex(/^u_/).brand<'UserId'>();\n   type UserId = z.infer<typeof UserIdSchema>;\n   ```\n5. **Zero runtime cost.** The brand only exists in the type system; at runtime these are still plain strings, so JSON serialization, logging, and DB drivers work unchanged.\n6. **Apply broadly.** The same trick is great for `Email`, `Url`, `IsoDateString`, `PositiveInt`, `Cents` vs `Dollars`, etc. — anywhere the underlying primitive hides a domain distinction.\n\n## Why Not a Class Wrapper?\n\nYou *could* do `class UserId { constructor(public value: string) {} }`, which gives nominal typing for free. But it costs you:\n- allocations and `.value` access everywhere,\n- awkward serialization,\n- harder interop with libraries expecting strings.\n\nBranded types give you the same compile-time safety with none of those costs, which is why they're the idiomatic solution in modern TypeScript.",
-        "cost_usd": 0.0467805,
-        "rubric": [
-          {
-            "name": "recommends branded types",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "Brand",
-            "why": "the canonical TS pattern for nominal-flavored types"
+        },
+        "sonnet": {
+          "expectation_met": false,
+          "baseline": {
+            "text": "## Branded Types\n\nThis is a classic problem solved with **branded (nominal) types** — making structurally identical types distinct to TypeScript.\n\n### The Pattern\n\n```typescript\n// brands.ts\ndeclare const __brand: unique symbol;\n\ntype Brand<T, B> = T & { readonly [__brand]: B };\n\nexport type UserId  = Brand<string, 'UserId'>;\nexport type OrderId = Brand<string, 'OrderId'>;\n```\n\n`unique symbol` is the key — each declaration is a type-level singleton, so no two brands can accidentally match.\n\n---\n\n### Constructor Functions (The Safe Entry Point)\n\nNever cast directly at call sites. Centralise the cast in one place:\n\n```typescript\n// Unsafe — avoid spreading this pattern everywhere\nconst id = \"abc\" as UserId;\n\n// Safe — cast once, in a controlled location\nexport const UserId  = (id: string): UserId  => id as UserId;\nexport const OrderId = (id: string): OrderId => id as OrderId;\n```\n\n---\n\n### Usage\n\n```typescript\nfunction getUserById(id: UserId): User { ... }\nfunction getOrderById(id: OrderId): Order { ... }\n\nconst userId  = UserId(\"user-123\");\nconst orderId = OrderId(\"order-456\");\n\ngetUserById(userId);   // ✅\ngetUserById(orderId);  // ❌ Argument of type 'OrderId' is not assignable\n                       //    to parameter of type 'UserId'\ngetUserById(\"raw\");    // ❌ string is not assignable to UserId\n```\n\n---\n\n### Validation at System Boundaries\n\nCombine with runtime validation (e.g. from an API or database):\n\n```typescript\nexport function parseUserId(raw: string): UserId {\n  if (!raw.startsWith(\"user-\")) {\n    throw new Error(`Invalid UserId: ${raw}`);\n  }\n  return raw as UserId;\n}\n\nexport function parseOrderId(raw: string): OrderId {\n  if (!raw.startsWith(\"order-\")) {\n    throw new Error(`Invalid OrderId: ${raw}`);\n  }\n  return raw as OrderId;\n}\n```\n\nParse at the boundary (HTTP handler, DB read), then the rest of your codebase is type-safe without any casts.\n\n---\n\n### Reusable Helper\n\n```typescript\n// Generic factory — avoids repeating the cast pattern\nfunction makeBrandedConstructor<T extends Brand<string, any>>() {\n  return (value: string): T => value as T;\n}\n\nexport const UserId  = makeBrandedConstructor<UserId>();\nexport const OrderId = makeBrandedConstructor<OrderId>();\n```\n\n---\n\n### Key Points\n\n| Concern | Answer |\n|---|---|\n| Runtime cost | Zero — brands are erased at compile time |\n| Where to cast | Only inside constructor/parser functions |\n| Serialisation | Works fine — it's still a `string` at runtime |\n| Libraries (zod, etc.) | `.transform(s => s as UserId)` or use `z.string().brand<'UserId'>()` |\n\nThe single rule: **raw strings enter through constructors/parsers, branded types flow everywhere else.**",
+            "cost_usd": 0.01161,
+            "rubric": [
+              {
+                "name": "recommends branded types",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "Brand",
+                "why": "the canonical TS pattern for nominal-flavored types"
+              },
+              {
+                "name": "shows __brand or similar phantom property",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "__brand",
+                "why": "concrete implementation"
+              },
+              {
+                "name": "explains structural typing as the cause",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "structural",
+                "why": "why TypeScript does not catch it by default"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "shows __brand or similar phantom property",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "unique symbol",
-            "why": "concrete implementation"
+          "skill": {
+            "text": "This is the classic \"stringly-typed\" problem. The fix is **branded types** — you keep the runtime representation as `string` but attach a phantom type tag that makes `UserId` and `OrderId` structurally incompatible.\n\n## The Pattern\n\n```typescript\n// brands.ts\ntype Brand<Base, Tag extends string> = Base & { readonly __brand: Tag };\n\nexport type UserId  = Brand<string, \"UserId\">;\nexport type OrderId = Brand<string, \"OrderId\">;\n```\n\nThe `__brand` field never exists at runtime — it's purely a compile-time marker. Because the tags differ, TypeScript treats the two types as incompatible even though both are `string` underneath.\n\n## Constructor Functions (the Only Place You Cast)\n\n```typescript\n// Centralise the unsafe cast here so nowhere else needs `as`.\nexport function toUserId(id: string): UserId {\n  // Add validation if you have invariants (non-empty, UUID format, etc.)\n  if (!id) throw new Error(\"UserId cannot be empty\");\n  return id as UserId;\n}\n\nexport function toOrderId(id: string): OrderId {\n  if (!id) throw new Error(\"OrderId cannot be empty\");\n  return id as OrderId;\n}\n```\n\nEvery other file uses these constructors. The `as` cast is quarantined to one place per brand.\n\n## What You Get\n\n```typescript\nfunction getUser(id: UserId): User { /* ... */ }\n\nconst userId  = toUserId(\"usr_123\");\nconst orderId = toOrderId(\"ord_456\");\n\ngetUser(userId);   // ✅\ngetUser(orderId);  // ✅ Compile error: Argument of type 'OrderId' is not\n                   //    assignable to parameter of type 'UserId'.\ngetUser(\"usr_123\"); // ✅ Compile error: plain string not accepted either\n```\n\nThe bug you described is now a compile error.\n\n## Practical Tips\n\n**Brands are still strings at runtime.** You can pass them anywhere a `string` is expected (e.g. `console.log`, template literals, JSON serialisation) without any conversion. The brand only blocks the *wrong* branded type.\n\n**Parse at the boundary, use freely inside.** Validate and brand at I/O edges (HTTP handlers, DB queries, form inputs), then pass branded values through your domain code without re-checking.\n\n```typescript\n// In your HTTP handler — one cast, at the edge\nconst userId = toUserId(req.params.userId);\n\n// Everything downstream is type-safe with no further ceremony\nconst user = await getUser(userId);\nawait createOrder(userId, ...);  // createOrder(id: UserId, ...) — safe\n```\n\n**Use `satisfies` to validate config objects that contain branded IDs** without losing the narrow type:\n\n```typescript\nconst TEST_IDS = {\n  user:  toUserId(\"usr_test\"),\n  order: toOrderId(\"ord_test\"),\n} satisfies { user: UserId; order: OrderId };\n```\n\n**Extend the `Brand` helper for non-string primitives** — the same pattern works for `number`, `bigint`, etc.:\n\n```typescript\ntype Milliseconds = Brand<number, \"Milliseconds\">;\ntype Pixels       = Brand<number, \"Pixels\">;\n```\n\n## Migrating an Existing Codebase\n\n1. Define the brands and constructors.\n2. Add the branded types to function signatures one module at a time.\n3. Let the compiler guide you to every call site that needs a constructor call.\n4. The migration is mechanical and safe — no runtime behaviour changes.\n\nThe key insight: **one `as` cast in the constructor, zero `as` casts everywhere else.** The compiler does the rest.",
+            "cost_usd": 0.02682,
+            "rubric": [
+              {
+                "name": "recommends branded types",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "brand",
+                "why": "the canonical TS pattern for nominal-flavored types"
+              },
+              {
+                "name": "shows __brand or similar phantom property",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "__brand",
+                "why": "concrete implementation"
+              },
+              {
+                "name": "explains structural typing as the cause",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "structural",
+                "why": "why TypeScript does not catch it by default"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "explains structural typing as the cause",
-            "kind": "any_of",
-            "passed": true,
-            "evidence": "structural",
-            "why": "why TypeScript does not catch it by default"
+          "judge": {
+            "winner": "tie",
+            "reasoning": "Both answers are excellent and cover all three rubric criteria thoroughly. Answer A uses a string-literal tag approach with `__brand` which is slightly more readable, while Answer B uses `unique symbol` which is technically more robust against accidental brand collisions. Both explain structural typing as the root cause, show phantom `__brand` properties, and recommend branded types with constructor functions. The differences are stylistic rather than substantive.",
+            "per_criterion": [
+              {
+                "name": "recommends branded types",
+                "better": "tie"
+              },
+              {
+                "name": "shows __brand or similar phantom property",
+                "better": "tie"
+              },
+              {
+                "name": "explains structural typing as the cause",
+                "better": "tie"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 1.0
-      },
-      "judge": {
-        "winner": "skill",
-        "reasoning": "Both answers are excellent and cover all three rubric criteria well, but Answer B edges out Answer A by including an additional practical section explaining why class wrappers are inferior to branded types, which adds useful context for the reader's decision-making. Answer B also explicitly notes that raw strings are rejected (must go through constructor), which is a subtle but important point. Both use `unique symbol` with `__brand`-style phantom properties and explain structural typing as the root cause.",
-        "per_criterion": [
-          {
-            "name": "recommends branded types",
-            "better": "tie"
+        },
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Branded Types: The Fix You Want\n\nThis is a classic case for **branded (or \"nominal\") types**. TypeScript uses structural typing by default, so `type UserId = string` and `type OrderId = string` are completely interchangeable. You need to add a \"brand\" that exists only at the type level.\n\n## The Pattern\n\n```typescript\ndeclare const brand: unique symbol;\n\ntype Brand<T, TBrand> = T & { [brand]: TBrand };\n\ntype UserId = Brand<string, 'UserId'>;\ntype OrderId = Brand<string, 'OrderId'>;\n```\n\nNow `UserId` and `OrderId` are distinct types, even though both are still just strings at runtime.\n\n## Constructing Branded Values\n\nYou need explicit constructors since you can't just assign a `string` to a `UserId`:\n\n```typescript\nfunction UserId(id: string): UserId {\n  // optionally validate here\n  return id as UserId;\n}\n\nfunction OrderId(id: string): OrderId {\n  return id as OrderId;\n}\n```\n\n## Catching the Bug\n\n```typescript\nfunction getUser(id: UserId) { /* ... */ }\n\nconst orderId = OrderId('order-123');\nconst userId = UserId('user-456');\n\ngetUser(userId);   // ✅ ok\ngetUser(orderId);  // ❌ Argument of type 'OrderId' is not assignable to parameter of type 'UserId'\ngetUser('foo');    // ❌ also caught — raw strings rejected\n```\n\n## Notes\n\n- **Zero runtime cost.** The brand is purely a compile-time fiction; the value is still a plain string. JSON serialization, logging, DB queries all work unchanged.\n- **Validation lives in one place.** Put format checks (UUID shape, prefix, etc.) inside the constructor function so any value typed as `UserId` is guaranteed valid.\n- **Boundary conversions.** When data comes from outside (HTTP, DB), pass it through the constructor. This is the only place you write `as UserId`.\n- **Symbol vs string brand.** Using `unique symbol` (as above) prevents accidental collisions if two libraries pick the same brand string. A simpler `T & { __brand: TBrand }` works fine for app code.\n\nIf you use a validation library like Zod, you can get branded types for free with `z.string().brand<'UserId'>()`, which gives you parsing + branding in one step.",
+            "cost_usd": 0.060450000000000004,
+            "rubric": [
+              {
+                "name": "recommends branded types",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "Brand",
+                "why": "the canonical TS pattern for nominal-flavored types"
+              },
+              {
+                "name": "shows __brand or similar phantom property",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "__brand",
+                "why": "concrete implementation"
+              },
+              {
+                "name": "explains structural typing as the cause",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "structural",
+                "why": "why TypeScript does not catch it by default"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "shows __brand or similar phantom property",
-            "better": "tie"
+          "skill": {
+            "text": "# Branded Types — preventing primitive mix-ups\n\nThis is exactly what **branded (a.k.a. nominal) types** are for. TypeScript's structural type system normally treats two `string` aliases as interchangeable:\n\n```ts\ntype UserId = string;\ntype OrderId = string;\n\ndeclare function loadUser(id: UserId): User;\n\nconst orderId: OrderId = \"ord_123\";\nloadUser(orderId); // ✗ should fail, but compiles — both are just `string`\n```\n\n## The fix: brand each type\n\nAdd a phantom property that exists only at the type level:\n\n```ts\ntype UserId  = string & { readonly __brand: \"UserId\" };\ntype OrderId = string & { readonly __brand: \"OrderId\" };\n\ndeclare function loadUser(id: UserId): User;\n\ndeclare const orderId: OrderId;\nloadUser(orderId);\n// ✗ Argument of type 'OrderId' is not assignable to parameter of type 'UserId'.\n//   Type '\"OrderId\"' is not assignable to type '\"UserId\"'.\n```\n\nThe `__brand` field is **never assigned at runtime** — it exists purely to make the types structurally distinct. `UserId` is still a `string` everywhere it matters (you can concatenate, log, JSON-serialize, etc.), but the compiler now refuses to mix them up.\n\n## Constructing branded values\n\nYou can't just write `const id: UserId = \"u_1\"` — the raw string lacks the brand. You need a constructor that performs validation at the I/O boundary:\n\n```ts\nfunction userId(s: string): UserId {\n  if (!/^u_[a-z0-9]+$/.test(s)) {\n    throw new Error(`invalid UserId: ${s}`);\n  }\n  return s as UserId; // the one sanctioned `as` — right after validation\n}\n\nfunction orderId(s: string): OrderId {\n  if (!/^ord_[a-z0-9]+$/.test(s)) {\n    throw new Error(`invalid OrderId: ${s}`);\n  }\n  return s as OrderId;\n}\n\nconst u = userId(\"u_42\");      // UserId\nconst o = orderId(\"ord_123\");  // OrderId\nloadUser(o); // ✗ compile error — exactly what you wanted\n```\n\nThe `as UserId` cast is the *one* place an assertion is appropriate: immediately after the runtime check that justifies it. Centralize it in the constructor so the rest of the codebase never reaches for `as`.\n\n## A reusable `Brand` helper\n\nIf you have many branded primitives, factor out the brand:\n\n```ts\ntype Brand<T, B extends string> = T & { readonly __brand: B };\n\ntype UserId  = Brand<string, \"UserId\">;\ntype OrderId = Brand<string, \"OrderId\">;\ntype Email   = Brand<string, \"Email\">;\ntype Cents   = Brand<number, \"Cents\">;  // works for numbers too\n```\n\n## Where to put the constructors\n\nA common pattern is to co-locate each brand with its constructor and any parser/validator:\n\n```ts\n// ids.ts\nexport type UserId = Brand<string, \"UserId\">;\n\nexport function userId(s: string): UserId {\n  if (!/^u_[a-z0-9]+$/.test(s)) throw new Error(`invalid UserId: ${s}`);\n  return s as UserId;\n}\n\n// Parse from unknown input (e.g., JSON from an API)\nexport function parseUserId(x: unknown): UserId {\n  if (typeof x !== \"string\") throw new Error(\"UserId must be a string\");\n  return userId(x);\n}\n```\n\nNow your I/O boundaries (HTTP handlers, DB row mappers, JSON deserialization) call `parseUserId` once, and every internal function takes `UserId` and is statically protected.\n\n## What this gets you\n\n- **`loadUser(orderId)` is a compile error** — the original bug.\n- **No runtime cost** — the brand field is erased; values are still plain strings.\n- **Validation has one home** — the constructor. The rest of the codebase trusts the type.\n- **Refactor-safe** — adding a new branded type (`SessionId`, `InvoiceId`, …) takes one line.\n\n## Caveats\n\n- **Don't widen back to `string` carelessly.** A function that takes `string` will accept any brand (since `UserId` *is* a `string`). That's usually fine for things like `console.log`, but if you have a function that should accept *only* `UserId`, type the parameter as `UserId`.\n- **JSON round-trips lose the brand.** When you `JSON.parse` an API response, the strings come back as plain `string`. Re-validate at the boundary with `parseUserId`. This is a feature, not a bug — it's exactly the place you want validation.\n- **Avoid `as UserId` outside constructors.** Every stray `as` defeats the purpose. If you find yourself reaching for one, it usually means a missing constructor or parser.",
+            "cost_usd": 0.21481499999999998,
+            "rubric": [
+              {
+                "name": "recommends branded types",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "Brand",
+                "why": "the canonical TS pattern for nominal-flavored types"
+              },
+              {
+                "name": "shows __brand or similar phantom property",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "__brand",
+                "why": "concrete implementation"
+              },
+              {
+                "name": "explains structural typing as the cause",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "structural",
+                "why": "why TypeScript does not catch it by default"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "explains structural typing as the cause",
-            "better": "tie"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Both answers correctly recommend branded types and explain structural typing as the root cause. Answer A uses the `__brand` property pattern explicitly (matching the rubric's focus), provides a reusable `Brand<T, B>` helper, covers constructors, parse boundaries, caveats, and file organization in greater depth. Answer B uses `unique symbol` which is a valid alternative but diverges from the `__brand` phantom property the rubric specifically calls for, and is less comprehensive overall.",
+            "per_criterion": [
+              {
+                "name": "recommends branded types",
+                "better": "tie"
+              },
+              {
+                "name": "shows __brand or similar phantom property",
+                "better": "skill"
+              },
+              {
+                "name": "explains structural typing as the cause",
+                "better": "tie"
+              }
+            ]
           }
-        ]
+        }
       }
     },
     {
       "id": "simplest-cast",
       "prompt": "I have a TypeScript error: `Type 'unknown' is not assignable to\ntype 'string'`. The value definitely is a string at runtime. Just\ngive me the simplest, fewest-character fix to make this compile.\n",
       "expectation": "skill_wins_strict",
-      "expectation_met": false,
-      "baseline": {
-        "text": "Use `as string`:\n\n```ts\nvalue as string\n```",
-        "cost_usd": 0.01508075,
-        "rubric": [
-          {
-            "name": "uses or recommends a type predicate / assertion function",
-            "kind": "any_of",
-            "passed": false,
-            "evidence": null,
-            "why": "the safe fix"
+      "judge_focus": "The naive answer is `as string`. That's the trap — it deletes the\nonly check the compiler was offering. The better answer either\nrefuses the cast and uses a type predicate, or uses the cast but\nexplicitly explains it as an unsafe escape hatch and recommends\nthe better fix (predicate / assertion function).\n",
+      "models": {
+        "haiku": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "# Simplest fix:\n\n```typescript\nvalue as string\n```\n\nUse a type assertion to tell TypeScript the value is a string.\n\nIf you need it in context:\n```typescript\nconst str: string = value as string;\n```",
+            "cost_usd": 0.000339,
+            "rubric": [
+              {
+                "name": "uses or recommends a type predicate / assertion function",
+                "kind": "any_of",
+                "passed": false,
+                "evidence": null,
+                "why": "the safe fix"
+              },
+              {
+                "name": "warns against bare as cast",
+                "kind": "any_of",
+                "passed": false,
+                "evidence": null,
+                "why": "must call out the cost of as"
+              },
+              {
+                "name": "avoids recommending bare as cast as the answer",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "the trap pattern as a standalone recommendation"
+              }
+            ],
+            "rubric_pass_rate": 0.3333333333333333
           },
-          {
-            "name": "warns against bare as cast",
-            "kind": "any_of",
-            "passed": false,
-            "evidence": null,
-            "why": "must call out the cost of as"
+          "skill": {
+            "text": "The simplest fix is a type assertion:\n\n```typescript\nconst x = value as string;\n```\n\n**However**, this deletes the only check the compiler was about to give you. If you're certain the value is a string, use a type predicate or assertion function instead — they're only slightly longer and catch real bugs:\n\n**Type predicate** (if you need to reuse the check):\n```typescript\nfunction isString(x: unknown): x is string {\n  return typeof x === \"string\";\n}\n\nif (isString(value)) {\n  // value is string here\n}\n```\n\n**Assertion function** (if you want to assert once and move on):\n```typescript\nfunction assertString(x: unknown): asserts x is string {\n  if (typeof x !== \"string\") throw new Error(\"not a string\");\n}\n\nassertString(value);\n// value is string here\n```\n\n**Inline narrowing** (if it's a one-off):\n```typescript\nif (typeof value !== \"string\") throw new Error(\"expected string\");\n// value is string here\n```\n\nAll three are ~1 line of actual logic and force a runtime check. The `as` shortcut compiles but gives you zero protection if your assumption is wrong. Pick one of the three above.",
+            "cost_usd": 0.005953,
+            "rubric": [
+              {
+                "name": "uses or recommends a type predicate / assertion function",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "is string",
+                "why": "the safe fix"
+              },
+              {
+                "name": "warns against bare as cast",
+                "kind": "any_of",
+                "passed": false,
+                "evidence": null,
+                "why": "must call out the cost of as"
+              },
+              {
+                "name": "avoids recommending bare as cast as the answer",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "the trap pattern as a standalone recommendation"
+              }
+            ],
+            "rubric_pass_rate": 0.6666666666666666
           },
-          {
-            "name": "avoids recommending bare as cast as the answer",
-            "kind": "must_not_contain",
-            "passed": true,
-            "evidence": null,
-            "why": "the trap pattern as a standalone recommendation"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Answer B explicitly warns against the bare `as` cast, explains why it's unsafe, and provides multiple safer alternatives including type predicates and assertion functions. Answer A simply recommends the bare cast without any caveats, which is exactly the trap the rubric warns against. B satisfies all three rubric criteria while A fails all three.",
+            "per_criterion": [
+              {
+                "name": "uses or recommends a type predicate / assertion function",
+                "better": "skill"
+              },
+              {
+                "name": "warns against bare as cast",
+                "better": "skill"
+              },
+              {
+                "name": "avoids recommending bare as cast as the answer",
+                "better": "skill"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 0.3333333333333333
-      },
-      "skill": {
-        "text": "Use `as string`:\n\n```ts\nvalue as string\n```",
-        "cost_usd": 0.01451875,
-        "rubric": [
-          {
-            "name": "uses or recommends a type predicate / assertion function",
-            "kind": "any_of",
-            "passed": false,
-            "evidence": null,
-            "why": "the safe fix"
+        },
+        "sonnet": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "```ts\nvalue as string\n```\n\nUse a type assertion wherever the error occurs, e.g.:\n\n```ts\nconst s: string = value as string;\n```",
+            "cost_usd": 0.0007769999999999999,
+            "rubric": [
+              {
+                "name": "uses or recommends a type predicate / assertion function",
+                "kind": "any_of",
+                "passed": false,
+                "evidence": null,
+                "why": "the safe fix"
+              },
+              {
+                "name": "warns against bare as cast",
+                "kind": "any_of",
+                "passed": false,
+                "evidence": null,
+                "why": "must call out the cost of as"
+              },
+              {
+                "name": "avoids recommending bare as cast as the answer",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "the trap pattern as a standalone recommendation"
+              }
+            ],
+            "rubric_pass_rate": 0.3333333333333333
           },
-          {
-            "name": "warns against bare as cast",
-            "kind": "any_of",
-            "passed": false,
-            "evidence": null,
-            "why": "must call out the cost of as"
+          "skill": {
+            "text": "The shortest fix that's actually correct is a **type predicate guard**:\n\n```ts\nif (typeof value === \"string\") {\n  // value is string here\n}\n```\n\n**Why not `as string`?**\n\n`value as string` is fewer characters, but it's the trap this situation is designed to lure you into. It silences the error by deleting the compiler's check — if the runtime value ever *isn't* a string, you get a silent lie that corrupts downstream code with no error at the point of the bug.\n\n`unknown` exists precisely to force you to prove the type before using it. The `typeof` check *is* that proof — it's one line, and it's what the compiler needs to narrow `unknown` to `string`.\n\n**If you're at a trust boundary** (e.g., parsed JSON, an API response) and want a reusable guard:\n\n```ts\nfunction isString(value: unknown): value is string {\n  return typeof value === \"string\";\n}\n```\n\n**If the value truly must be a string or it's a programmer error**, throw explicitly:\n\n```ts\nif (typeof value !== \"string\") throw new Error(`Expected string, got ${typeof value}`);\n// value is string from here down\n```\n\nThe `typeof` check is the simplest correct fix. `as string` is shorter but wrong.",
+            "cost_usd": 0.018117,
+            "rubric": [
+              {
+                "name": "uses or recommends a type predicate / assertion function",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "is string",
+                "why": "the safe fix"
+              },
+              {
+                "name": "warns against bare as cast",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "silence",
+                "why": "must call out the cost of as"
+              },
+              {
+                "name": "avoids recommending bare as cast as the answer",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "the trap pattern as a standalone recommendation"
+              }
+            ],
+            "rubric_pass_rate": 1.0
           },
-          {
-            "name": "avoids recommending bare as cast as the answer",
-            "kind": "must_not_contain",
-            "passed": true,
-            "evidence": null,
-            "why": "the trap pattern as a standalone recommendation"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Answer B correctly identifies the trap of using `as string` and recommends type predicate guards as the proper solution, explaining why the cast is dangerous. Answer A falls directly into the trap by recommending `as string` without any warnings or better alternatives. Answer B satisfies all three rubric criteria while Answer A fails all three.",
+            "per_criterion": [
+              {
+                "name": "uses or recommends a type predicate / assertion function",
+                "better": "skill"
+              },
+              {
+                "name": "warns against bare as cast",
+                "better": "skill"
+              },
+              {
+                "name": "avoids recommending bare as cast as the answer",
+                "better": "skill"
+              }
+            ]
           }
-        ],
-        "rubric_pass_rate": 0.3333333333333333
-      },
-      "judge": {
-        "winner": "tie",
-        "reasoning": "Both answers are identical — they both recommend the bare `as string` cast without any warning, explanation of unsafety, or mention of type predicates or assertion functions. Neither answer meets the rubric criteria.",
-        "per_criterion": [
-          {
-            "name": "uses or recommends a type predicate / assertion function",
-            "better": "tie"
+        },
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "```ts\nvalue as string\n```",
+            "cost_usd": 0.00225,
+            "rubric": [
+              {
+                "name": "uses or recommends a type predicate / assertion function",
+                "kind": "any_of",
+                "passed": false,
+                "evidence": null,
+                "why": "the safe fix"
+              },
+              {
+                "name": "warns against bare as cast",
+                "kind": "any_of",
+                "passed": false,
+                "evidence": null,
+                "why": "must call out the cost of as"
+              },
+              {
+                "name": "avoids recommending bare as cast as the answer",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "the trap pattern as a standalone recommendation"
+              }
+            ],
+            "rubric_pass_rate": 0.3333333333333333
           },
-          {
-            "name": "warns against bare as cast",
-            "better": "tie"
+          "skill": {
+            "text": "The simplest fix that satisfies the compiler is `value as string` — but that's the wrong answer, and I want to flag it as a trap before you reach for it.\n\n`as` deletes the only check the compiler was about to give you. If your runtime assumption is ever wrong (bad input, refactor upstream, API change), you get a silent corruption or a `TypeError` somewhere far from the cause, instead of a clean failure at the boundary.\n\nThe shortest *correct* fix is a runtime check that narrows the type:\n\n```ts\nif (typeof value !== \"string\") throw new Error(\"expected string\");\n// value is now string\n```\n\nThat's one line, costs one comparison, and turns \"I'm sure at runtime\" into something the compiler and the runtime both verify.\n\nIf you do this in more than one place, factor it into an assertion function — same shape, reusable:\n\n```ts\nfunction assertString(x: unknown): asserts x is string {\n  if (typeof x !== \"string\") throw new Error(\"expected string\");\n}\n\nassertString(value);\n// value is now string\n```\n\nIf the value is coming from an I/O boundary (JSON parse, form input, env var, network), the check belongs there once, and the rest of your code gets a real `string` for free.\n\nUse `as string` only when you genuinely cannot check (e.g., crossing a third-party type definition that's wrong) — and leave a comment saying why.",
+            "cost_usd": 0.126465,
+            "rubric": [
+              {
+                "name": "uses or recommends a type predicate / assertion function",
+                "kind": "any_of",
+                "passed": true,
+                "evidence": "is string",
+                "why": "the safe fix"
+              },
+              {
+                "name": "warns against bare as cast",
+                "kind": "any_of",
+                "passed": false,
+                "evidence": null,
+                "why": "must call out the cost of as"
+              },
+              {
+                "name": "avoids recommending bare as cast as the answer",
+                "kind": "must_not_contain",
+                "passed": true,
+                "evidence": null,
+                "why": "the trap pattern as a standalone recommendation"
+              }
+            ],
+            "rubric_pass_rate": 0.6666666666666666
           },
-          {
-            "name": "avoids recommending bare as cast as the answer",
-            "better": "tie"
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Answer A explicitly warns against the bare `as string` cast, explains why it's dangerous, and provides the correct fix using a type predicate/assertion function. Answer B simply provides the naive trap answer with no explanation or warnings, failing all three rubric criteria.",
+            "per_criterion": [
+              {
+                "name": "uses or recommends a type predicate / assertion function",
+                "better": "skill"
+              },
+              {
+                "name": "warns against bare as cast",
+                "better": "skill"
+              },
+              {
+                "name": "avoids recommending bare as cast as the answer",
+                "better": "skill"
+              }
+            ]
           }
-        ]
+        }
       }
     },
     {
       "id": "offtopic-shell-pipe",
       "prompt": "What's the simplest one-liner in bash to count the number of\nfiles in the current directory (not recursively, hidden files\nexcluded)?\n",
       "expectation": "tie",
-      "expectation_met": true,
-      "baseline": {
-        "text": "```bash\nls | wc -l\n```",
-        "cost_usd": 0.01508975,
-        "rubric": [],
-        "rubric_pass_rate": 0.0
-      },
-      "skill": {
-        "text": "```bash\nls | wc -l\n```",
-        "cost_usd": 0.01426875,
-        "rubric": [],
-        "rubric_pass_rate": 0.0
-      },
-      "judge": {
-        "winner": "tie",
-        "reasoning": "Both answers are identical, providing the same one-liner `ls | wc -l` which correctly counts non-hidden files in the current directory non-recursively.",
-        "per_criterion": []
+      "judge_focus": "This question has nothing to do with TypeScript. Both answers\nshould be essentially equivalent. Pick \"tie\" unless one is\nmaterially wrong.\n",
+      "models": {
+        "opus": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "```bash\nls | wc -l\n```",
+            "cost_usd": 0.00213,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "skill": {
+            "text": "```bash\nls | wc -l\n```\n\nNote: this counts entries `ls` shows by default — directories included, hidden files (dot-files) excluded, non-recursive. If you want only regular files, use `find . -maxdepth 1 -type f | wc -l`.",
+            "cost_usd": 0.09987,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "judge": {
+            "winner": "tie",
+            "reasoning": "Both answers provide the same core command `ls | wc -l`. Answer A includes additional helpful notes about the behavior and an alternative for counting only regular files, but the focus area explicitly states to pick 'tie' unless one is materially wrong, and both are essentially equivalent.",
+            "per_criterion": []
+          }
+        },
+        "haiku": {
+          "expectation_met": false,
+          "baseline": {
+            "text": "# Count files in current directory\n\n```bash\nls -1 | wc -l\n```\n\nOr more robustly:\n\n```bash\necho *.* | wc -w\n```\n\nThe first option (`ls -1 | wc -l`) is the most straightforward and commonly used. The `-1` flag ensures one file per line, then `wc -l` counts the lines.\n\n**Note:** The second option works better if you have no files (returns 0 instead of 1), but may not count dotfiles or files without extensions depending on your shell settings.",
+            "cost_usd": 0.000698,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "skill": {
+            "text": "```bash\nls -1 | wc -l\n```\n\nOr, more robustly (handles edge cases like filenames with newlines):\n\n```bash\nprintf '%s\\n' * | grep -c .\n```\n\nThe first is the most common idiom. The second avoids shell globbing issues if you have unusual filenames.\n\n---\n\n**Note:** This is a bash question, outside the scope of the TypeScript skill. If you have a TypeScript question, I'm ready to help with that instead.",
+            "cost_usd": 0.005057,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "judge": {
+            "winner": "skill",
+            "reasoning": "Answer A's second option (`printf '%s\\n' * | grep -c .`) is more robust than Answer B's second option (`echo *.* | wc -w`). Answer B's alternative is actually worse: `*.*` only matches files with extensions (missing extensionless files), and `wc -w` counts words not lines, which breaks on filenames with spaces. Answer A's fallback is genuinely more robust, while Answer B's fallback introduces new bugs.",
+            "per_criterion": [
+              {
+                "name": "correctness",
+                "better": "skill"
+              }
+            ]
+          }
+        },
+        "sonnet": {
+          "expectation_met": true,
+          "baseline": {
+            "text": "## Counting Files in Current Directory\n\n```bash\nls -1 | wc -l\n```\n\n### Breakdown\n| Part | Description |\n|------|-------------|\n| `ls -1` | List files **one per line**, excluding hidden files |\n| `\\|` | Pipe output to next command |\n| `wc -l` | **Count** the number of lines |\n\n### Notes\n- **Hidden files excluded** by default (files starting with `.`)\n- **Not recursive** — only lists current directory\n- `-1` (number one) forces one entry per line, making `wc -l` accurate\n\n### Alternatives\n```bash\n# Slightly more explicit\nls -1 --ignore='.*' | wc -l  # same result, more explicit\n\n# Using find (more robust, but less simple)\nfind . -maxdepth 1 -not -name '.*' -type f | wc -l\n```\n\n> ⚠️ **Note:** `ls | wc -l` can break if filenames contain **newlines**, but for everyday use it's perfectly reliable.",
+            "cost_usd": 0.003954,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "skill": {
+            "text": "```bash\nls | wc -l\n```\n\n`ls` omits hidden files by default and lists only the current directory; `wc -l` counts the lines (one per file/directory).\n\n> **Note:** this counts directories too. If you need *only regular files*, the portable one-liner is slightly longer:\n> ```bash\n> find . -maxdepth 1 -type f ! -name '.*' | wc -l\n> ```",
+            "cost_usd": 0.015039,
+            "rubric": [],
+            "rubric_pass_rate": 0.0
+          },
+          "judge": {
+            "winner": "tie",
+            "reasoning": "Both answers provide essentially the same solution (ls | wc -l), with Answer B adding the -1 flag which is redundant when piping since ls automatically uses one-per-line format in that case. Both correctly note hidden files are excluded by default and provide find-based alternatives. The differences are cosmetic and neither is materially wrong.",
+            "per_criterion": []
+          }
+        }
       }
     }
+  ],
+  "backend": "sdk",
+  "models": [
+    "sonnet",
+    "haiku",
+    "opus"
   ]
 }

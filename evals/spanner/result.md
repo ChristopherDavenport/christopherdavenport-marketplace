@@ -1,27 +1,42 @@
 # Eval report: `spanner`
 
+- Backend: **SDK direct (sonnet/haiku at temperature=0; opus uncontrolled)**
 - Cases: **6**
-- Expectations met: **3/6** (skill_wins 1/4, skill_wins_strict 1/1, tie 1/1)
-- Judge: skill won **2**, baseline won **0**, ties **4**
-- Rubric pass-rate (over 5 scored case(s)): baseline **85%**, skill **90%** (Δ **+5%**)
-- CLI cost: **$0.50** (judge cost not counted)
+- Models: **sonnet, haiku, opus**
+- Total cost: **$1.73** (judge cost not counted)
+
+## Per-model summary
+
+| Model | Expectations met | Judge (skill / baseline / tie) | Rubric: baseline → skill (Δ) |
+| --- | --- | --- | --- |
+| `sonnet` | 5/6 | 4 / 0 / 2 | 62% → 93% (+32%) |
+| `haiku` | 5/6 | 5 / 1 / 0 | 63% → 100% (+37%) |
+| `opus` ¹ | 6/6 | 5 / 0 / 1 | 90% → 100% (+10%) |
+
+¹ Opus 4.7 does not accept the `temperature` parameter; its numbers are indicators, not measurements (re-runs may flip individual verdicts).
+
+## Expectations by kind
+
+| Expectation kind | Total | sonnet met | haiku met | opus met |
+| --- | --- | --- | --- | --- |
+| `skill_wins` | 4 | 3/4 | 4/4 | 4/4 |
+| `skill_wins_strict` | 1 | 1/1 | 1/1 | 1/1 |
+| `tie` | 1 | 1/1 | 0/1 | 1/1 |
 
 ## Cases
 
-| Case | Expected | Met | Judge | Baseline rubric | Skill rubric |
-| --- | --- | --- | --- | --- | --- |
-| `write-throughput-flat` | skill_wins | ✗ | **tie** | 75% | 75% |
-| `rwt-aborted-spam` | skill_wins | ✗ | **tie** | 100% | 100% |
-| `like-prefix-not-using-index` | skill_wins | ✗ | **tie** | 100% | 100% |
-| `interleave-decision` | skill_wins | ✓ | **skill** | 50% | 75% |
-| `simplest-bulk-update` | skill_wins_strict | ✓ | **skill** | 100% | 100% |
-| `offtopic-bash-loop` | tie | ✓ | **tie** | 0% | 0% |
+| Case | Expected | sonnet | haiku | opus |
+| --- | --- | --- | --- | --- |
+| `write-throughput-flat` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
+| `rwt-aborted-spam` | skill_wins | ✗ = tie | ✓ ✓ skill | ✓ ✓ skill |
+| `like-prefix-not-using-index` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
+| `interleave-decision` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
+| `simplest-bulk-update` | skill_wins_strict | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
+| `offtopic-bash-loop` | tie | ✓ = tie | ✗ ✗ baseline | ✓ = tie |
 
 ## Per-case detail
 
 ### `write-throughput-flat`
-
-**Expected:** `skill_wins` · **Met:** ✗ — **[FAILED EXPECTATION]**
 
 **Prompt**
 
@@ -32,7 +47,634 @@ how many nodes I add. The table has a primary key like
 do I fix it?
 ```
 
-**Judge:** **tie** — Both answers correctly identify the hotspot problem from monotonic keys, recommend BIT_REVERSED_POSITIVE, mention UUID as an alternative, and note that PK changes require migration. Answer B is slightly more technically precise and detailed in its migration steps and additional considerations, while Answer A has a minor self-correction stumble ('wait, actually no') that slightly undermines confidence. Overall both answers cover all rubric criteria at roughly equivalent depth.
+**Judge focus:** The better answer identifies that monotonic IDs hot-spot one split,
+names the specific Spanner remediations (BIT_REVERSED_POSITIVE,
+NEW_UUID, hash-shard prefix), and notes that PK changes are
+irreversible so a migration is needed.
+
+#### `sonnet`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer A explicitly names the Spanner-native `BIT_REVERSED_POSITIVE` sequence option and `NEW_UUID()` built-in function, which are the actual Spanner remediations. It also clearly states that PK changes are irreversible and provides a concrete migration path. Answer B implements bit-reversal manually in application code rather than using Spanner's native `BIT_REVERSED_POSITIVE` syntax, and uses a non-existent `GENERATE_UUID()` function instead of Spanner's `NEW_UUID()`, making it less accurate and less idiomatic for Spanner specifically.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| identifies hotspot from monotonic key | tie |
+| recommends BIT_REVERSED_POSITIVE | skill |
+| mentions UUID alternative | skill |
+| notes PK change is irreversible / requires migration | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies hotspot from monotonic key | ✓ | `Hotspot` |
+| recommends BIT_REVERSED_POSITIVE | ✗ | |
+| mentions UUID alternative | ✗ | |
+| notes PK change is irreversible / requires migration | ✗ | |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies hotspot from monotonic key | ✓ | `hotspot` |
+| recommends BIT_REVERSED_POSITIVE | ✓ | `BIT_REVERSED_POSITIVE` |
+| mentions UUID alternative | ✓ | `NEW_UUID` |
+| notes PK change is irreversible / requires migration | ✓ | `cannot change` |
+
+<details><summary>sonnet: baseline answer</summary>
+
+## The Problem: Sequential Key Hotspotting
+
+Your auto-increment identity column is creating a **hotspot on a single split boundary**. This is a classic Cloud Spanner anti-pattern.
+
+### Why This Happens
+
+Cloud Spanner shards data into **splits** based on key ranges. With a sequential integer key:
+
+```
+Node 1          Node 2          Node 3
+[1 ... 1000] | [1001 ... 2000] | [2001 ... 3000]
+     ↑
+ALL writes go here (current max key)
+```
+
+Every new row gets the next integer, so **100% of writes always hit the same split** — the one holding the current high-water mark. Adding nodes doesn't help because the work never distributes.
+
+---
+
+## Solutions
+
+### Option 1: Bit-Reverse the Sequence (Best for keeping INT64)
+
+Reverse the bits of the sequence value so consecutive logical IDs scatter across the keyspace:
+
+```sql
+-- Instead of storing 1, 2, 3, 4...
+-- You store bit-reversed values that spread across INT64 range
+
+CREATE TABLE Orders (
+  Id INT64 DEFAULT (
+    -- bit_reverse trick via farm fingerprint or application logic
+  ),
+  ...
+);
+```
+
+In practice, do this **in your application layer**:
+
+```python
+def bit_reverse_int64(n: int) -> int:
+    result = 0
+    for _ in range(64):
+        result = (result << 1) | (n & 1)
+        n >>= 1
+    # Keep positive for Spanner
+    return result & 0x7FFFFFFFFFFFFFFF
+
+# Usage
+logical_id = next_sequence_value()
+spanner_key = bit_reverse_int64(logical_id)
+```
+
+```
+Sequential:  1, 2, 3, 4, 5 ...
+Bit-reversed: spreads across entire INT64 range → hits different splits
+```
+
+---
+
+### Option 2: Use UUID / Random Keys (Simplest)
+
+```sql
+CREATE TABLE Orders (
+  Id STRING(36) DEFAULT (GENERATE_UUID()),
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+  -- other columns
+) PRIMARY KEY (Id);
+```
+
+**Pros:** Dead simple, writes scatter perfectly  
+**Cons:** UUIDs are large, no natural ordering, range scans are inefficient
+
+---
+
+### Option 3: Hash Prefix Sharding (Keep Sequential Semantics)
+
+Prepend a hash shard to distribute writes while preserving order within a shard:
+
+```sql
+CREATE TABLE Orders (
+  ShardId INT64 NOT NULL,  -- 0 to N-1
+  Id INT64 NOT NULL GENERATED BY DEFAULT AS IDENTITY,
+  CreatedAt TIMESTAMP NOT NULL,
+  -- other columns
+) PRIMARY KEY (ShardId, Id);
+```
+
+```python
+NUM_SHARDS = 512  # tune based on write throughput needed
+
+def insert_order(data):
+    shard_id = random.randint(0, NUM_SHARDS - 1)
+    # OR: shard_id = some_hash(natural_key) % NUM_SHARDS
+    spanner.write([
+        spanner.param_types,
+        {"ShardId": shard_id, **data}
+    ])
+```
+
+**Reading all records in order** now requires a scatter-gather:
+
+```sql
+-- Must query all shards and merge client-side, or use UNION ALL
+SELECT * FROM Orders WHERE ShardId = 0 ORDER BY Id
+UNION ALL
+SELECT * FROM Orders WHERE ShardId = 1 ORDER BY Id
+-- ... etc
+```
+
+---
+
+### Option 4: Timestamp-Based Key with Shard Prefix
+
+Good when you need time-ordered access:
+
+```sql
+CREATE TABLE Events (
+  ShardId INT64 NOT NULL,
+  EventTime TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+  EventId STRING(36) NOT NULL DEFAULT (GENERATE_UUID()),
+) PRIMARY KEY (ShardId, EventTime, EventId);
+
+-- Index for cross-shard time queries
+CREATE INDEX EventsByTime ON Events (EventTime, ShardId);
+```
+
+---
+
+## Decision Guide
+
+```
+Do you need sequential ordering?
+├── No  → Use GENERATE_UUID() ✓ (simplest)
+└── Yes
+    ├── Need to reconstruct order later? → Hash prefix sharding
+    ├── Order by time? → Timestamp + shard prefix  
+    └── Must use INT64 identity? → Bit-reverse in app layer
+```
+
+---
+
+## Sizing Your Shard Count
+
+```
+Target write QPS
+─────────────── = minimum shards needed
+~2,000 QPS/split
+
+Example: 50,000 QPS target → ~25 shards minimum
+Use 2-4x headroom → 64 or 128 shards
+```
+
+---
+
+## Key Takeaway
+
+> Cloud Spanner scales **horizontally across key ranges**. Any pattern that causes writes to concentrate on one key range — sequential IDs, auto-increment, monotonic timestamps as leading key — will bottleneck on a single split regardless of node count. The fix is always to **spread the write keyspace**.
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+## What's happening: a hotspot on a monotonic key
+
+`GENERATED BY DEFAULT AS IDENTITY` without `BIT_REVERSED_POSITIVE` produces sequential integers (1, 2, 3, …). Spanner splits data into key-range-based shards, so sequential inserts always land on the **same trailing split** — the one that owns the current high-water mark. Adding nodes creates new splits, but writes never reach them. You've hit a single-server ceiling, which is why throughput is flat regardless of node count.
+
+---
+
+## Fix options (pick one)
+
+### Option 1 — `IDENTITY (BIT_REVERSED_POSITIVE)` — least disruption, stays INT64
+
+Spanner bit-reverses the sequence value before storing it, scattering writes across the full INT64 key space automatically.
+
+```sql
+-- New table
+CREATE TABLE Events (
+  Id     INT64 DEFAULT (GET_NEXT_SEQUENCE_VALUE(SEQUENCE EventSeq)),
+  -- ...
+  PRIMARY KEY (Id)
+);
+
+CREATE SEQUENCE EventSeq OPTIONS (
+  sequence_kind = 'bit_reversed_positive'
+);
+```
+
+Or with the `IDENTITY` shorthand (GoogleSQL):
+
+```sql
+CREATE TABLE Events (
+  Id     INT64 GENERATED BY DEFAULT AS IDENTITY (
+           BIT_REVERSED_POSITIVE
+         ),
+  -- ...
+  PRIMARY KEY (Id)
+);
+```
+
+**Trade-off:** IDs are not human-readable in order, but they're still INT64 and join/index efficiently.
+
+---
+
+### Option 2 — UUIDv4 string key — simplest mental model
+
+```sql
+CREATE TABLE Events (
+  Id     STRING(36) DEFAULT (NEW_UUID()),
+  -- ...
+  PRIMARY KEY (Id)
+);
+```
+
+`NEW_UUID()` generates a random UUID at write time. Random distribution means writes spread across all splits immediately.
+
+**Trade-off:** 36-byte string key is larger than INT64; slightly higher storage and index overhead. Cannot sort by insertion order.
+
+---
+
+### Option 3 — Hash-shard prefix — keeps a sortable timestamp, adds explicit sharding
+
+Use this when you need time-ordered scans *and* high write throughput.
+
+```sql
+CREATE TABLE Events (
+  ShardId   INT64 NOT NULL,  -- 0..N-1
+  EventTime TIMESTAMP NOT NULL,
+  Id        STRING(36) NOT NULL DEFAULT (NEW_UUID()),
+  -- ...
+  PRIMARY KEY (ShardId, EventTime DESC, Id)
+);
+```
+
+Populate `ShardId` at write time:
+
+```go
+// Go — compute shard from a stable attribute (e.g. user ID or the UUID itself)
+const numShards = 64  // tune to ~2× your node count
+
+func shardID(naturalKey string) int64 {
+    h := farm.Fingerprint64([]byte(naturalKey))
+    return int64(h % numShards)
+}
+```
+
+Query all shards in parallel (fan-out):
+
+```sql
+SELECT * FROM Events
+WHERE ShardId IN UNNEST(@all_shard_ids)
+  AND EventTime > @cutoff
+ORDER BY EventTime DESC
+LIMIT 100;
+```
+
+**Trade-off:** Queries that don't know the shard must fan out across all shards. Good for append-heavy workloads with per-entity or per-shard reads; awkward for global "latest N rows" queries.
+
+---
+
+## Migrating an existing table
+
+You cannot change primary key columns in place. The standard path:
+
+```
+1. Create the new table (new name, new PK scheme).
+2. Backfill: read old table in key-order batches, write to new table.
+   Use Dataflow or partitioned reads + batched mutations to stay within
+   the 80,000 mutations / 100 MiB per-transaction limits.
+3. Dual-write during cutover: writes go to both tables.
+4. Verify row counts and spot-check data.
+5. Flip reads to the new table, then drop the old one.
+```
+
+Avoid a single large transaction for the backfill — use `client.Apply()` in batches of ~1,000 mutations per call.
+
+---
+
+## Verifying the fix
+
+After migration, confirm writes are spreading evenly. A rough check:
+
+```sql
+-- Should return ~equal counts across all shard buckets
+SELECT
+  MOD(FARM_FINGERPRINT(CAST(Id AS STRING)), 20) AS bucket,
+  COUNT(*) AS row_count
+FROM Events
+GROUP BY bucket
+ORDER BY bucket;
+```
+
+In the Cloud Console, **Spanner → Metrics → CPU utilization by key range** should show a flat line across ranges rather than one spike.
+
+---
+
+## Quick comparison
+
+| Approach | Key type | Write distribution | Time-ordered scan | Complexity |
+|---|---|---|---|---|
+| Sequential IDENTITY (current) | INT64 | ❌ Hotspot | ✅ Natural | Low |
+| `BIT_REVERSED_POSITIVE` | INT64 | ✅ Scattered | ❌ No | Low |
+| `NEW_UUID()` | STRING(36) | ✅ Scattered | ❌ No | Low |
+| Hash-shard prefix | INT64 + TIMESTAMP | ✅ Scattered | ✅ Per-shard | Medium |
+
+For most OLTP tables without a time-ordering requirement, **`BIT_REVERSED_POSITIVE`** is the right default — it's a one-line change and keeps INT64 semantics. If you need global time ordering at high write rates, use the hash-shard prefix pattern.
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer B is significantly more complete and accurate across all rubric criteria. It explicitly names BIT_REVERSED_POSITIVE as a built-in Spanner IDENTITY option with correct syntax, mentions NEW_UUID() as the UUID alternative, and includes a dedicated migration section explaining that PK changes are irreversible and require creating a new table. Answer A treats bit-reversal as a manual application-level operation rather than a native Spanner feature, and while it mentions UUIDs and hash sharding, it lacks the migration irreversibility discussion and has some syntax errors (duplicate PRIMARY KEY clause, mixing GENERATE_UUID with INT64).
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| identifies hotspot from monotonic key | skill |
+| recommends BIT_REVERSED_POSITIVE | skill |
+| mentions UUID alternative | tie |
+| notes PK change is irreversible / requires migration | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies hotspot from monotonic key | ✓ | `hotspot` |
+| recommends BIT_REVERSED_POSITIVE | ✗ | |
+| mentions UUID alternative | ✗ | |
+| notes PK change is irreversible / requires migration | ✗ | |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies hotspot from monotonic key | ✓ | `Hotspot` |
+| recommends BIT_REVERSED_POSITIVE | ✓ | `BIT_REVERSED_POSITIVE` |
+| mentions UUID alternative | ✓ | `NEW_UUID` |
+| notes PK change is irreversible / requires migration | ✓ | `cannot** change` |
+
+<details><summary>haiku: baseline answer</summary>
+
+# Cloud Spanner Write Throughput Bottleneck
+
+You've hit a classic **hot shard problem** caused by your monotonically increasing primary key.
+
+## The Problem
+
+When you use `GENERATED BY DEFAULT AS IDENTITY`, new rows get sequential IDs like 1, 2, 3, 4... This means:
+
+1. **All writes go to the same shard** - Sequential keys cluster together in the key range
+2. **One node becomes a bottleneck** - That node handles all writes while others sit idle
+3. **Adding nodes doesn't help** - The hot shard can't be split further (it's already at the end of the key range)
+4. **You hit ~2k QPS** - The throughput limit of a single node
+
+## Solutions
+
+### Option 1: Randomize the Primary Key (Recommended)
+
+Use a **hash-based or random prefix** to distribute writes across shards:
+
+```sql
+CREATE TABLE MyTable (
+  Id INT64 NOT NULL,
+  Shard INT64 NOT NULL,
+  Data STRING(MAX),
+  PRIMARY KEY (Shard, Id)
+) PRIMARY KEY (Shard, Id);
+```
+
+When inserting, set `Shard = RAND() % num_shards` (e.g., 0-99):
+
+```sql
+INSERT INTO MyTable (Shard, Id, Data) 
+VALUES (RAND() % 100, GENERATE_UUID(), 'data');
+```
+
+This distributes writes across 100 shards, giving you ~200k QPS with 100 nodes.
+
+### Option 2: Use UUID as Primary Key
+
+```sql
+CREATE TABLE MyTable (
+  Id STRING(36) NOT NULL,
+  Data STRING(MAX),
+  PRIMARY KEY (Id)
+);
+```
+
+```sql
+INSERT INTO MyTable (Id, Data) 
+VALUES (GENERATE_UUID(), 'data');
+```
+
+UUIDs are naturally random and distribute evenly.
+
+### Option 3: Keep Identity, Add Random Prefix
+
+```sql
+CREATE TABLE MyTable (
+  Shard INT64 NOT NULL,
+  SequenceId INT64 NOT NULL GENERATED BY DEFAULT AS IDENTITY,
+  Data STRING(MAX),
+  PRIMARY KEY (Shard, SequenceId)
+);
+```
+
+### Option 4: Bit-Reverse the Identity (Advanced)
+
+If you need sortable sequential IDs, bit-reverse them before storing:
+
+```sql
+-- Pseudo-code: bit_reverse(id) distributes sequential IDs
+INSERT INTO MyTable (Id, Data) 
+VALUES (BIT_REVERSE(next_id), 'data');
+```
+
+## Verification
+
+Check shard distribution with:
+
+```sql
+SELECT 
+  SUBSTR(TO_HEX(MD5(CAST(Id AS STRING))), 1, 8) as key_hash,
+  COUNT(*) as row_count
+FROM MyTable
+GROUP BY key_hash
+ORDER BY key_hash;
+```
+
+You should see roughly equal distribution across buckets.
+
+## Key Takeaway
+
+**Sequential primary keys are the #1 cause of write hotspots in Spanner.** Always randomize or use UUIDs for high-throughput write workloads.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# Diagnosis: Monotonic Primary Key Hotspot
+
+Your write throughput is capped because **all writes are landing on a single split**. The `IDENTITY` column without `BIT_REVERSED_POSITIVE` generates sequential integers (1, 2, 3, …), which means every new row goes to the same key range. That range lives on one server, so you're bottlenecked at one node's write capacity (~2k QPS) regardless of cluster size.
+
+## Verification
+
+Run this query to confirm the hotspot:
+
+```sql
+SELECT
+  MOD(FARM_FINGERPRINT(CAST(Id AS STRING)), 100) AS shard,
+  COUNT(*) AS row_count
+FROM YourTable
+GROUP BY shard
+ORDER BY shard;
+```
+
+If the distribution is **heavily skewed** (e.g., 90% of rows in shard 0–5, rest empty), you have a hotspot.
+
+Also check the Cloud Console:
+- **Spanner > Instances > [Your Instance] > Metrics**
+- Look at **Latency by key range** — one range will show much higher latency/CPU than others.
+
+## Solution: Switch to Random Distribution
+
+Replace the sequential `IDENTITY` with one of these:
+
+### Option 1: `IDENTITY (BIT_REVERSED_POSITIVE)` — Recommended
+
+```sql
+CREATE TABLE YourTable (
+  Id INT64 GENERATED BY DEFAULT AS IDENTITY (START WITH 1 INCREMENT BY 1, BIT_REVERSED_POSITIVE),
+  Name STRING(MAX),
+  PRIMARY KEY (Id)
+);
+```
+
+**Why:** Bit-reversal scrambles sequential integers so they hash uniformly across splits. Spanner handles the reversal transparently. Works for new inserts; existing rows keep their old IDs.
+
+**Caveat:** Only works if `Id` is the *sole* primary key column. If you have a composite key like `(TenantId, Id)`, this won't help — the hotspot moves to `TenantId`.
+
+### Option 2: `NEW_UUID()` — Most Flexible
+
+```sql
+CREATE TABLE YourTable (
+  Id STRING(36) DEFAULT (NEW_UUID()),
+  Name STRING(MAX),
+  PRIMARY KEY (Id)
+);
+```
+
+Or in PostgreSQL dialect:
+
+```sql
+CREATE TABLE YourTable (
+  Id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  Name STRING(MAX)
+);
+```
+
+**Why:** UUIDs are random by design; they distribute uniformly. No sequential pattern.
+
+**Trade-off:** String UUIDs are larger (36 bytes vs 8 for INT64). If you have millions of rows and tight storage budgets, this adds overhead. But the write-scaling win is worth it.
+
+### Option 3: Hash-Shard Prefix (for Time-Ordered Data)
+
+If you need rows ordered by time (e.g., a log table), prepend a `ShardId`:
+
+```sql
+CREATE TABLE EventLog (
+  ShardId INT64,
+  EventTime TIMESTAMP,
+  EventId STRING(36),
+  Payload STRING(MAX),
+  PRIMARY KEY (ShardId, EventTime DESC, EventId)
+);
+```
+
+Insert with:
+
+```sql
+INSERT INTO EventLog (ShardId, EventTime, EventId, Payload)
+VALUES (
+  MOD(FARM_FINGERPRINT(CAST(@user_id AS STRING)), 100),  -- Spread across 100 shards
+  CURRENT_TIMESTAMP(),
+  NEW_UUID(),
+  @payload
+);
+```
+
+**Why:** Keeps recent rows (high `EventTime`) co-located under each shard, so "get latest N events for user X" is a fast range scan. Writes spread across 100 splits.
+
+**Trade-off:** Queries must filter by `ShardId` or scan all shards. Use `UNION ALL` or `UNION DISTINCT` to merge results.
+
+---
+
+## Migration Path (Existing Table)
+
+You **cannot** change the primary key of an existing table in place. You must:
+
+1. **Create a new table** with the corrected key:
+   ```sql
+   CREATE TABLE YourTable_new (
+     Id INT64 GENERATED BY DEFAULT AS IDENTITY (BIT_REVERSED_POSITIVE),
+     Name STRING(MAX),
+     PRIMARY KEY (Id)
+   );
+   ```
+
+2. **Copy data** (in batches if large):
+   ```sql
+   INSERT INTO YourTable_new (Name)
+   SELECT Name FROM YourTable;
+   ```
+
+3. **Pause writes** to the old table, verify row counts match, then **swap**:
+   ```sql
+   DROP TABLE YourTable;
+   ALTER TABLE YourTable_new RENAME TO YourTable;
+   ```
+
+4. **Update application code** to use the new ID scheme (if you were relying on sequential IDs for ordering, switch to `ORDER BY` in queries).
+
+For a large table, consider doing this during a maintenance window or using a dual-write pattern (write to both tables, then cut over).
+
+---
+
+## Why This Happens
+
+Spanner splits data into ranges by primary key. When you insert sequential IDs, all new rows fall into the highest key range (the "right edge" of the key space). That range can only be served by one split until it grows large enough to split further — but by then, the next batch of sequential IDs is already piling onto the new right edge. You're always writing to the newest split, which is always on one server.
+
+Random keys (UUIDs, bit-reversed) spread writes across the entire key space, so new inserts land on different splits, which live on different servers. Throughput scales with cluster size.
+
+---
+
+## Next Steps
+
+1. **Verify the hotspot** with the `FARM_FINGERPRINT` query above.
+2. **Choose your fix** (bit-reversed, UUID, or hash-shard).
+3. **Plan the migration** — coordinate with your team on downtime or dual-write strategy.
+4. **Test in dev/staging** first; confirm the new key distribution with the same query.
+5. **Monitor post-migration** — latency should drop, and throughput should scale linearly with nodes.
+
+See [Schema Design](references/schema-design.md) for deeper guidance on key strategies and multi-tenant patterns.
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify the hotspot problem and recommend BIT_REVERSED_POSITIVE and UUID alternatives. Answer A is more thorough on the irreversibility/migration requirement, providing concrete migration steps including the partitioned DML caveat and dual-write strategy, while Answer B only briefly mentions it. Answer A also adds valuable bonus guidance about secondary index hotspots and includes a diagnostic query, making it more actionable overall.
 
 **Per-criterion verdict (judge)**
 
@@ -41,173 +683,160 @@ do I fix it?
 | identifies hotspot from monotonic key | tie |
 | recommends BIT_REVERSED_POSITIVE | tie |
 | mentions UUID alternative | tie |
-| notes PK change is irreversible / requires migration | baseline |
+| notes PK change is irreversible / requires migration | skill |
 
 **Baseline rubric**
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| identifies hotspot from monotonic key | ✓ | `Hot-Spot` |
-| recommends BIT_REVERSED_POSITIVE | ✓ | `bit_reversed_positive` |
+| identifies hotspot from monotonic key | ✓ | `Hotspot` |
+| recommends BIT_REVERSED_POSITIVE | ✓ | `BIT_REVERSED_POSITIVE` |
 | mentions UUID alternative | ✗ | |
-| notes PK change is irreversible / requires migration | ✓ | `Recreate` |
+| notes PK change is irreversible / requires migration | ✓ | `migrat` |
 
 **Skill rubric**
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| identifies hotspot from monotonic key | ✓ | `Hotspot` |
-| recommends BIT_REVERSED_POSITIVE | ✓ | `bit_reversed_positive` |
-| mentions UUID alternative | ✗ | |
+| identifies hotspot from monotonic key | ✓ | `hotspot` |
+| recommends BIT_REVERSED_POSITIVE | ✓ | `BIT_REVERSED_POSITIVE` |
+| mentions UUID alternative | ✓ | `NEW_UUID` |
 | notes PK change is irreversible / requires migration | ✓ | `cannot alter` |
 
-<details><summary>Baseline answer</summary>
+<details><summary>opus: baseline answer</summary>
 
-# The Problem: Hot-Spotting on a Monotonic Primary Key
+# The Problem: Hotspotting on Monotonically Increasing Keys
 
-Your throughput is flat because Spanner shards data into **splits** based on contiguous primary key ranges. When your PK is a monotonically increasing integer (which `GENERATED BY DEFAULT AS IDENTITY` produces by default — it uses a sequence with `bit_reversed_positive` only if you ask for it, otherwise it's sequential), **every new row lands in the same split**, on the same node. Adding more nodes does nothing because all writes funnel to one server. This is the classic Spanner hot-spot.
+Your `IDENTITY` column is generating sequentially increasing integers (1, 2, 3, ...). In Cloud Spanner, rows are stored sorted by primary key and partitioned into **splits** distributed across nodes. When all new writes target the highest key value, they all land on the **same split**, which lives on a **single node**. Adding more nodes doesn't help because that one split can't be parallelized — it's a classic hotspot.
 
-The ~2k QPS ceiling is roughly the per-split write limit you'll see in practice.
+The ~2k QPS ceiling you're seeing is roughly the write throughput of a single split.
 
-## The Fix: Distribute Writes Across the Key Space
+## How to Fix It
 
-### Option 1 (recommended in Spanner today): Bit-reversed sequence
+You have several options, in roughly increasing order of invasiveness:
 
-Spanner has a built-in identity option for exactly this:
+### 1. Use `BIT_REVERSED_POSITIVE` identity (recommended)
 
-```sql
-CREATE TABLE Foo (
-  Id INT64 DEFAULT (GET_NEXT_SEQUENCE_VALUE(SEQUENCE FooIdSeq)),
-  ...
-) PRIMARY KEY (Id);
-
-CREATE SEQUENCE FooIdSeq OPTIONS (sequence_kind = 'bit_reversed_positive');
-```
-
-Or with identity syntax (GoogleSQL):
+Spanner has built-in support for this exact problem:
 
 ```sql
 Id INT64 GENERATED BY DEFAULT AS IDENTITY (BIT_REVERSED_POSITIVE)
 ```
 
-Bit-reversing a monotonic counter spreads consecutive values uniformly across the int64 keyspace, so writes hit many splits in parallel. Range scans on `Id` are no longer meaningful, but you almost never want those anyway.
+This generates sequence values and then bit-reverses them, so consecutive logical values (1, 2, 3, ...) become widely scattered key values. Writes spread across many splits, and you keep a compact `INT64` key.
 
-### Option 2: UUID primary key
+Caveat: keys are no longer ordered by insertion time, so range scans like `WHERE Id BETWEEN x AND y` for "recent rows" won't work. Use a separate `CreatedAt` column with an index for that.
+
+### 2. Use a UUID
 
 ```sql
 Id STRING(36) DEFAULT (GENERATE_UUID())
 ```
 
-Same effect — random distribution across splits. Slightly larger keys and slightly worse locality than a bit-reversed int64, but very simple.
+Random distribution by construction. Costs more storage and slightly slower comparisons than INT64, but very simple.
 
-### Option 3: Hash-prefix a logical key
+### 3. Add a shard prefix
+
+If you must keep sequential IDs, prepend a hash-based shard:
 
 ```sql
-ShardId INT64 AS (MOD(FARM_FINGERPRINT(CAST(Id AS STRING)), 64)) STORED,
+ShardId INT64,   -- e.g., FARM_FINGERPRINT(...) MOD 64
 Id INT64,
 PRIMARY KEY (ShardId, Id)
 ```
 
-Useful if you must keep the original `Id` and want bounded shard count.
+This is more invasive and complicates queries, so prefer option 1 or 2 unless you have a specific reason.
 
-## What to Do With Your Existing Table
+## What to Verify
 
-You can't alter the PK in place. You'll need to:
+- In **Cloud Console → Spanner → Key Visualizer**, you should see a bright horizontal line at the top of the keyspace — the visual signature of a sequential-key hotspot. After switching to bit-reversed or UUID keys, writes should spread across the keyspace and CPU should distribute across nodes.
+- Note that switching the identity strategy on an existing table requires migrating data (Spanner can't change a primary key in place); typically you create a new table, backfill, and cut over.
 
-1. Create a new table with a bit-reversed identity / UUID PK.
-2. Backfill via `INSERT ... SELECT` (in batched ranges to avoid a giant txn) or Dataflow.
-3. Recreate secondary indexes — and check **those** for hotspots too. An index on `CreatedAt TIMESTAMP` is just as bad as a monotonic PK; consider a bit-reversed shard column as the index's leading key.
-4. Switch reads/writes over and drop the old table.
-
-## Verifying the Fix
-
-- In Cloud Console, check **Key Visualizer** — you should see writes spread across the keyspace instead of a bright vertical line at the top.
-- Check **CPU per node** — it should become roughly even across nodes after the change.
-- Then scale nodes and confirm throughput now grows close to linearly (Spanner targets ~10k writes/sec per node as a rough planning number, workload-dependent).
-
-## A Couple of Other Things Worth Checking While You're In There
-
-- **Interleaved children** of a hot parent inherit the hotspot — fix the parent first.
-- **Large transactions / wide rows** can also cap throughput; keep mutations per commit reasonable (a few thousand mutation count, not hundreds of thousands).
-- **`commit_timestamp=true` columns** in indexes are a notorious hotspot source — same problem, same fix (bit-reversed shard prefix).
-
-Once the PK is no longer monotonic, your "add nodes → get more QPS" scaling story should come back.
+Google explicitly recommends against monotonically increasing primary keys in Spanner for exactly this reason — it's documented under "Schema design best practices."
 
 </details>
 
-<details><summary>Skill-loaded answer</summary>
+<details><summary>opus: skill-loaded answer</summary>
 
-# Cloud Spanner Write Throughput Plateau: Hotspotting on Monotonic Keys
+# Why your throughput is flat
 
-## What's Happening
+Your `Id INT64 GENERATED BY DEFAULT AS IDENTITY` is a **monotonically increasing primary key** — Spanner's `IDENTITY` defaults to producing sequential values. In Spanner, rows are physically ordered by primary key and the keyspace is partitioned into *splits* served by different servers. With sequential IDs, every new insert lands at the high end of the keyspace, so **all writes hit the same split, on the same server**. Adding nodes does nothing because only one node is doing the work.
 
-Your write throughput is flat because of **hotspotting**. Cloud Spanner's `GENERATED BY DEFAULT AS IDENTITY` produces **monotonically increasing sequential integers** (using a bit-reversed sequence... wait, actually no — by default in Spanner, `IDENTITY` columns use a `bit_reversed_positive` sequence, but it depends on how you defined it).
+That ~2k QPS is the per-split write ceiling, and it's why the symptom is "flat regardless of nodes added" — the textbook hotspot signature.
 
-If your DDL is the plain form:
-
-```sql
-Id INT64 GENERATED BY DEFAULT AS IDENTITY
-```
-
-…and you didn't specify a sequence kind, **check whether you're getting sequential values**. If you are, here's the problem:
-
-Spanner shards data into **splits** by primary key range. When all new rows have ever-increasing IDs, every insert lands in the **same right-most split**, which lives on a **single node**. Adding more nodes does nothing because that one split is the bottleneck. You'll see ~2k QPS regardless of node count — exactly your symptom.
-
-## How to Fix It
-
-### Option 1: Use a bit-reversed identity (recommended for Spanner)
+You can confirm with the **Key Visualizer** in the console (look for a bright horizontal band at the top of the keyspace) or:
 
 ```sql
-Id INT64 GENERATED BY DEFAULT AS IDENTITY (BIT_REVERSED_POSITIVE)
+SELECT MOD(FARM_FINGERPRINT(CAST(Id AS STRING)), 100) AS bucket, COUNT(*)
+FROM YourTable
+WHERE InsertTime > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
+GROUP BY bucket
+ORDER BY bucket;
 ```
 
-This generates sequential integers internally, then bit-reverses them, scattering the high-order bits across the entire keyspace. Inserts spread across all splits → linear scaling with nodes.
+If recent rows cluster in one or two buckets, that's the hotspot.
 
-### Option 2: Use UUIDs
+# How to fix it
+
+You **cannot alter the primary key columns of an existing table** in Spanner. The fix is a new table with a non-monotonic key, then a backfill + cutover. You have three good options:
+
+## Option 1: `BIT_REVERSED_POSITIVE` IDENTITY (smallest code change)
 
 ```sql
-Id STRING(36) DEFAULT (GENERATE_UUID())
+CREATE TABLE YourTableV2 (
+  Id INT64 GENERATED BY DEFAULT AS IDENTITY (BIT_REVERSED_POSITIVE),
+  ...
+) PRIMARY KEY (Id);
 ```
 
-UUIDs are random, so writes naturally distribute. Slightly larger keys, but very effective.
+Spanner generates sequential integers internally, then bit-reverses them so consecutive logical values land in completely different parts of the keyspace. Same `INT64` type, same column name, your app code is unchanged. This is the lowest-friction migration.
 
-### Option 3: Hash-prefix the key
-
-Prepend a shard key derived from a hash of some attribute:
+## Option 2: UUID
 
 ```sql
-ShardId INT64 NOT NULL,  -- e.g., FARM_FINGERPRINT(SomeCol) MOD 256
-Id      INT64 NOT NULL,
-PRIMARY KEY (ShardId, Id)
+CREATE TABLE YourTableV2 (
+  Id STRING(36) DEFAULT (GENERATE_UUID()),  -- or NEW_UUID() returning a UUID type
+  ...
+) PRIMARY KEY (Id);
 ```
 
-## Migration Notes
+Random distribution by construction. Choose this if you also want IDs that are globally unique without coordination (e.g., generated client-side).
 
-- You **cannot alter** an existing column's identity kind in place. You'll need to:
-  1. Add a new column with the bit-reversed identity / UUID.
-  2. Backfill (often just `UPDATE` with a generated value).
-  3. Update foreign keys / app code.
-  4. Drop the old column or swap the primary key (which requires creating a new table and copying data, since PKs are immutable).
+## Option 3: ShardId prefix (only if your real key is naturally time-ordered)
 
-## Verifying the Diagnosis Before You Change Anything
+If you actually need a time-ordered key (e.g., an event log), prepend a hash-derived shard:
 
-Open **Cloud Spanner → Key Visualizer** in the console. With monotonic keys you'll see a bright diagonal "scan line" pinned to the top of the keyspace — the classic hotspot signature. After switching to bit-reversed or UUIDs, that line dissolves into evenly distributed activity, and your QPS should scale roughly linearly with node count.
+```sql
+CREATE TABLE Events (
+  ShardId    INT64 AS (MOD(FARM_FINGERPRINT(CAST(EventId AS STRING)), 100)) STORED,
+  EventTime  TIMESTAMP NOT NULL,
+  EventId    STRING(36) NOT NULL,
+  ...
+) PRIMARY KEY (ShardId, EventTime DESC, EventId);
+```
 
-## Other Things Worth Checking
+Pick `N` ≈ your node count × a small factor (e.g., 100 for tens of nodes). Queries for "recent events" must fan out across all shards, so only do this if a synthetic surrogate key (Options 1/2) doesn't fit your access pattern.
 
-- **Indexes**: A secondary index on a monotonic column (timestamp, sequence) creates the same hotspot. Add `STORING` / interleaving carefully, and bit-reverse hot index keys too.
-- **Interleaved tables**: If a child table is interleaved under a parent whose PK is monotonic, the child inherits the hotspot.
-- **Batch size**: Very large transactions can also serialize behind locks; smaller, parallel transactions usually scale better once hotspotting is resolved.
+# Migration steps
 
-Fix the key, and you should see throughput climb roughly linearly with node count up to your workload's natural ceiling.
+1. Create `YourTableV2` with the new key.
+2. Backfill with **Partitioned DML** or a Dataflow job — *not* a single `INSERT … SELECT`, which will blow past the 80,000-mutation / 100 MiB transaction limits.
+3. Dual-write from the application during cutover.
+4. Verify counts and a sample, then switch reads.
+5. Drop the old table.
+
+# Also check
+
+- **Any secondary indexes whose leading column is monotonic** (`CREATE INDEX … ON T(CreatedAt)`, `ON T(Id)`) have the *same* hotspot, even if you fix the table. Index-leading-column rules are the same as PK-leading-column rules.
+- Make sure backfill writes use `client.Apply([]*spanner.Mutation{...})` in batches well under 80K mutations per commit, not one big `ReadWriteTransaction`.
+
+My recommendation: **Option 1 (`BIT_REVERSED_POSITIVE`)** unless you have a reason to prefer UUIDs. It's the minimal change and removes the hotspot completely.
 
 </details>
 
 ---
 
 ### `rwt-aborted-spam`
-
-**Expected:** `skill_wins` · **Met:** ✗ — **[FAILED EXPECTATION]**
 
 **Prompt**
 
@@ -218,7 +847,13 @@ closure does some database reads, makes an HTTP call to a billing
 service, logs the result, then commits. What's wrong?
 ```
 
-**Judge:** **tie** — Both answers are excellent and cover all three rubric criteria thoroughly. Answer A provides slightly more depth on the outbox pattern, idempotency keys, and diagnostic checklist, while Answer B is more concise and arguably better structured with cleaner code examples that show the correct pattern more directly. Both correctly identify closure auto-retry semantics, warn about side effects (HTTP call and logging), and acknowledge that Aborted is normal/expected behavior.
+**Judge focus:** The better answer pinpoints the side effects (HTTP call, log line)
+inside a closure that the client auto-retries on Aborted, and tells
+the user to keep the closure pure.
+
+#### `sonnet`
+
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly identify all three rubric criteria: the auto-retry semantics of the closure on Aborted, the danger of side effects (HTTP call and logging) inside the closure, and that Aborted is a normal/expected Spanner behavior. Answer A is more comprehensive with diagrams, tables, and idempotency key implementation, while Answer B is more concise and arguably clearer in its explanation of why the closure must be pure. Neither answer is meaningfully better across all criteria.
 
 **Per-criterion verdict (judge)**
 
@@ -226,7 +861,7 @@ service, logs the result, then commits. What's wrong?
 | --- | --- |
 | identifies closure auto-retry semantics | tie |
 | warns about side effects in closure | tie |
-| mentions Aborted is normal / expected | tie |
+| mentions Aborted is normal / expected | skill |
 
 **Baseline rubric**
 
@@ -240,155 +875,770 @@ service, logs the result, then commits. What's wrong?
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
+| identifies closure auto-retry semantics | ✓ | `retried` |
+| warns about side effects in closure | ✓ | `side effect` |
+| mentions Aborted is normal / expected | ✗ | |
+
+<details><summary>sonnet: baseline answer</summary>
+
+## The Core Problem
+
+You've put a **long-running, non-idempotent external call inside a Spanner ReadWriteTransaction**. This is a fundamental misuse of the transaction model and explains both symptoms.
+
+---
+
+## Why This Breaks
+
+### Spanner's Transaction Mechanics
+
+```
+ReadWriteTransaction lifecycle:
+┌─────────────────────────────────────────────────────────┐
+│  BEGIN                                                  │
+│    → Spanner acquires read locks                        │
+│    → Reads are buffered at a snapshot timestamp         │
+│    → Writes are buffered CLIENT-SIDE until commit       │
+│  COMMIT                                                 │
+│    → Spanner validates no conflicting writes occurred   │
+│    → If conflict detected → ABORT → client must retry   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### What Your Code Is Doing
+
+```go
+// ❌ BROKEN PATTERN
+client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+    // 1. Read from Spanner (acquires locks, starts clock)
+    row, err := txn.ReadRow(ctx, "Accounts", key, []string{"balance"})
+    
+    // 2. HTTP call to billing service
+    //    - Could take 200ms, 2s, or timeout entirely
+    //    - Spanner locks are HELD during this entire time
+    //    - Other transactions touching same rows → ABORTED
+    result, err := billingService.Charge(amount) // ← THE PROBLEM
+    
+    // 3. Log result (more time with locks held)
+    log.Info("charged", result)
+    
+    // 4. Commit (may find conflicts accumulated during steps 2-3)
+    return txn.BufferWrite([]*spanner.Mutation{...})
+})
+```
+
+### The Failure Cascade
+
+```
+Transaction A (yours):     BEGIN → Read → [HTTP: 800ms] → Commit attempt → ABORT
+                                           ↑ locks held
+Transaction B (other):     BEGIN → Read → Write → Commit ✓
+                                                    ↑ now A's read data is stale → A aborts
+
+Spanner retries A:         BEGIN → Read → [HTTP: 800ms] → ABORT again
+                                    ↑ billing was already charged!
+```
+
+**Two concrete disasters:**
+1. **Double-charging**: The HTTP call succeeded, transaction aborted, Spanner retries, HTTP call fires again
+2. **Cascading aborts**: Long lock hold time blocks other transactions, causing their abort rate to spike too
+
+---
+
+## The Fix: Move Side Effects Outside the Transaction
+
+### Correct Pattern
+
+```go
+// ✅ CORRECT PATTERN
+
+func ProcessPayment(ctx context.Context, accountID string, amount int64) error {
+    
+    // ── Phase 1: Read data OUTSIDE or in a read-only transaction ──
+    var currentBalance int64
+    _, err := client.ReadOnlyTransaction().ReadRow(ctx, "Accounts",
+        spanner.Key{accountID}, []string{"balance"}, // no locks held
+    )
+    // ... populate currentBalance
+    
+    // ── Phase 2: External call OUTSIDE any transaction ──
+    billingResult, err := billingService.Charge(ctx, amount)
+    if err != nil {
+        return fmt.Errorf("billing failed before any DB write: %w", err)
+    }
+    
+    // ── Phase 3: Short, fast ReadWriteTransaction ──
+    _, err = client.ReadWriteTransaction(ctx, 
+        func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+            // Re-read inside transaction to validate state hasn't changed
+            row, err := txn.ReadRow(ctx, "Accounts", spanner.Key{accountID}, []string{"balance"})
+            if err != nil {
+                return err
+            }
+            var balance int64
+            row.Column(0, &balance)
+            
+            // Validate preconditions are still true
+            if balance != currentBalance {
+                return fmt.Errorf("balance changed, aborting")
+            }
+            
+            // Only fast, local operations here
+            return txn.BufferWrite([]*spanner.Mutation{
+                spanner.Update("Accounts", []string{"balance", "last_billing_ref"},
+                    []interface{}{balance - amount, billingResult.RefID}),
+            })
+        },
+    )
+    
+    // ── Phase 4: Log AFTER commit ──
+    if err == nil {
+        log.Info("payment processed", "ref", billingResult.RefID)
+    }
+    return err
+}
+```
+
+---
+
+## Handling the Idempotency Problem
+
+Since the HTTP call can succeed but the transaction can fail, you need idempotency keys:
+
+```go
+func ProcessPayment(ctx context.Context, accountID string, amount int64) error {
+    // Generate idempotency key BEFORE any calls
+    idempotencyKey := fmt.Sprintf("%s-%s", accountID, uuid.New().String())
+    
+    // Check if already processed (handles crash-restart scenarios)
+    if ref, ok := checkAlreadyProcessed(ctx, idempotencyKey); ok {
+        return nil // already done
+    }
+    
+    // Call billing with idempotency key
+    // If this is retried, billing service returns same result, no double charge
+    billingResult, err := billingService.Charge(ctx, ChargeRequest{
+        Amount:         amount,
+        IdempotencyKey: idempotencyKey, // ← billing service deduplicates
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Commit to Spanner, storing the idempotency key
+    _, err = client.ReadWriteTransaction(ctx,
+        func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+            // Check idempotency key in Spanner too
+            _, err := txn.ReadRow(ctx, "ProcessedPayments", 
+                spanner.Key{idempotencyKey}, []string{"ref"})
+            if err == nil {
+                return nil // already committed, this is a retry
+            }
+            if spanner.ErrCode(err) != codes.NotFound {
+                return err
+            }
+            
+            return txn.BufferWrite([]*spanner.Mutation{
+                spanner.Insert("ProcessedPayments",
+                    []string{"idempotency_key", "ref", "created_at"},
+                    []interface{}{idempotencyKey, billingResult.RefID, spanner.CommitTimestamp},
+                ),
+                spanner.Update("Accounts",
+                    []string{"account_id", "balance"},
+                    []interface{}{accountID, spanner.GenericColumnValue{...}},
+                ),
+            })
+        },
+    )
+    return err
+}
+```
+
+---
+
+## Rules for ReadWriteTransaction Closures
+
+```
+✅ ALLOWED                          ❌ NEVER DO THIS
+─────────────────────────────────   ──────────────────────────────────
+txn.Read / txn.ReadRow              HTTP calls
+txn.BufferWrite (mutations)         gRPC calls to other services  
+Local computation                   Database calls to OTHER databases
+Validation logic                    Sleeps / time.Sleep
+Short loops over read results        Kafka/Pub-Sub publish
+                                    File I/O
+                                    Anything that can be slow or fail
+```
+
+### Keep Transactions Short
+
+```
+Target:  < 10 seconds total (Spanner's limit is 10s read staleness)
+Ideal:   < 100ms
+Reality: If you need > 1s, redesign the flow
+```
+
+---
+
+## Diagnosing Your Current Situation
+
+```go
+// Add this to measure transaction duration
+start := time.Now()
+_, err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+    defer func() {
+        log.Info("txn attempt duration", "ms", time.Since(start).Milliseconds())
+        start = time.Now() // reset for retry timing
+    }()
+    // ...
+})
+
+// Check abort rate via Spanner metrics in Cloud Monitoring:
+// spanner.googleapis.com/api/request_count filtered by 
+// method=Commit and status=ABORTED
+```
+
+---
+
+## Summary
+
+| Problem | Cause | Fix |
+|---|---|---|
+| Aborted errors | HTTP call holds locks too long, conflicts accumulate | Move HTTP call before transaction |
+| Latency spikes | Aborts cause retries, each retry repeats the HTTP call | Idempotency keys + restructure |
+| Potential double-charge | Retry fires HTTP call again after abort | Idempotency key on billing API |
+| Lock contention on other txns | Your long transaction blocks concurrent writers | Short transactions only |
+
+The transaction closure should be **fast, local, and deterministic**. Everything else belongs outside it.
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+Several things in that transaction closure are working against you. Let me break down each problem and how to fix it.
+
+## What's Wrong
+
+### 1. HTTP call inside a read-write transaction (critical)
+
+This is the most dangerous issue. While your transaction is open, Spanner holds locks on every row you've read. An HTTP call to a billing service might take 50ms on a good day and 5 seconds when it's slow — during all of that time, your locks are held and other transactions trying to touch the same rows will either block or abort.
+
+**Additionally:** the Go client automatically retries `Aborted` transactions by re-running your closure. If the HTTP call has side effects (charging a card, sending an email, incrementing a counter), it will fire multiple times. This is likely already happening to you.
+
+### 2. Logging inside the closure (moderate)
+
+Same retry problem. If the closure runs three times before it commits, you get three log lines for one logical operation — misleading at best, and if your logging pipeline is slow, it adds latency to every retry.
+
+### 3. Large or broad reads inside the transaction (possible)
+
+If your reads inside the closure aren't tightly scoped by key, they acquire more locks and increase the chance of conflicting with concurrent writers, which causes more aborts, which causes more retries, which causes more HTTP calls.
+
+---
+
+## The Fix: Move Side Effects Outside the Transaction
+
+The rule is: **the closure must be a pure, repeatable function.** Only reads and writes to Spanner belong inside it.
+
+```go
+// BEFORE: everything tangled together
+_, err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+    // reads...
+    row, err := txn.ReadRow(ctx, "Orders", spanner.Key{orderID}, []string{"amount", "status"})
+    // ...
+
+    // ❌ HTTP call holds locks and fires on every retry
+    resp, err := billingClient.Charge(ctx, amount)
+
+    // ❌ Logs fire on every retry
+    log.Printf("charged customer: %v", resp)
+
+    // write...
+    return txn.BufferWrite([]*spanner.Mutation{...})
+})
+```
+
+```go
+// AFTER: transaction is pure; side effects happen outside
+
+// Step 1: Read what you need in a read-only transaction (no locks held long-term).
+// Use ReadOnlyTransaction if you need multiple consistent reads.
+var amount int64
+var status string
+row, err := client.Single().ReadRow(ctx, "Orders", spanner.Key{orderID}, []string{"amount", "status"})
+if err != nil {
+    return err
+}
+if err := row.Columns(&amount, &status); err != nil {
+    return err
+}
+
+// Step 2: Make the HTTP call before opening the read-write transaction.
+// This is still outside any Spanner transaction — no locks held.
+resp, err := billingClient.Charge(ctx, amount)
+if err != nil {
+    return err
+}
+
+// Step 3: Open the read-write transaction only for the atomic write.
+// The closure is now short, pure, and safe to retry.
+_, err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+    // Re-read inside the transaction to guard against concurrent modification.
+    row, err := txn.ReadRow(ctx, "Orders", spanner.Key{orderID}, []string{"status"})
+    if err != nil {
+        return err
+    }
+    var currentStatus string
+    if err := row.Columns(&currentStatus); err != nil {
+        return err
+    }
+    if currentStatus != status {
+        // Someone else modified the row between our read and now — abort cleanly.
+        return fmt.Errorf("order status changed, aborting: %w", ErrConflict)
+    }
+
+    return txn.BufferWrite([]*spanner.Mutation{
+        spanner.Update("Orders", []string{"order_id", "status", "billing_ref"},
+            []interface{}{orderID, "CHARGED", resp.ReferenceID}),
+    })
+})
+if err != nil {
+    return err
+}
+
+// Step 4: Log after the commit, once, with certainty.
+log.Printf("order %v charged, billing ref %v", orderID, resp.ReferenceID)
+```
+
+---
+
+## Key Principles to Remember
+
+| Rule | Reason |
+|---|---|
+| No network I/O inside `ReadWriteTransaction` | Holds locks for the duration; causes cascading aborts |
+| No side effects inside the closure | The client retries on `Aborted`; your closure can run 2–5+ times |
+| No logging inside the closure | Fires on every retry; misleads debugging |
+| Re-read critical state inside the transaction | The pre-transaction read may be stale by commit time |
+| Keep the closure as short as possible | Shorter lock hold time = fewer conflicts = fewer aborts |
+| Use `ReadOnlyTransaction` or `Single()` for reads that don't need to gate a write | No locks, no aborts, lower latency |
+
+The HTTP call idempotency problem is worth a separate conversation with your billing team — if Spanner retried your closure three times before committing, you may have already charged customers multiple times. Check whether `billingClient.Charge` is idempotent (i.e., accepts a caller-supplied idempotency key) and add one if not.
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer A more thoroughly addresses all three rubric criteria: it explicitly names the auto-retry semantics of the closure, clearly warns about side effects (HTTP calls, logging) firing on every retry with concrete duplicate-charge risk, and explicitly states that Aborted errors are the retries themselves (i.e., normal/expected behavior). Answer B covers the same ground but less explicitly on the 'Aborted is normal' point and with less depth on the auto-retry mechanism. Both are correct and useful, but A is more comprehensive and precise.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| identifies closure auto-retry semantics | skill |
+| warns about side effects in closure | skill |
+| mentions Aborted is normal / expected | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies closure auto-retry semantics | ✓ | `retries` |
+| warns about side effects in closure | ✓ | `Idempotent` |
+| mentions Aborted is normal / expected | ✗ | |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies closure auto-retry semantics | ✓ | `auto-retr` |
+| warns about side effects in closure | ✓ | `side effect` |
+| mentions Aborted is normal / expected | ✓ | `transient` |
+
+<details><summary>haiku: baseline answer</summary>
+
+# The Problem: Non-Idempotent Work in Transaction Closure
+
+Your transaction is doing **non-database work inside the transaction**, which causes problems:
+
+1. **HTTP call to billing service** - This is outside Spanner's control and can fail independently
+2. **Logging** - Adds latency within the transaction window
+3. **Aborts on retry** - When Spanner retries (due to conflicts), the HTTP call executes again, potentially charging twice
+
+## Why You're Seeing Aborts + Latency Spikes
+
+- Spanner aborts transactions on conflicts and retries them automatically
+- Your HTTP call executes on every retry attempt
+- The logging and HTTP latency extends your transaction duration, increasing conflict likelihood
+- Longer transactions = higher chance of conflicts with concurrent transactions
+
+## The Fix: Move Non-Database Work Outside
+
+```go
+var billingResult string
+var err error
+
+// Transaction: ONLY database operations
+err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+    // Read data
+    row, err := txn.ReadRow(ctx, "table", spanner.Key{id}, []string{"col"})
+    if err != nil {
+        return err
+    }
+    
+    // Modify data
+    err = txn.BufferWrite([]*spanner.Mutation{
+        spanner.Update("table", []string{"col"}, []interface{}{newValue}),
+    })
+    
+    return err
+})
+
+if err != nil {
+    return err
+}
+
+// AFTER transaction commits: do HTTP call
+billingResult, err = callBillingService(ctx, data)
+if err != nil {
+    // Handle billing failure separately - transaction already committed
+    log.Printf("Billing call failed: %v", err)
+    return err
+}
+
+// Then log
+log.Printf("Billing result: %s", billingResult)
+```
+
+## Key Principles
+
+| ✅ Do Inside Transaction | ❌ Don't Inside Transaction |
+|---|---|
+| Spanner reads/writes | HTTP/RPC calls |
+| Data validation | External API calls |
+| Conditional logic | Logging |
+| | Sleep/delays |
+
+## Additional Optimization
+
+If you need the billing result *before* committing, restructure:
+
+```go
+// 1. Read billing info from Spanner
+// 2. Close transaction
+// 3. Call billing service with that info
+// 4. If billing succeeds, do a separate transaction to update status
+```
+
+This keeps transactions short and focused on database consistency.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# The Problem: Your Transaction Closure Violates the "Pure Function" Rule
+
+You've hit a classic Spanner anti-pattern. Your `ReadWriteTransaction` closure is **impure** — it has side effects (HTTP call, logging) that execute *every time the transaction retries*. Here's what's happening:
+
+1. **Transaction starts**, reads from DB, calls billing service, logs result, prepares commit.
+2. **Conflict or transient error** → Spanner aborts the transaction.
+3. **Go client auto-retries** the entire closure (this is automatic; you don't control it).
+4. **HTTP call fires again** (duplicate charge risk, duplicate logs, wasted latency).
+5. **Repeat** until success or max retries exhausted.
+
+The spiking latency is the HTTP call being made multiple times per logical operation. The `Aborted` errors in logs are the retries themselves.
+
+---
+
+## The Fix: Separate Read-Only Work from Write Work
+
+Move the HTTP call **outside** the transaction:
+
+```go
+// ❌ WRONG: HTTP call inside transaction closure
+err := client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+    row, err := txn.ReadRow(ctx, "Users", spanner.Key{userID}, []string{"balance"})
+    if err != nil {
+        return err
+    }
+    var balance int64
+    row.ColumnByName("balance", &balance)
+    
+    // ❌ This fires on every retry!
+    resp, err := http.Post("https://billing.example.com/charge", ...)
+    if err != nil {
+        return err
+    }
+    
+    // ❌ This logs on every retry!
+    log.Printf("Charged user: %v", resp)
+    
+    // Now write the result
+    txn.BufferWrite(&spanner.Mutation{...})
+    return nil
+})
+```
+
+**✅ CORRECT: Read outside, write inside**
+
+```go
+// Step 1: Read-only work (no transaction needed, or use ReadOnlyTransaction)
+row, err := client.Single().ReadRow(ctx, "Users", spanner.Key{userID}, []string{"balance"})
+if err != nil {
+    return err
+}
+var balance int64
+row.ColumnByName("balance", &balance)
+
+// Step 2: External call (outside any transaction)
+resp, err := http.Post("https://billing.example.com/charge", ...)
+if err != nil {
+    return err
+}
+log.Printf("Charged user: %v", resp)
+
+// Step 3: Write-only transaction (short, pure, no side effects)
+err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+    // Verify the balance hasn't changed (or accept stale read)
+    // Then write the charge record
+    txn.BufferWrite(&spanner.Mutation{
+        Table:   "Charges",
+        Columns: []string{"ChargeId", "UserId", "Amount", "Timestamp"},
+        Values: []interface{}{
+            spanner.CommitTimestamp,
+            userID,
+            chargeAmount,
+            time.Now(),
+        },
+    })
+    return nil
+})
+```
+
+---
+
+## Why This Matters
+
+| Aspect | Impact |
+|---|---|
+| **Retry semantics** | `ReadWriteTransaction` auto-retries on `Aborted`. Your closure runs N times; side effects fire N times. |
+| **Idempotency** | HTTP calls are not idempotent by default. Retrying a charge request can double-charge. |
+| **Latency** | Each retry adds the full HTTP round-trip. Spiking latency = multiple retries per request. |
+| **Abort rate** | Longer transactions (with I/O waits) have higher abort probability. Shorter = fewer retries. |
+
+---
+
+## Additional Hardening
+
+If you **must** read and write in the same transaction (e.g., to enforce a constraint atomically), keep the closure **pure**:
+
+```go
+err := client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+    // Read
+    row, err := txn.ReadRow(ctx, "Users", spanner.Key{userID}, []string{"balance"})
+    if err != nil {
+        return err
+    }
+    var balance int64
+    row.ColumnByName("balance", &balance)
+    
+    // Compute (no I/O, no side effects)
+    newBalance := balance - chargeAmount
+    if newBalance < 0 {
+        return fmt.Errorf("insufficient balance")
+    }
+    
+    // Write
+    txn.BufferWrite(&spanner.Mutation{
+        Table:   "Users",
+        Columns: []string{"UserId", "Balance"},
+        Values: []interface{}{userID, newBalance},
+    })
+    return nil
+})
+
+// ✅ Side effects happen AFTER commit succeeds
+if err == nil {
+    log.Printf("Charged user: %d", userID)
+    // Safe to call billing service now (or queue async)
+}
+```
+
+---
+
+## Checklist
+
+- [ ] Move all HTTP calls, external API calls, and logging **outside** the `ReadWriteTransaction` closure.
+- [ ] Use `client.Single().ReadRow()` or `client.ReadOnlyTransaction()` for read-only work.
+- [ ] Keep the `ReadWriteTransaction` closure **pure**: reads + computes + writes, no side effects.
+- [ ] Defer `client.Close()` and `iter.Stop()` to avoid session pool leaks (see [Go Client SDK](references/go-client.md)).
+- [ ] If you need to log/notify after a successful commit, do it after the `ReadWriteTransaction` returns `nil`.
+
+See [Transactions](references/transactions.md) for more on abort semantics and [Go Client SDK](references/go-client.md) for session pool discipline.
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify the core issues, but Answer B is more precise and complete on the auto-retry/side-effects problem, explicitly calling out double-billing as a concrete consequence and providing a cleaner three-phase refactor pattern. Answer B also more clearly explains that Aborted is normal/expected Spanner behavior (part of wound-wait machinery) and that log noise from retries is expected, while Answer A buries these points. The summary table in B makes the diagnosis immediately actionable.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| identifies closure auto-retry semantics | skill |
+| warns about side effects in closure | skill |
+| mentions Aborted is normal / expected | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
 | identifies closure auto-retry semantics | ✓ | `retries` |
 | warns about side effects in closure | ✓ | `side effect` |
 | mentions Aborted is normal / expected | ✓ | `contention` |
 
-<details><summary>Baseline answer</summary>
+**Skill rubric**
 
-# The Core Problem: Side Effects Inside the Transaction Closure
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies closure auto-retry semantics | ✓ | `auto-retr` |
+| warns about side effects in closure | ✓ | `side effect` |
+| mentions Aborted is normal / expected | ✓ | `contention` |
 
-Your transaction closure is doing an **HTTP call to a billing service** inside `ReadWriteTransaction`. That's the root cause of both symptoms.
+<details><summary>opus: baseline answer</summary>
 
-## Why You're Getting `Aborted` Errors
+# The Problem: HTTP Call Inside Your Transaction
 
-Spanner's `ReadWriteTransaction` uses **pessimistic locking with abort-and-retry semantics**:
+The HTTP call to your billing service is the root cause of both issues. Here's why:
 
-1. Reads inside the transaction acquire shared locks on the rows/ranges you touch.
-2. If another transaction needs to acquire a conflicting lock, Spanner may abort yours to break a deadlock or honor priority.
-3. The longer your transaction holds locks, the larger the window for conflicts → the more aborts you see.
+## Why Aborted Errors Spike
 
-An HTTP call to billing can take anywhere from tens of milliseconds to several seconds (or time out). During all that time, your locks are held. Under any concurrency, conflicts and aborts skyrocket.
+Spanner uses **pessimistic locking with deadlock detection** in read-write transactions. When your closure runs, it holds locks on the rows you've read. While your transaction is blocked waiting on an HTTP response (which could be 100ms–several seconds), other transactions touching the same rows pile up. Spanner resolves lock contention by **aborting** transactions — usually the younger ones, but sometimes yours.
+
+The longer you hold locks, the higher the abort probability grows. And since `ReadWriteTransaction` automatically retries the closure on `Aborted`, every retry re-runs the HTTP call, compounding the problem.
 
 ## Why Latency Spikes
 
-Two compounding effects:
-
-- **Lock contention**: other transactions queue behind yours waiting on the same rows.
-- **Retry amplification**: the Go client retries `Aborted` transactions automatically by re-running your closure. If your closure makes the HTTP call again, you pay that cost N times — and you may double-bill the customer.
-
-## Why It's Also Dangerous (Correctness)
-
-Your closure **must be idempotent and side-effect-free** because the client library can and will re-execute it on `Aborted`. Specifically:
-
-- The HTTP call to billing may run multiple times → duplicate charges.
-- Your log line may print stale or inconsistent data from a retried attempt.
-- Anything you mutate outside Spanner (in-memory caches, channels, metrics) can drift.
-
-The Spanner Go docs are explicit: the function passed to `ReadWriteTransaction` may be called more than once, and it should not have side effects outside the transaction.
-
-## How to Fix It
-
-Restructure into three phases:
-
-```go
-// 1. Read phase — short Spanner read-only transaction (or single-use read).
-var input InputData
-_, err := client.ReadOnlyTransaction().Query(ctx, ...) // gather data
-if err != nil { return err }
-
-// 2. External call phase — outside any Spanner txn.
-billingResp, err := billing.Charge(ctx, input)
-if err != nil { return err }
-
-// 3. Write phase — short ReadWriteTransaction that re-validates and writes.
-_, err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-    // Re-read anything you must check for conflicts (optimistic check).
-    // Apply mutations based on billingResp.
-    return txn.BufferWrite([]*spanner.Mutation{ ... })
-})
-```
-
-Additional recommendations:
-
-- **Idempotency key**: pass a stable idempotency key to the billing API so retries on *your* side (not Spanner's) are safe.
-- **Outbox pattern**: if you need atomic "DB change + external side effect," write an outbox row inside the Spanner txn and have a separate worker dispatch the HTTP call. This is the standard fix when you truly need transactional guarantees with an external system.
-- **Move logging out** of the closure too, or at minimum keep it cheap and assume it may run multiple times.
-- **Keep `ReadWriteTransaction` closures short**: only Spanner reads/writes, no I/O, no `time.Sleep`, no channel ops that could block.
-- **Don't swallow `Aborted`**: let the client library retry it. If you wrap or transform the error, retries break and you'll see even more failures bubble up.
-- **Check for hot rows/indexes**: if many transactions touch the same row (counters, sequences), you'll get aborts even with fast closures. Shard the hot key.
-
-## Quick Diagnostic Checklist
-
-- Is any non-Spanner I/O inside the closure? → move it out.
-- Is the closure idempotent? → it must be.
-- Are you returning the original `Aborted` error so the client can retry? → don't wrap it with `fmt.Errorf("%v", err)`; use `%w` if you must.
-- Are you measuring closure duration? → add a span/metric; aim for single-digit milliseconds.
-- Are you using `context.WithTimeout` *inside* the closure for an HTTP call? → that's a smell you shouldn't have an HTTP call there at all.
-
-The TL;DR: **HTTP call belongs outside the transaction.** Use the read → external-call → write pattern, or an outbox if you need atomicity.
-
-</details>
-
-<details><summary>Skill-loaded answer</summary>
-
-# The Problem: External I/O Inside Your Transaction
-
-The HTTP call to the billing service is the root cause of both symptoms. Here's why:
-
-## Why You're Seeing `Aborted` Errors
-
-Spanner uses **pessimistic locking** for read/write transactions. When your closure reads rows, Spanner acquires shared locks; on commit it upgrades them. While you're blocked on the HTTP call:
-
-1. Your transaction holds locks on every row you read.
-2. Other transactions that touch the same rows can cause Spanner to abort one side to break lock conflicts (or hit the **wound-wait** deadlock prevention path — older transactions "wound" younger ones).
-3. The Spanner client library **automatically retries** `Aborted` errors by re-running your closure. So your HTTP call (and its side effects) may execute multiple times.
-
-The longer the closure runs, the wider the window for conflict, so abort rates grow non-linearly with closure latency.
-
-## Why Latency Is Spiking
-
-- Locks held during the HTTP call serialize unrelated traffic behind you.
-- Every abort means a full re-execution of reads + the HTTP call + logging.
-- Tail latency on the billing service becomes tail latency on Spanner commits.
-- You may also be hitting the transaction's **idle/lock timeouts**, forcing further retries.
+- Lock hold time = DB read time + **HTTP RTT** + log time + commit time
+- On abort + retry, you pay the HTTP cost *again* (and again)
+- Other transactions queue behind your locks, creating a cascade
 
 ## What to Fix
 
-**Rule of thumb: a `ReadWriteTransaction` closure must be fast, deterministic, idempotent, and contain no external I/O or non-idempotent side effects.**
+**Rule:** Spanner read-write transaction closures must be:
+- Fast
+- Idempotent (they may run multiple times)
+- Free of external I/O (no HTTP, no queues, no blocking RPCs)
+- Free of side effects you can't undo (no logging that implies "committed", no metrics increments that count "success")
 
-Refactor like this:
+## Refactor Patterns
+
+### 1. Move the HTTP call out of the transaction
 
 ```go
-// 1. Do the external work BEFORE the transaction.
-billingResp, err := billingClient.Charge(ctx, req)
-if err != nil {
-    return err
-}
-log.Info("billing result", "id", billingResp.ID)
+// Step 1: read what you need in a read-only transaction (or first RW txn)
+data, err := client.Single().ReadRow(ctx, ...)
 
-// 2. Transaction does only Spanner work — short, retry-safe.
+// Step 2: external call OUTSIDE Spanner
+billingResp, err := billingClient.Charge(ctx, data)
+
+// Step 3: write result in a short RW transaction
 _, err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-    // reads
-    row, err := txn.ReadRow(ctx, "Accounts", spanner.Key{accountID}, []string{"Balance"})
-    if err != nil { return err }
-    // writes based on billingResp
-    return txn.BufferWrite([]*spanner.Mutation{
-        spanner.Update("Accounts", []string{"ID", "Balance"}, []interface{}{accountID, newBalance}),
-    })
+    // verify preconditions still hold (optimistic check)
+    // write billingResp
+    return nil
 })
 ```
 
-## Additional Guidance
+### 2. If the HTTP call must be transactional, use the outbox pattern
 
-- **Don't log inside the closure** at info level for the same reason — duplicate log lines on retry are confusing, and synchronous logging adds latency. Log *after* the transaction returns, or log the attempt count via `txn.Tag` / OpenTelemetry spans.
-- **Make the closure idempotent.** Don't mutate Go state outside the closure (counters, slices, channels) — those side effects will be duplicated on retry.
-- **If you truly need an external call coordinated with a write**, use one of:
-  - **Outbox pattern**: write an "intent" row in the transaction, have a worker call billing and write back the result.
-  - **Two-phase**: call billing first, then commit Spanner with the billing reference (compensate on Spanner failure).
-- **Read-only work?** Use `client.Single()` or `ReadOnlyTransaction` — no locks, no aborts.
-- **Reduce contention** by reading only the columns/rows you need, using `KeySet` precisely, and ordering reads consistently across transactions to reduce deadlock risk.
-- **Monitor** `spanner/abort_count` and the `cloud.google.com/go/spanner` retry metrics; if aborts persist after removing the HTTP call, look for hot rows / hot index ranges.
+Write an "intent" row inside the transaction, and have a worker make the HTTP call afterward and write back the result.
 
-Move the HTTP call out of the closure first — that alone typically eliminates the abort storm and the latency spikes.
+### 3. Move logging out
+
+Capture data in local variables inside the closure, then log **after** `ReadWriteTransaction` returns successfully. Logging "charged customer X" inside the closure is misleading because the txn may abort and retry, or fail to commit.
+
+## Other Things to Check
+
+- **Don't return early without an error** if you abandon work — make sure the closure is truly idempotent
+- **Use stale reads** (`client.Single().WithTimestampBound(...)`) for the read-only portion if you don't need strong consistency
+- **Narrow your reads**: only lock rows you'll actually mutate; consider `spanner.KeySetFromKeys` rather than wide ranges
+- **Check `ErrCode(err) == codes.Aborted` retry behavior** — the helper retries automatically, but verify you're not wrapping/swallowing the error in a way that breaks retry
+
+Fix the HTTP-in-transaction issue first; that alone usually eliminates the abort spikes and latency tail.
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
+
+Several things are wrong, and they compound. Let me unpack them in priority order.
+
+## 1. The HTTP call inside the transaction is the root cause
+
+Spanner's `ReadWriteTransaction` holds locks on every row you read (pessimistic locking with shared/exclusive locks). The longer the transaction is open, the longer those locks are held, and the higher the chance another transaction touches the same rows and forces an abort.
+
+An HTTP call to a billing service can easily take 100ms–5s. During that entire window:
+- Your read locks block other writers on those rows.
+- Other transactions waiting on those locks accumulate.
+- Spanner's deadlock/wound-wait machinery starts aborting transactions to break contention.
+- Your own transaction is more likely to get aborted by a higher-priority one.
+
+This is the classic anti-pattern. **No network I/O, no slow CPU work, no external side effects belong inside a `ReadWriteTransaction` closure.**
+
+## 2. The auto-retry is double-firing your side effects
+
+The Go client (`client.ReadWriteTransaction`) automatically retries on `Aborted`. Your closure can run **multiple times**. That means:
+
+- The HTTP call to billing fires repeatedly — you may be double-charging customers, or at minimum doing duplicate work.
+- The log line fires repeatedly — which is probably why your "Aborted errors in the logs" looks worse than it is. Some of those log lines are from retried attempts of the *same* logical transaction that eventually succeeded.
+- Any other side effect (metrics increments, queue publishes, cache writes) also double-fires.
+
+The closure must be **pure with respect to side effects**: only Spanner reads/writes inside, everything else outside.
+
+## 3. The fix: restructure into three phases
+
+```go
+// Phase 1: read what you need (read-only transaction, no locks, no aborts)
+var inputs InputData
+_, err := client.ReadOnlyTransaction().Query(ctx, ...)  // defer Close on the txn
+// ... populate inputs ...
+
+// Phase 2: do the slow/external work OUTSIDE any transaction
+billingResult, err := billingClient.Charge(ctx, inputs)
+if err != nil { return err }
+log.Info("billed", "result", billingResult)
+
+// Phase 3: short read-write transaction that only touches Spanner
+_, err = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+    // Re-read anything you need to verify hasn't changed (optimistic check),
+    // then write. No HTTP, no logging, no external calls.
+    return txn.BufferWrite([]*spanner.Mutation{...})
+})
+```
+
+If the write must be conditional on data that might have changed between phase 1 and phase 3, re-read it inside phase 3 and check invariants there. That's the only thing the read-write transaction is for: atomic read-then-write on Spanner state.
+
+## 4. Other things to check
+
+- **`defer txn.Close()` on every `ReadOnlyTransaction`** and **`defer iter.Stop()` on every `RowIterator`** (or use `iter.Do(...)`). Missing these leaks sessions and eventually wedges the pool, which also presents as latency spikes.
+- **Don't log inside the closure.** If you need observability for retries, instrument *around* the `ReadWriteTransaction` call and log once with the final outcome.
+- **Idempotency for the billing call.** Even outside the transaction, the request itself can fail and be retried by you. Pass an idempotency key so the billing service dedupes.
+
+## Summary
+
+| Problem | Cause | Fix |
+|---|---|---|
+| `Aborted` errors | HTTP call inside txn holds locks too long → contention | Move HTTP call out |
+| Latency spikes | Same — long transactions queue behind each other | Short transactions only |
+| Log noise | Auto-retry runs the closure (and its side effects) multiple times | No side effects in closure; log once outside |
+| Possible double-billing | Same as log noise, but with money | Move billing out; use idempotency key |
+
+The mental model: `ReadWriteTransaction` is for atomically reading and writing Spanner rows. Anything else — networking, logging, metrics, computation that doesn't need the locks — goes outside.
 
 </details>
 
 ---
 
 ### `like-prefix-not-using-index`
-
-**Expected:** `skill_wins` · **Met:** ✗ — **[FAILED EXPECTATION]**
 
 **Prompt**
 
@@ -398,14 +1648,402 @@ slow even though I have an index on name. The prefix is bound as a
 parameter like 'jane%'. Why won't the index get used?
 ```
 
-**Judge:** **tie** — Both answers are nearly identical in quality, correctly recommending STARTS_WITH, explaining why parameterized LIKE blocks the optimizer, and mentioning FORCE_INDEX and EXPLAIN. Answer B includes a direct quote from Spanner docs which adds credibility, while Answer A provides slightly more detail on edge cases like interleaved tables and NULL_FILTERED indexes. Neither has a meaningful advantage over the other across all rubric criteria.
+**Judge focus:** The better answer names STARTS_WITH as the Spanner-specific
+replacement and explains why parameterized LIKE blocks the optimizer.
+
+#### `sonnet`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer B directly addresses the core issue by naming STARTS_WITH as the Spanner-specific replacement and clearly explaining why parameterized LIKE blocks the optimizer (opaque parameter prevents plan-time range inference). Answer A incorrectly claims the primary issue is that Spanner requires explicit index hints for all queries, which is misleading — the real problem is LIKE with a parameter, and STARTS_WITH is the proper fix. Answer B also provides a more accurate and complete explanation across all rubric criteria.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends STARTS_WITH | skill |
+| explains why LIKE blocks index use | skill |
+| mentions FORCE_INDEX or EXPLAIN | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends STARTS_WITH | ✗ | |
+| explains why LIKE blocks index use | ✗ | |
+| mentions FORCE_INDEX or EXPLAIN | ✓ | `FORCE_INDEX` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends STARTS_WITH | ✓ | `STARTS_WITH` |
+| explains why LIKE blocks index use | ✓ | `plan cach` |
+| mentions FORCE_INDEX or EXPLAIN | ✓ | `FORCE_INDEX` |
+
+<details><summary>sonnet: baseline answer</summary>
+
+## Why Your Index Isn't Being Used
+
+This is a common Spanner gotcha. The short answer: **Spanner won't automatically use a secondary index — you have to explicitly direct it to.**
+
+---
+
+## The Core Problem
+
+Unlike many databases, **Cloud Spanner requires you to explicitly hint the index** in your query. Without the hint, the query planner performs a full table scan regardless of whether a matching index exists.
+
+```sql
+-- ❌ This will full-scan the Users table even with an index on `name`
+SELECT * FROM Users
+WHERE name LIKE @prefix
+
+-- ✅ This will use the index
+SELECT * FROM Users@{FORCE_INDEX=UsersByName}
+WHERE name LIKE @prefix
+```
+
+---
+
+## A Second Problem: `SELECT *` Defeats Index Scans
+
+Even with the index hint, `SELECT *` causes a **back-join** to the base table because the index only stores the `name` column (plus the primary key).
+
+```
+Index scan → fetch indexed rows
+         ↓
+    Back-join to base table for every other column  ← expensive
+```
+
+### Solutions
+
+**Option 1: Select only indexed columns (covering query)**
+```sql
+SELECT name, userId          -- only columns in the index
+FROM Users@{FORCE_INDEX=UsersByName}
+WHERE name LIKE @prefix
+```
+
+**Option 2: Store extra columns in the index**
+```sql
+-- Redefine the index to cover the columns you need
+CREATE INDEX UsersByName
+ON Users(name)
+STORING (email, createdAt);  -- now these don't require a back-join
+```
+
+```sql
+-- Now this is efficient
+SELECT name, email, createdAt
+FROM Users@{FORCE_INDEX=UsersByName}
+WHERE name LIKE @prefix
+```
+
+---
+
+## How `LIKE 'jane%'` Behaves on the Index
+
+The good news: a prefix `LIKE` pattern **does** translate to an efficient range scan on the index, equivalent to:
+
+```sql
+WHERE name >= 'jane' AND name < 'janf'  -- 'janf' = next prefix after 'jane'
+```
+
+Spanner handles this correctly once the index is actually being used.
+
+> ⚠️ A `LIKE` with a leading wildcard (e.g., `'%jane%'`) **cannot** use an index efficiently and will always scan.
+
+---
+
+## Verify With EXPLAIN
+
+Always check the query plan:
+
+```sql
+-- In gcloud or client libraries, request the query plan
+-- Look for "Index Scan" vs "Table Scan" in the output
+```
+
+In the Cloud Console query editor, click **Explanation** to see the visual query plan and confirm an index scan is happening.
+
+---
+
+## Summary
+
+| Issue | Fix |
+|---|---|
+| Index not used | Add `@{FORCE_INDEX=YourIndexName}` hint |
+| Back-join on `SELECT *` | Use `STORING` clause or select only indexed columns |
+| Leading wildcard `LIKE '%x'` | No index fix possible; consider full-text search alternatives |
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+## Why `LIKE @prefix` Skips Your Index
+
+Spanner's query optimizer can only use an index for a prefix scan when it can see the literal prefix value **at plan time**. With `LIKE @prefix`, the optimizer sees an opaque parameter — it doesn't know whether the value is `'jane%'` (a prefix scan), `'%jane%'` (a full scan), or `'%jane'` (unscannable). Rather than guess, it falls back to a full table/index scan.
+
+There's a second problem: `LIKE` with a parameter **defeats plan caching**. Every execution may produce a different plan, adding latency overhead on top of the scan cost.
+
+---
+
+## The Fix: Replace `LIKE` with `STARTS_WITH`
+
+```sql
+-- Before (slow, no index seek, no plan caching)
+SELECT * FROM Users WHERE name LIKE @prefix
+
+-- After (index seek, plan-cacheable)
+SELECT * FROM Users WHERE STARTS_WITH(name, @prefix)
+```
+
+Bind `@prefix` as `'jane'` (no `%`). `STARTS_WITH` is semantically equivalent to `LIKE 'jane%'` but the optimizer recognizes it as a range predicate and translates it into an index seek.
+
+---
+
+## What the Optimizer Actually Does with `STARTS_WITH`
+
+Internally Spanner rewrites `STARTS_WITH(name, @prefix)` into a half-open range:
+
+```
+name >= @prefix  AND  name < <next_prefix>
+```
+
+where `<next_prefix>` is computed by incrementing the last character of the prefix. This maps directly onto a key-range scan on your index — exactly one seek to the start, then a sequential read until the range ends.
+
+---
+
+## Make Sure the Index Actually Covers the Query
+
+`STARTS_WITH` enables the seek, but the index still has to be useful. Two common gaps:
+
+**1. The query reads columns not in the index → back-join to base table**
+
+```sql
+-- Index only has `name`; SELECT * forces a join back to Users for every row
+SELECT * FROM Users WHERE STARTS_WITH(name, @prefix)
+```
+
+Fix: add a `STORING` clause so the index is self-contained:
+
+```sql
+CREATE INDEX UsersByName ON Users(name) STORING (email, created_at);
+```
+
+Then narrow the projection:
+
+```sql
+SELECT name, email, created_at
+FROM Users@{FORCE_INDEX=UsersByName}
+WHERE STARTS_WITH(name, @prefix);
+```
+
+**2. The index leading column isn't `name`**
+
+If your index is `ON Users(status, name)`, a predicate on `name` alone can't seek into it. Either create a dedicated `ON Users(name)` index or restructure the query to also filter on `status`.
+
+---
+
+## Verify the Plan Before and After
+
+```sql
+EXPLAIN
+SELECT name, email
+FROM Users@{FORCE_INDEX=UsersByName}
+WHERE STARTS_WITH(name, @prefix);
+```
+
+Look for **Seek Condition** (good) vs **Residual Condition** (means it scanned and filtered after the fact). You want `name` to appear in the Seek Condition.
+
+---
+
+## Quick Reference
+
+| Pattern | Index seek? | Plan cached? | Notes |
+|---|---|---|---|
+| `LIKE 'jane%'` (literal) | ✅ | ✅ | Works, but literals aren't reusable |
+| `LIKE @prefix` | ❌ | ❌ | Optimizer can't infer range from opaque param |
+| `STARTS_WITH(name, @prefix)` | ✅ | ✅ | **Correct approach** |
+| `name >= @lo AND name < @hi` | ✅ | ✅ | Manual range — useful when you need exact bounds |
+
+Bind `@prefix` as `'jane'` (no wildcard character), and the index will be used correctly.
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers recommend STARTS_WITH and explain why parameterized LIKE blocks index use, but Answer B is more thorough and accurate. Answer B correctly notes the syntax difference (STARTS_WITH(@prefix) vs Answer A's incorrect STARTS_WITH(name, @prefix) which is actually the correct syntax — though both are valid), mentions plan caching as an additional factor, includes EXPLAIN usage with what to look for in the output, and provides a comparison table. Answer B also explains the literal vs parameterized LIKE distinction more clearly and mentions INFORMATION_SCHEMA for verification.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
 | recommends STARTS_WITH | tie |
-| explains why LIKE blocks index use | tie |
+| explains why LIKE blocks index use | skill |
+| mentions FORCE_INDEX or EXPLAIN | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends STARTS_WITH | ✓ | `STARTS_WITH` |
+| explains why LIKE blocks index use | ✓ | `Parameter` |
+| mentions FORCE_INDEX or EXPLAIN | ✓ | `FORCE_INDEX` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends STARTS_WITH | ✓ | `STARTS_WITH` |
+| explains why LIKE blocks index use | ✓ | `plan cach` |
+| mentions FORCE_INDEX or EXPLAIN | ✓ | `EXPLAIN` |
+
+<details><summary>haiku: baseline answer</summary>
+
+# Index Not Being Used for LIKE with Parameter Binding
+
+The issue is that **Spanner's query optimizer cannot determine at plan time whether your parameter will be a prefix pattern or not**, so it conservatively avoids the index.
+
+## Why This Happens
+
+When you use:
+```sql
+SELECT * FROM Users WHERE name LIKE @prefix
+```
+
+The optimizer doesn't know what `@prefix` will be until execution time. It could be:
+- `'jane%'` (prefix pattern - index-friendly)
+- `'%jane%'` (contains pattern - requires full scan)
+- `'%jane'` (suffix pattern - requires full scan)
+
+Since it can't guarantee the pattern is prefix-only, it defaults to a full table scan.
+
+## Solutions
+
+### 1. **Use a Range Query Instead** (Recommended)
+Replace LIKE with comparison operators:
+
+```sql
+SELECT * FROM Users 
+WHERE name >= @prefix 
+  AND name < @prefix_end
+```
+
+Bind parameters as:
+- `@prefix = 'jane'`
+- `@prefix_end = 'janf'` (increment last character)
+
+This **always** uses the index efficiently.
+
+### 2. **Use String Comparison Functions**
+```sql
+SELECT * FROM Users 
+WHERE STARTS_WITH(name, @prefix)
+```
+
+Spanner recognizes `STARTS_WITH` as a prefix pattern and will use the index.
+
+### 3. **Force Index Usage** (Last Resort)
+```sql
+SELECT * FROM Users@{FORCE_INDEX=idx_name}
+WHERE name LIKE @prefix
+```
+
+This forces index use but may perform poorly if the pattern isn't actually a prefix.
+
+## Recommendation
+
+Use **`STARTS_WITH()`** if you only need prefix matching—it's clearer and guaranteed to use the index:
+
+```sql
+SELECT * FROM Users WHERE STARTS_WITH(name, @prefix)
+```
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# Why Your Index Isn't Being Used
+
+The problem is **`LIKE @param` blocks plan caching and forces a full table scan**, even with an index on `name`. Spanner's query optimizer cannot determine the selectivity of a parameterized `LIKE` pattern at plan time, so it conservatively assumes the worst case and scans the entire table.
+
+## The Fix: Use `STARTS_WITH()`
+
+Replace the `LIKE` clause with `STARTS_WITH()`:
+
+```sql
+-- ❌ Slow: full table scan, no plan caching
+SELECT * FROM Users WHERE name LIKE @prefix;
+
+-- ✅ Fast: uses index, plan is cached
+SELECT * FROM Users WHERE name STARTS_WITH(@prefix);
+```
+
+`STARTS_WITH()` is **plan-cacheable** because Spanner knows at compile time that it's a prefix match. The optimizer can use the index on `name` to seek directly to the matching range.
+
+### Performance Impact
+
+- **Before:** O(n) full table scan, ~500ms–5s for millions of rows
+- **After:** O(log n) index seek + range read, ~5–50ms
+
+## Alternative: Anchor the Range
+
+If you need more control or are using PostgreSQL dialect (which lacks `STARTS_WITH`), use a range predicate:
+
+```sql
+-- GoogleSQL or PostgreSQL
+SELECT * FROM Users 
+WHERE name >= @prefix 
+  AND name < @prefix_end;
+```
+
+You'll need to compute `@prefix_end` in your application (increment the last character or append a high byte). This is more verbose but equally efficient.
+
+## Verify the Index is Being Used
+
+Check the query plan:
+
+```sql
+EXPLAIN SELECT * FROM Users WHERE name STARTS_WITH(@prefix);
+```
+
+Look for:
+- `Index Scan` on the `name` index (not `Table Scan`)
+- `Seek Condition` showing the prefix range
+
+If you still see `Table Scan`, the index may not exist or may not be on the right column. Confirm:
+
+```sql
+SELECT * FROM INFORMATION_SCHEMA.INDEXES 
+WHERE TABLE_NAME = 'Users' AND COLUMN_NAME = 'name';
+```
+
+## Why `LIKE @param` Fails But `LIKE 'jane%'` Works
+
+- **`LIKE 'jane%'` (literal):** Optimizer sees the pattern at plan time, knows it's a prefix match, uses the index.
+- **`LIKE @prefix` (parameter):** Optimizer doesn't know the pattern value until execution time. The parameter could be `'%jane'` (suffix), `'%jane%'` (substring), or `'_ane'` (wildcard), all requiring a full scan. So it plays it safe and scans the table.
+
+## Summary
+
+| Approach | Speed | Cacheability | Dialect |
+|---|---|---|---|
+| `LIKE @prefix` | ❌ Slow (full scan) | ❌ No | GoogleSQL, PostgreSQL |
+| `STARTS_WITH(@prefix)` | ✅ Fast (index seek) | ✅ Yes | GoogleSQL only |
+| `name >= @prefix AND name < @prefix_end` | ✅ Fast (index seek) | ✅ Yes | GoogleSQL, PostgreSQL |
+
+**Use `STARTS_WITH()` for new code.** It's the clearest intent and works in both dialects (as of recent versions).
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers are strong and cover all three rubric criteria well. Answer A is slightly more comprehensive, providing a cleaner explanation of why parameterized LIKE blocks the optimizer, explicitly mentioning STARTS_WITH as the fix, covering FORCE_INDEX and EXPLAIN, and adding useful extras like the explicit range alternative and STORING clause guidance. Answer B is more concise and equally correct on the core points, but Answer A's depth and structure give it a slight edge overall.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends STARTS_WITH | tie |
+| explains why LIKE blocks index use | skill |
 | mentions FORCE_INDEX or EXPLAIN | tie |
 
 **Baseline rubric**
@@ -421,139 +2059,136 @@ parameter like 'jane%'. Why won't the index get used?
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | recommends STARTS_WITH | ✓ | `STARTS_WITH` |
-| explains why LIKE blocks index use | ✓ | `parameter` |
+| explains why LIKE blocks index use | ✓ | `plan cach` |
 | mentions FORCE_INDEX or EXPLAIN | ✓ | `FORCE_INDEX` |
 
-<details><summary>Baseline answer</summary>
+<details><summary>opus: baseline answer</summary>
 
-# Why Your Spanner Index Isn't Being Used for `LIKE @prefix`
+# Why Your Spanner Index Isn't Being Used
 
-This is a well-known Spanner gotcha. The short answer: **Spanner's query optimizer can only convert `LIKE` into an efficient index range scan when the pattern is a literal string constant known at query-planning time.** When you bind the pattern as a parameter, the optimizer has no idea whether the value will be `'jane%'` (a prefix-anchored pattern that *can* use an index) or `'%jane%'` / `'%jane'` (which cannot), so it conservatively falls back to a full scan + filter.
+Short answer: **Spanner can't use an index for `LIKE` when the pattern is a query parameter**, even if the value happens to be a prefix like `'jane%'`.
 
-From the Spanner docs on `LIKE`:
-> The `LIKE` operator can use an index only when the pattern is a string constant (not a query parameter) and does not start with a wildcard character (`%` or `_`).
+## The reason
+
+Spanner's query optimizer can only convert `LIKE` into an index range scan when it can **prove at query-planning time** that the pattern is a simple prefix (i.e., a literal string ending in `%` with no other wildcards or escapes). 
+
+When you bind `@prefix`, the optimizer doesn't know the value at planning time. It has to assume the pattern could be anything — `'%jane'`, `'j_ne%'`, `'%a%'`, etc. — all of which require a full scan. So it plans a full table scan and reuses that plan regardless of what you bind later.
+
+With a string literal like `LIKE 'jane%'`, the optimizer can see the pattern, recognize it as a prefix, and rewrite it to something like `name >= 'jane' AND name < 'janf'`, which uses the index.
 
 ## Fixes
 
-### 1. Use `STARTS_WITH` instead
-This is the idiomatic Spanner solution. `STARTS_WITH` *does* get optimized into a range scan even when the prefix is a parameter:
-
+### 1. Use `STARTS_WITH` (cleanest)
 ```sql
-SELECT *
-FROM Users
-WHERE STARTS_WITH(name, @prefix)
+SELECT * FROM Users WHERE STARTS_WITH(name, @prefix)
 ```
+Spanner recognizes `STARTS_WITH(indexed_col, @param)` as a sargable prefix predicate and will use the index even with a parameter.
 
-Then bind `@prefix` as `'jane'` (no `%`).
-
-### 2. Rewrite as an explicit range
-This is what `STARTS_WITH` lowers to internally, and it's sometimes clearer:
-
+### 2. Express the range yourself
 ```sql
 SELECT *
 FROM Users
 WHERE name >= @prefix
-  AND name < @prefix_end
+  AND name < CONCAT(@prefix, '\xEF\xBF\xBD')  -- or compute an upper bound in app code
+```
+Pass just `'jane'` (without the `%`) as `@prefix`. This guarantees an index range scan.
+
+### 3. Force the index (only if needed)
+```sql
+SELECT * FROM Users@{FORCE_INDEX=UsersByName} WHERE STARTS_WITH(name, @prefix)
 ```
 
-…where you compute `@prefix_end` in the client by incrementing the last code point of the prefix (e.g. `'jane'` → `'janf'`).
+## Verify with EXPLAIN
 
-### 3. Force the index (last resort)
-Even with `STARTS_WITH`, if the optimizer still picks the base table you may need a hint, especially because `SELECT *` requires a back-join to the base table:
+Run `EXPLAIN` (or `EXPLAIN ANALYZE`) in the Spanner console on both the `LIKE @prefix` version and the `STARTS_WITH` version. You should see the former do a `Table Scan` on `Users` and the latter do an `Index Scan` on your index with a tight key range.
+
+## One more thing: `SELECT *`
+
+Even after fixing the predicate, `SELECT *` forces a back-join from the index to the base table for every matching row. If you only need a few columns, either select only what you need or add `STORING (...)` to the index so the query is fully covered.
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
+
+# Why `LIKE @prefix` Doesn't Use Your Index
+
+This is a known Spanner gotcha, and it's exactly the issue covered in this skill's core rules.
+
+## The Problem
+
+When you write `WHERE name LIKE @prefix` with `@prefix` bound as a parameter (e.g. `'jane%'`), Spanner's query optimizer **cannot see the value of the parameter at plan time**. Because `LIKE` patterns can be arbitrary (`'jane%'`, `'%jane'`, `'%jane%'`, `'j_ne'`), the optimizer has to assume the worst case — a pattern that requires scanning every row. So it picks a full table scan instead of an index seek, even though your specific value `'jane%'` is a clean left-anchored prefix that *could* use the index.
+
+This is also bad for plan caching: each distinct pattern shape can produce a different plan.
+
+## The Fix: `STARTS_WITH`
+
+Replace `LIKE` with `STARTS_WITH`, which tells the optimizer "this is definitely a prefix match":
 
 ```sql
 SELECT *
 FROM Users@{FORCE_INDEX=UsersByName}
 WHERE STARTS_WITH(name, @prefix)
+ORDER BY name;
 ```
 
-## A couple of things worth double‑checking
+Notes:
+- `STARTS_WITH(col, @param)` is plan-cacheable and translates to an index range seek.
+- The `@{FORCE_INDEX=...}` hint isn't usually needed once you switch to `STARTS_WITH` — the optimizer should pick it on its own. Add it only if `EXPLAIN` shows it still skipping the index.
+- If your query reads columns other than `name` and the primary key, those columns require a second read against the base table. To avoid that, recreate the index with a `STORING` clause covering the columns you select:
 
-- **`SELECT *` defeats covering indexes.** If `UsersByName` only indexes `name`, Spanner has to join back to the base table for every matching row. For high-selectivity prefixes that's fine; for broad prefixes it can still be slow. Consider `STORING (...)` on the columns you actually need so the index is covering.
-- **Look at the query plan** in the Spanner UI or via `EXPLAIN` / `EXPLAIN ANALYZE`. You want to see `Distributed Union` over `Scan of UsersByName` with a `Seek Condition`, not a full `Scan of Users` with a residual filter.
-- **Collation / case sensitivity.** Spanner string comparison is byte-wise, so `STARTS_WITH(name, 'Jane')` will not match `'jane'`. If you need case-insensitive prefix search, store a normalized (e.g. lowercased) column and index *that*.
+  ```sql
+  CREATE INDEX UsersByName ON Users(name) STORING (email, created_at, status);
+  ```
 
-So: swap `LIKE @prefix` for `STARTS_WITH(name, @prefix)` (passing the prefix without the trailing `%`), confirm the plan uses `UsersByName`, and add `STORING` columns or `FORCE_INDEX` if the back-join is hurting you.
+  Then the index alone can answer the query (a "covering" index).
 
-</details>
+## Alternative: Explicit Range
 
-<details><summary>Skill-loaded answer</summary>
-
-# Why Your Spanner LIKE Query Won't Use the Index
-
-This is a well-known limitation in Cloud Spanner: **`LIKE` with a parameterized pattern cannot use an index, even when the pattern would be a pure prefix match**. Here's why and how to fix it.
-
-## The Root Cause
-
-Spanner's query optimizer can only convert `LIKE` into an index range scan when it can **prove at query-compile time** that the pattern is a simple prefix (i.e. a string literal ending in `%` with no other wildcards or escapes).
-
-When you write:
+If you can't use `STARTS_WITH` for some reason, an explicit half-open range also works and is index-friendly:
 
 ```sql
-SELECT * FROM Users WHERE name LIKE @prefix
+SELECT * FROM Users
+WHERE name >= @prefix AND name < @prefix_end
+ORDER BY name;
 ```
 
-…the optimizer sees only a parameter. It has no idea whether `@prefix` will be:
-- `'jane%'` (prefix — indexable in principle)
-- `'%jane'` (suffix — not indexable)
-- `'j%ne%'` (contains wildcard — not indexable)
-- `'jane\%'` (literal `%` — different semantics)
+where you compute `@prefix_end` in your application by incrementing the last code point of `@prefix`. This is more error-prone (Unicode boundaries, empty strings) — prefer `STARTS_WITH`.
 
-Because it must produce a single plan that's correct for *any* binding, it falls back to a full table scan + filter.
+## Verify with EXPLAIN
 
-## Fixes
-
-### 1. Use `STARTS_WITH` (recommended)
-
-`STARTS_WITH` has unambiguous prefix semantics, so the optimizer can use a range scan on the index:
+Confirm the fix worked:
 
 ```sql
-SELECT * FROM Users WHERE STARTS_WITH(name, @prefix)
+EXPLAIN SELECT * FROM Users WHERE STARTS_WITH(name, @prefix);
 ```
 
-Bind `@prefix` as `'jane'` (no `%`).
+You should see an index scan on `UsersByName` with a key range, not a full table scan on `Users`.
 
-### 2. Explicit range predicate
+## Other Things to Check While You're Here
 
-Equivalent and also indexable:
+A few related issues that often coexist with this one:
+
+1. **`SELECT *`** forces Spanner to fetch every column from the base table even if the index would otherwise cover the query. Select only the columns you need, and consider `STORING` them in the index.
+2. **No `ORDER BY`** — Spanner does not return rows in index order unless you ask. If you want results sorted by name, add `ORDER BY name` (it's free when the index is already ordered that way).
+3. **Leading-column hotspot** — if `name` is also the leading column of a *primary key* somewhere, prefixed writes (e.g. lots of users named "jane…") can hotspot a single split. Indexes on `name` are fine; PKs leading with `name` are riskier.
+
+## TL;DR
 
 ```sql
-SELECT *
-FROM Users
-WHERE name >= @prefix
-  AND name < @prefix_upper
+-- Before (full scan, no plan cache)
+SELECT * FROM Users WHERE name LIKE @prefix;
+
+-- After (index seek, plan-cacheable)
+SELECT id, email, name FROM Users WHERE STARTS_WITH(name, @prefix) ORDER BY name;
 ```
 
-Where you compute `@prefix_upper` in your client by incrementing the last code point of the prefix (e.g. `'jane'` → `'janf'`). This is exactly what `STARTS_WITH` is rewritten to internally.
-
-### 3. Force the index and confirm with EXPLAIN
-
-Even with the rewrite, if `name` isn't the leading column of the index, or the index doesn't cover the columns you `SELECT *`, Spanner may still prefer a base-table scan. Two things to check:
-
-- Add `@{FORCE_INDEX=UsersByName}` and inspect the query plan in the Cloud Console (or `EXPLAIN ANALYZE`). Look for `Distributed Union → Distributed Cross Apply` over an index range — not a full scan.
-- If you're hitting the base table for non-key columns, consider `STORING (...)` on the index to make it covering, or select only the indexed columns.
-
-```sql
-SELECT u.UserId, u.name
-FROM Users@{FORCE_INDEX=UsersByName} AS u
-WHERE STARTS_WITH(u.name, @prefix)
-```
-
-## Bonus Gotchas
-
-- **Collation / case sensitivity**: Spanner string comparisons are byte-wise. `LIKE 'Jane%'` won't match `'jane smith'`. If you need case-insensitive prefix search, store a normalized (e.g. lower-cased) column and index *that*.
-- **NULLs**: `name` values that are `NULL` are excluded from a `NULL_FILTERED` index — fine for this query, but worth confirming your index definition.
-- **Interleaved tables**: If `Users` is interleaved under a parent, a global secondary index on `name` is usually what you want for prefix lookups across all parents.
-
-Swapping `LIKE @prefix` for `STARTS_WITH(name, @prefix)` is almost always the one-line fix.
+And if the query reads non-key columns, add `STORING (...)` to the index so it doesn't have to round-trip to the base table.
 
 </details>
 
 ---
 
 ### `interleave-decision`
-
-**Expected:** `skill_wins` · **Met:** ✓
 
 **Prompt**
 
@@ -564,22 +2199,28 @@ parent Order. Should I interleave them, use a foreign key, or
 something else? What are the tradeoffs?
 ```
 
-**Judge:** **skill** — Both answers are high quality and cover the same ground well. Answer B explicitly mentions the 7-level interleaving depth limit, which directly satisfies the 'interleave depth or limits' rubric criterion that Answer A omits. Both answers recommend interleaving, mention ON DELETE CASCADE, and warn about irreversibility (Answer A says 'fixed at schema-creation time; you can't add or remove it later without a table rebuild'). The depth limit mention gives B the edge.
+**Judge focus:** The better answer recommends interleaving for this access pattern,
+cites the locality benefit, and crucially warns that interleaving is
+irreversible — you cannot un-interleave a table once it has data.
+
+#### `sonnet`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer A directly recommends interleaving for this access pattern, explicitly warns that interleaving is irreversible with a clear explanation of the migration cost, mentions the 7-level depth limit, and covers ON DELETE CASCADE thoroughly. Answer B buries the recommendation by ultimately suggesting 'Foreign Key + Index' for most production systems and only upgrading to interleaving after measuring a real performance problem — which contradicts the focus area's requirement to recommend interleaving for this access pattern. Answer B also fails to warn about irreversibility and doesn't mention the interleave depth limit.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
-| recommends interleaving here | tie |
+| recommends interleaving here | skill |
 | mentions ON DELETE CASCADE | tie |
-| warns about irreversibility | tie |
+| warns about irreversibility | skill |
 | mentions interleave depth or limits | skill |
 
 **Baseline rubric**
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| recommends interleaving here | ✓ | `Interleave` |
+| recommends interleaving here | ✓ | `INTERLEAVE` |
 | mentions ON DELETE CASCADE | ✓ | `ON DELETE CASCADE` |
 | warns about irreversibility | ✗ | |
 | mentions interleave depth or limits | ✗ | |
@@ -590,170 +2231,790 @@ something else? What are the tradeoffs?
 | --- | --- | --- |
 | recommends interleaving here | ✓ | `Interleave` |
 | mentions ON DELETE CASCADE | ✓ | `ON DELETE CASCADE` |
-| warns about irreversibility | ✗ | |
+| warns about irreversibility | ✓ | `cannot undo` |
 | mentions interleave depth or limits | ✓ | `7 level` |
 
-<details><summary>Baseline answer</summary>
+<details><summary>sonnet: baseline answer</summary>
 
-# Orders / OrderItems: Interleave, FK, or something else?
+## Schema Design: Orders + OrderItems
 
-For your access pattern (OrderItems almost always read with their parent Order), **interleaving is usually the right answer in Spanner**. Here's the breakdown.
+This is a classic co-location problem. Here's a breakdown of your options:
 
-## Option 1: Interleave (recommended for your case)
+---
+
+## Option 1: Interleaving (Physical Co-location)
+*Available in: Spanner, CockroachDB, some others*
 
 ```sql
 CREATE TABLE Orders (
-  CustomerId   STRING(36) NOT NULL,
-  OrderId      STRING(36) NOT NULL,
-  CreatedAt    TIMESTAMP NOT NULL,
-  Status       STRING(32),
-) PRIMARY KEY (CustomerId, OrderId);
+    order_id    INT64 NOT NULL,
+    customer_id INT64,
+    created_at  TIMESTAMP,
+) PRIMARY KEY (order_id);
 
 CREATE TABLE OrderItems (
-  CustomerId   STRING(36) NOT NULL,
-  OrderId      STRING(36) NOT NULL,
-  ItemId       STRING(36) NOT NULL,
-  Sku          STRING(64),
-  Quantity     INT64,
-  UnitPriceCents INT64,
-) PRIMARY KEY (CustomerId, OrderId, ItemId),
+    order_id    INT64 NOT NULL,   -- shared prefix
+    item_id     INT64 NOT NULL,
+    product_id  INT64,
+    quantity    INT64,
+    price       NUMERIC,
+) PRIMARY KEY (order_id, item_id),
   INTERLEAVE IN PARENT Orders ON DELETE CASCADE;
 ```
 
-**Pros**
-- Physical co-location: rows for an order and its items live in the same split, so a join or `WHERE OrderId = ?` fetch is essentially one seek.
-- Lower latency and fewer RPCs for the dominant read pattern.
-- `ON DELETE CASCADE` cleans up items automatically.
-- Locality benefits writes too — inserting an order plus its items hits one split, reducing 2PC.
+**How it works:** Child rows are physically stored adjacent to their parent row on disk.
 
-**Cons / things to be aware of**
-- Child PK *must* be prefixed by the parent's PK. You can never re-parent an item to a different order without delete+insert.
-- The interleave hierarchy is fixed at schema-creation time; you can't add or remove it later without a table rebuild.
-- All items for one order share a split. If an order can have *millions* of items you risk a hot split — not typical for orders, so usually fine.
-- Interleaved children can't themselves be interleaved into a *different* parent.
+**Pros:**
+- Single I/O to fetch Order + all its OrderItems
+- Excellent read performance for the common case you described
+- Atomic writes across parent/child without distributed transactions
 
-## Option 2: Foreign key (separate tables)
+**Cons:**
+- Tight physical coupling — hard to move/split later
+- Hotspots if order_ids are sequential (use UUIDs or hash-prefix)
+- Less portable across database engines
+- Bulk scans across *all* orders (ignoring hierarchy) are slower
+
+---
+
+## Option 2: Foreign Key (Logical Relationship Only)
+*Available in: PostgreSQL, MySQL, SQL Server, etc.*
 
 ```sql
+CREATE TABLE Orders (
+    order_id    BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    customer_id BIGINT,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE TABLE OrderItems (
-  ItemId    STRING(36) NOT NULL,
-  OrderId   STRING(36) NOT NULL,
-  ...,
-  FOREIGN KEY (OrderId) REFERENCES Orders (OrderId),
-) PRIMARY KEY (ItemId);
+    item_id    BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    order_id   BIGINT NOT NULL REFERENCES Orders(order_id) ON DELETE CASCADE,
+    product_id BIGINT,
+    quantity   INT,
+    price      NUMERIC(10,2)
+);
+
+-- Critical: index the FK column
+CREATE INDEX idx_orderitems_order_id ON OrderItems(order_id);
 ```
 
-**Pros**
-- Flexible: items can be reassigned, the relationship can evolve.
-- Good if items are frequently queried *independently* of their order (e.g. "all items with SKU X across all orders").
-- No constraint that the child PK must start with the parent PK.
+**Pros:**
+- Universally supported and portable
+- Database enforces referential integrity
+- Flexible — rows can be reorganized independently
+- Works well with good indexing
 
-**Cons**
-- No physical locality — joining Orders ↔ OrderItems can cross splits, adding latency.
-- Spanner enforces FK constraints with an extra index and validation read on every write, so it's not free.
-- Cascading deletes through FKs are supported but less ergonomic than interleave's `ON DELETE CASCADE`.
+**Cons:**
+- Requires a join (extra logical step, though optimizers handle this well)
+- Two separate I/Os unless the query planner uses an index scan efficiently
+- No guarantee of physical locality
 
-## Option 3: Embed items in the Order row (e.g. `ARRAY<STRUCT<...>>` or JSON)
+---
 
-Worth mentioning for completeness.
+## Option 3: JSONB / Embedded Document
+*Best in: PostgreSQL, MySQL 8+*
 
-**Pros**: single-row read, atomic updates, no join.
-**Cons**: row-size limits (~10 MiB), can't index into individual items easily, can't query/aggregate across items efficiently, awkward partial updates. Generally a bad fit unless items are tiny, few, and never queried independently.
+```sql
+CREATE TABLE Orders (
+    order_id    BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    customer_id BIGINT,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    items       JSONB NOT NULL DEFAULT '[]'
+    -- [{"product_id": 1, "quantity": 2, "price": 9.99}, ...]
+);
 
-## Recommendation
+-- Index into the JSON if needed
+CREATE INDEX idx_orders_items ON Orders USING GIN(items);
+```
 
-Given your stated access pattern, **interleave OrderItems in Orders**, keyed by `(CustomerId, OrderId, ItemId)` — and put `CustomerId` first if customers are your natural sharding dimension and you also frequently query "all orders for a customer." If customer-level locality isn't useful, key on `(OrderId, ItemId)` instead.
+**Pros:**
+- Single row fetch gets everything — zero joins
+- Simple queries for the common read case
+- Great when items are truly subordinate with no independent identity
 
-Switch to a foreign-key design only if either (a) items are commonly queried/updated independent of orders, or (b) you need the parent relationship to be mutable.
+**Cons:**
+- Hard to query/update individual items efficiently
+- No referential integrity on embedded data
+- Reporting queries (e.g., "all sales of product X") become painful
+- Row size limits can become a concern
+
+---
+
+## Decision Matrix
+
+| Concern | Interleave | Foreign Key | Embedded JSON |
+|---|---|---|---|
+| Read perf (order + items) | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ |
+| Write flexibility | ⭐⭐ | ⭐⭐⭐ | ⭐ |
+| Referential integrity | ⭐⭐ | ⭐⭐⭐ | ⭐ |
+| Portability | ⭐ | ⭐⭐⭐ | ⭐⭐ |
+| Query flexibility | ⭐⭐ | ⭐⭐⭐ | ⭐ |
+| Operational simplicity | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
+
+---
+
+## My Recommendation
+
+**For most production systems: Foreign Key + Index**
+
+```sql
+-- The join is fast and the pattern is battle-tested
+SELECT o.*, i.*
+FROM Orders o
+JOIN OrderItems i USING (order_id)
+WHERE o.order_id = $1;
+```
+
+> With a proper index on `OrderItems.order_id`, this is typically **one index seek + a few page reads** — fast enough for nearly all use cases.
+
+**Upgrade to interleaving if:**
+- You're already on Spanner/CockroachDB
+- You have measured a real performance problem
+- Your access pattern is *overwhelmingly* parent+children together
+
+**Consider JSON embedding if:**
+- Items are truly immutable after order placement
+- You never need to query items independently
+- You want the simplest possible read path
+
+---
+
+## Key Takeaway
+
+> Don't optimize for physical layout until you've proven the logical design is correct and you have real performance data. A foreign key with an index is correct, portable, and fast — start there.
 
 </details>
 
-<details><summary>Skill-loaded answer</summary>
+<details><summary>sonnet: skill-loaded answer</summary>
 
-# Interleaving vs. Foreign Key for Orders / OrderItems
+Good question to ask *before* creating the tables — interleaving is permanent and can't be undone.
 
-Given your access pattern (OrderItems almost always read with their parent Order), **interleaving is very likely the right choice**. Here's the breakdown:
+## Short answer
 
-## Option 1: Interleave OrderItems in Orders (recommended for your case)
+**Interleave `OrderItems` in `Orders`.** The "almost always read together" criterion is exactly the use case interleaving was designed for. Use a foreign key only when you need referential integrity without the locality guarantee, or when you're unsure about the access pattern.
+
+---
+
+## How interleaving works
+
+Spanner physically stores child rows **on the same split as their parent row**. A read of one `Order` and all its `OrderItems` becomes a single local disk read with no cross-split coordination.
 
 ```sql
 CREATE TABLE Orders (
-  CustomerId   INT64 NOT NULL,
-  OrderId      INT64 NOT NULL,
-  OrderDate    TIMESTAMP,
+  OrderId   STRING(36)  NOT NULL DEFAULT (NEW_UUID()),
+  CustomerId STRING(36) NOT NULL,
+  CreatedAt  TIMESTAMP  NOT NULL,
+  Status     STRING(32) NOT NULL,
+) PRIMARY KEY (OrderId);
+
+CREATE TABLE OrderItems (
+  OrderId    STRING(36) NOT NULL,
+  ItemId     STRING(36) NOT NULL DEFAULT (NEW_UUID()),
+  ProductId  STRING(36) NOT NULL,
+  Quantity   INT64       NOT NULL,
+  UnitPrice  NUMERIC     NOT NULL,
+) PRIMARY KEY (OrderId, ItemId),
+  INTERLEAVE IN PARENT Orders ON DELETE CASCADE;
+```
+
+`ON DELETE CASCADE` means deleting an `Order` automatically removes its `OrderItems` in the same transaction — no application-level cleanup needed.
+
+---
+
+## Tradeoffs at a glance
+
+| | Interleaving | Foreign Key | No constraint |
+|---|---|---|---|
+| Read locality | ✅ Parent + children on same split | ❌ Separate splits | ❌ Separate splits |
+| Join cost | ✅ Local, no distributed join | ❌ Cross-split join | ❌ Cross-split join |
+| Referential integrity | ✅ Structural (can't orphan a child) | ✅ Enforced by Spanner | ❌ App must enforce |
+| Cascade delete | ✅ `ON DELETE CASCADE` | ✅ `ON DELETE CASCADE` | ❌ Manual |
+| Reversible? | ❌ **No** — permanent | ✅ Can drop/add FK | ✅ N/A |
+| Depth limit | ⚠️ Max 7 levels | None | None |
+| Child-only queries | ⚠️ Must include parent key | ✅ Any index | ✅ Any index |
+| Write amplification | Slightly higher (co-located writes) | None | None |
+
+---
+
+## The irreversibility warning
+
+Once you run `CREATE TABLE OrderItems … INTERLEAVE IN PARENT Orders`, you cannot undo it. To change your mind later you'd have to:
+
+1. Create a new non-interleaved table
+2. Migrate all data
+3. Update all application code
+4. Drop the old table
+
+…in production, under load. **Decide now.**
+
+The signal that interleaving is right:
+- You almost always fetch items with their order ✅ (you said this)
+- `OrderItems` has no meaningful existence without its `Order` ✅
+- You won't need to query `OrderItems` across many orders without the parent key (e.g., "all items for product X across all orders" — that needs a secondary index regardless)
+
+---
+
+## Secondary index for the cross-order query
+
+Interleaving doesn't prevent querying `OrderItems` by `ProductId` — you just need an index:
+
+```sql
+CREATE INDEX OrderItemsByProduct
+  ON OrderItems (ProductId)
+  STORING (Quantity, UnitPrice);
+```
+
+This index lives outside the interleave tree and can span splits normally. The `STORING` clause means the query can be satisfied from the index alone without a base-table lookup.
+
+---
+
+## What about foreign keys instead?
+
+Use a FK (without interleaving) when:
+
+- The child table is **also** frequently queried independently of the parent
+- You're unsure whether the access pattern will hold long-term
+- You want referential integrity but the tables are owned by different services/teams
+
+```sql
+-- FK-only approach (no interleaving)
+CREATE TABLE OrderItems (
+  ItemId     STRING(36) NOT NULL DEFAULT (NEW_UUID()),
+  OrderId    STRING(36) NOT NULL,
+  ...
+) PRIMARY KEY (ItemId);
+
+ALTER TABLE OrderItems
+  ADD CONSTRAINT fk_order
+  FOREIGN KEY (OrderId) REFERENCES Orders (OrderId)
+  ON DELETE CASCADE;
+```
+
+The downside: every `JOIN Orders o, OrderItems i ON o.OrderId = i.OrderId` is a distributed join. At low volume this is fine; at high volume it becomes a meaningful latency and CPU cost.
+
+---
+
+## Recommendation
+
+Given your description, go with interleaving. The schema above is the standard Spanner pattern for order/line-item relationships. Add a `ProductId` index for the cross-order queries you'll inevitably need, and you get both locality *and* flexibility.
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer B is clearly superior across all rubric criteria. It explicitly warns that interleaving is irreversible and explains the migration cost, mentions ON DELETE CASCADE in context, discusses the depth limit of 7 levels, and strongly recommends interleaving for this exact access pattern. Answer A hedges by calling foreign key 'the safe default' and misses the irreversibility warning almost entirely, while also being less Spanner-specific.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends interleaving here | skill |
+| mentions ON DELETE CASCADE | skill |
+| warns about irreversibility | skill |
+| mentions interleave depth or limits | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends interleaving here | ✓ | `INTERLEAVE` |
+| mentions ON DELETE CASCADE | ✓ | `ON DELETE CASCADE` |
+| warns about irreversibility | ✗ | |
+| mentions interleave depth or limits | ✓ | `one parent` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends interleaving here | ✓ | `Interleave` |
+| mentions ON DELETE CASCADE | ✓ | `ON DELETE CASCADE` |
+| warns about irreversibility | ✓ | `irreversibl` |
+| mentions interleave depth or limits | ✓ | `7 level` |
+
+<details><summary>haiku: baseline answer</summary>
+
+# Interleaving vs Foreign Keys for Orders/OrderItems
+
+This is a great question because the answer depends on your specific access patterns. Here's the breakdown:
+
+## Interleaving
+
+**How it works:** OrderItems are physically stored as child rows under their parent Order, creating a hierarchical structure.
+
+**Pros:**
+- **Single read operation** for order + items (no join needed)
+- **Better locality** - related data stored together, fewer disk seeks
+- **Atomic transactions** across parent/child by default
+- **Efficient range queries** - "get all items for orders 100-110"
+- **Natural for hierarchical data** - reflects your domain model
+
+**Cons:**
+- **Less flexible** - items can only have one parent
+- **Harder to query items independently** (e.g., "all items of type X")
+- **Deletion complexity** - removing an order cascades automatically
+- **Schema lock-in** - changing the relationship requires migration
+
+## Foreign Keys (Standard Approach)
+
+**How it works:** OrderItems has an `order_id` column referencing Orders.
+
+**Pros:**
+- **Maximum flexibility** - items could theoretically reference multiple orders
+- **Independent queries** - easily query items without orders
+- **Easier schema evolution** - can add new relationships later
+- **Standard SQL** - works everywhere, easier for team familiarity
+
+**Cons:**
+- **Requires a join** to read together (minor performance cost)
+- **Two round trips** if using separate queries
+- **Referential integrity** is your responsibility (or use constraints)
+
+## Recommendation by Database
+
+**Cloud Spanner, CockroachDB (supports interleaving):**
+```sql
+CREATE TABLE Orders (
+  order_id INT64 NOT NULL,
+  customer_id INT64,
+  order_date TIMESTAMP,
+  PRIMARY KEY (order_id)
+);
+
+CREATE TABLE OrderItems (
+  order_id INT64 NOT NULL,
+  item_id INT64 NOT NULL,
+  product_id INT64,
+  quantity INT64,
+  PRIMARY KEY (order_id, item_id),
+  INTERLEAVE IN PARENT Orders ON DELETE CASCADE
+);
+```
+→ **Use interleaving** - this is the sweet spot for your use case
+
+**PostgreSQL, MySQL, SQLite:**
+```sql
+CREATE TABLE Orders (
+  order_id BIGSERIAL PRIMARY KEY,
+  customer_id BIGINT,
+  order_date TIMESTAMP
+);
+
+CREATE TABLE OrderItems (
+  item_id BIGSERIAL PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES Orders(order_id) ON DELETE CASCADE,
+  product_id BIGINT,
+  quantity INT
+);
+
+-- Index for common access pattern
+CREATE INDEX idx_orderitems_order_id ON OrderItems(order_id);
+```
+→ **Use foreign key + index** - interleaving isn't available, but the index makes joins efficient
+
+## Hybrid Approach
+
+If you're on a system without interleaving but want similar performance:
+
+```sql
+-- Denormalize summary data on Orders
+CREATE TABLE Orders (
+  order_id BIGSERIAL PRIMARY KEY,
+  customer_id BIGINT,
+  order_date TIMESTAMP,
+  item_count INT,           -- cached count
+  total_amount DECIMAL      -- cached total
+);
+
+-- Still maintain normalized OrderItems
+CREATE TABLE OrderItems (
+  order_id BIGINT NOT NULL REFERENCES Orders(order_id),
+  item_id INT NOT NULL,
+  product_id BIGINT,
+  quantity INT,
+  PRIMARY KEY (order_id, item_id)
+);
+```
+
+This gives you flexibility while reducing the cost of common queries.
+
+## Quick Decision Tree
+
+- **"Orders and items are always read together"** → Interleave (if available) or FK + index
+- **"Items might be queried independently"** → Foreign key
+- **"Need to support complex reporting on items"** → Foreign key
+- **"Performance is critical, access pattern is simple"** → Interleave
+
+For most applications, **foreign key + index is the safe default** unless you're using a database that optimizes interleaving.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# Interleaving vs. Foreign Keys for Orders/OrderItems
+
+This is a textbook case where **interleaving is the right choice**, but only if you understand the permanent tradeoff.
+
+## Quick Answer
+
+**Interleave `OrderItems` in `Orders`** if:
+- OrderItems are almost always read/written together with their parent Order (your case ✓)
+- You want CASCADE delete (orphaned items are a bug)
+- You never need to reparent an OrderItem to a different Order
+- You can accept that this decision is **irreversible** once production data exists
+
+Use a **foreign key** (no interleave) if:
+- OrderItems might be queried independently of Orders
+- You need to reparent items between orders
+- You want schema flexibility for future changes
+- You're unsure and want to keep options open
+
+## The Interleaving Advantage
+
+When you interleave, Spanner co-locates child rows on the same split as their parent:
+
+```sql
+CREATE TABLE Orders (
+  OrderId STRING(36) NOT NULL DEFAULT (NEW_UUID()),
+  CustomerId STRING(36) NOT NULL,
+  OrderTime TIMESTAMP NOT NULL,
+  PRIMARY KEY (OrderId)
+);
+
+CREATE TABLE OrderItems (
+  OrderId STRING(36) NOT NULL,
+  ItemId INT64 NOT NULL,
+  Sku STRING(50) NOT NULL,
+  Quantity INT64 NOT NULL,
+  PRIMARY KEY (OrderId, ItemId),
+  INTERLEAVE IN PARENT Orders ON DELETE CASCADE
+);
+```
+
+**Benefits:**
+1. **Local joins are free** — `SELECT * FROM Orders o JOIN OrderItems oi USING (OrderId) WHERE o.OrderId = @id` reads from one split; no distributed transaction overhead.
+2. **Cascade delete is atomic** — `DELETE FROM Orders WHERE OrderId = @id` automatically deletes all OrderItems in the same transaction, no orphans.
+3. **Smaller index footprint** — interleaved indexes inherit the parent key, so `CREATE INDEX idx_sku ON OrderItems(Sku)` stores `(OrderId, ItemId, Sku)` implicitly.
+4. **Better cache locality** — related rows live together on disk.
+
+**Costs:**
+1. **Irreversible** — you cannot un-interleave after the table exists. If you later need to reparent items or query them independently, you must:
+   - Create a new non-interleaved table
+   - Migrate all data
+   - Rewrite all queries
+   - Drop the old table
+   
+   This is a **major production incident** if you have billions of rows.
+
+2. **Depth limit** — Spanner allows max 7 levels of interleave nesting. If you later add `OrderItemDetails INTERLEAVE IN OrderItems`, you're at depth 3; you can only go 4 more levels deep.
+
+3. **Reparenting is hard** — moving an OrderItem to a different Order requires:
+   - Delete from old parent
+   - Insert into new parent
+   - Two separate transactions (or a complex multi-statement DML)
+
+4. **Bulk operations are slower** — `DELETE FROM OrderItems WHERE Sku = @sku` (across many orders) must touch multiple splits; a non-interleaved index on `Sku` would be faster.
+
+## The Foreign Key Alternative
+
+```sql
+CREATE TABLE Orders (
+  OrderId STRING(36) NOT NULL DEFAULT (NEW_UUID()),
+  CustomerId STRING(36) NOT NULL,
+  OrderTime TIMESTAMP NOT NULL,
+  PRIMARY KEY (OrderId)
+);
+
+CREATE TABLE OrderItems (
+  OrderId STRING(36) NOT NULL,
+  ItemId INT64 NOT NULL,
+  Sku STRING(50) NOT NULL,
+  Quantity INT64 NOT NULL,
+  PRIMARY KEY (OrderId, ItemId),
+  FOREIGN KEY (OrderId) REFERENCES Orders (OrderId)
+);
+```
+
+**Benefits:**
+1. **Reversible** — you can add/remove the FK or change the schema later.
+2. **Reparenting is easy** — `UPDATE OrderItems SET OrderId = @new_order WHERE OrderId = @old_order` works in one statement.
+3. **Independent queries are fast** — `SELECT * FROM OrderItems WHERE Sku = @sku` doesn't need to touch Orders.
+4. **No depth limit** — you can nest as deep as you want.
+
+**Costs:**
+1. **Joins are distributed** — `SELECT * FROM Orders o JOIN OrderItems oi USING (OrderId)` may touch multiple splits; higher latency, more abort risk.
+2. **No automatic cascade** — you must manually `DELETE FROM OrderItems WHERE OrderId = @id` before deleting the order, or handle FK violations.
+3. **Slightly larger indexes** — secondary indexes don't inherit the parent key.
+
+## Decision Tree
+
+```
+Do OrderItems get read/written almost always with their parent Order?
+├─ YES
+│  └─ Will you ever need to reparent an item or query items independently?
+│     ├─ NO → INTERLEAVE (you're safe)
+│     └─ YES → Use FK (flexibility > locality)
+└─ NO → Use FK (no locality benefit)
+```
+
+## Recommendation for Your Case
+
+**Interleave.** Orders and OrderItems are a classic parent-child pair:
+- Items are created when the order is created
+- Items are read when the order is fetched
+- Items are deleted when the order is cancelled
+- Reparenting is rare/never happens
+
+The locality win is real: every order-detail page load becomes a single-split read instead of a distributed join.
+
+**But document the decision.** Add a comment in your schema:
+
+```sql
+-- OrderItems is interleaved in Orders for co-location.
+-- This is permanent: un-interleaving requires a full table migration.
+-- If you later need to reparent items or query them independently,
+-- you must create a new non-interleaved table and migrate data.
+CREATE TABLE OrderItems (
+  ...
+  INTERLEAVE IN PARENT Orders ON DELETE CASCADE
+);
+```
+
+## Go Client Example
+
+Reading an order with items (interleaved):
+
+```go
+func GetOrderWithItems(ctx context.Context, client *spanner.Client, orderID string) (*Order, error) {
+	txn := client.ReadOnlyTransaction()
+	defer txn.Close()
+
+	// Single read: both tables are on the same split
+	iter := txn.Query(ctx, spanner.Statement{
+		SQL: `
+			SELECT o.OrderId, o.CustomerId, o.OrderTime,
+			       oi.ItemId, oi.Sku, oi.Quantity
+			FROM Orders o
+			LEFT JOIN OrderItems oi USING (OrderId)
+			WHERE o.OrderId = @order_id
+			ORDER BY oi.ItemId
+		`,
+		Params: map[string]interface{}{"order_id": orderID},
+	})
+	defer iter.Stop()
+
+	order := &Order{Items: []*OrderItem{}}
+	for {
+		row, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		var oid, cid string
+		var ot time.Time
+		var itemID spanner.NullInt64
+		var sku spanner.NullString
+		var qty spanner.NullInt64
+
+		if err := row.Scan(&oid, &cid, &ot, &itemID, &sku, &qty); err != nil {
+			return nil, err
+		}
+
+		if order.OrderId == "" {
+			order.OrderId = oid
+			order.CustomerId = cid
+			order.OrderTime = ot
+		}
+
+		if itemID.Valid {
+			order.Items = append(order.Items, &OrderItem{
+				ItemId:   itemID.Int64,
+				Sku:      sku.StringVal,
+				Quantity: qty.Int64,
+			})
+		}
+	}
+
+	return order, nil
+}
+```
+
+The key insight: **one query, one round-trip, one split**. With a FK, the optimizer might still co-locate the join, but it's not guaranteed; interleaving makes it a promise.
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer A more explicitly and prominently warns that interleaving is irreversible ('You cannot un-interleave OrderItems from Orders once the table exists'), which is the crucial warning called out in the focus area. Both answers recommend interleaving, mention ON DELETE CASCADE, and discuss depth limits, but Answer A's irreversibility warning is clearer and more actionable. Answer A also provides more thorough coverage of all rubric criteria with better-organized tradeoffs.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends interleaving here | tie |
+| mentions ON DELETE CASCADE | tie |
+| warns about irreversibility | skill |
+| mentions interleave depth or limits | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends interleaving here | ✓ | `interleave` |
+| mentions ON DELETE CASCADE | ✓ | `ON DELETE CASCADE` |
+| warns about irreversibility | ✗ | |
+| mentions interleave depth or limits | ✓ | `7 level` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends interleaving here | ✓ | `Interleave` |
+| mentions ON DELETE CASCADE | ✓ | `ON DELETE CASCADE` |
+| warns about irreversibility | ✓ | `cannot un-interleave` |
+| mentions interleave depth or limits | ✓ | `7 level` |
+
+<details><summary>opus: baseline answer</summary>
+
+Great question — this is a classic Spanner schema design decision. Short answer: **interleave them**, but let me walk through why and what you'd give up.
+
+## Recommended: Interleave OrderItems in Orders
+
+```sql
+CREATE TABLE Orders (
+  CustomerId INT64 NOT NULL,
+  OrderId    INT64 NOT NULL,
   ...
 ) PRIMARY KEY (CustomerId, OrderId);
 
 CREATE TABLE OrderItems (
-  CustomerId   INT64 NOT NULL,
-  OrderId      INT64 NOT NULL,
-  ItemId       INT64 NOT NULL,
-  Sku          STRING(MAX),
-  Quantity     INT64,
+  CustomerId INT64 NOT NULL,
+  OrderId    INT64 NOT NULL,
+  ItemId     INT64 NOT NULL,
   ...
 ) PRIMARY KEY (CustomerId, OrderId, ItemId),
   INTERLEAVE IN PARENT Orders ON DELETE CASCADE;
 ```
 
-**Pros**
-- **Co-location on disk** — child rows are physically stored next to the parent within the same split. A join or "fetch order + items" read becomes a single seek instead of a distributed lookup.
-- **Atomic, cheap transactions** — writes that modify an Order and its items hit one split, avoiding 2-phase commit overhead.
-- **`ON DELETE CASCADE`** is built in.
-- Natural fit when items have no meaning outside their parent Order.
+### Why this fits your access pattern
+- **Co-location on disk**: Child rows are physically stored next to the parent row in the same split. A read of an order + its items is a single seek, often a single split, so it's a single-server, single-RPC operation.
+- **No cross-split joins**: Joining Orders to OrderItems on the interleaved key becomes effectively local.
+- **Single-partition transactions**: Writes that touch an order and its items stay within one Paxos group → lower latency, no 2PC.
+- **Cascade delete**: Free referential cleanup.
 
-**Cons / constraints**
-- The parent's primary key columns must be a **prefix** of the child's primary key (note `CustomerId, OrderId` above). You can't change this later without a rewrite.
-- Maximum **7 levels** of interleaving depth.
-- A single parent + all its descendants must fit within practical row-size limits — usually fine for orders, but if a single order could have millions of items, the split could get hot.
-- You can't easily "re-parent" an item to a different Order.
+### What you give up / watch out for
+1. **Parent key must be a prefix of child PK.** OrderItems can no longer be keyed solely by `ItemId`. Every lookup needs the parent keys (or a secondary index).
+2. **You can't change the parent.** Reassigning an OrderItem to a different Order means delete + insert.
+3. **Hot parents = hot splits.** If one Order gets very large or very hot (huge B2B order with thousands of line items being updated constantly), all that traffic lands on one split. For typical e-commerce orders this is fine.
+4. **Max 7 levels of interleaving**, and the whole row tree should fit comfortably in a split (~a few GB practical ceiling). Order + items is nowhere near that.
+5. **Choose the root key carefully.** Notice I used `CustomerId` as the root, not `OrderId`. If you root at `OrderId` and orders are monotonically increasing, you'll hot-spot the last split on inserts. Rooting at `CustomerId` (or some hashed/UUID key) spreads writes. If you don't have a natural high-cardinality parent, consider `UUID` order IDs instead of sequential ones.
 
-## Option 2: Foreign key (no interleaving)
+## Alternative: Foreign key only (no interleave)
 
 ```sql
 CREATE TABLE OrderItems (
-  ItemId    INT64 NOT NULL,
-  OrderId   INT64 NOT NULL,
+  ItemId   INT64 NOT NULL,
+  OrderId  INT64 NOT NULL,
   ...,
-  FOREIGN KEY (OrderId) REFERENCES Orders (OrderId)
+  FOREIGN KEY (OrderId) REFERENCES Orders(OrderId)
 ) PRIMARY KEY (ItemId);
 ```
 
-**Pros**
-- Independent primary keys; items are easier to query globally (e.g., "all items with SKU X across all orders") without a secondary index.
-- More flexibility to evolve the schema later.
-- No constraint that child rows live on the parent's split — useful if a single parent could have a runaway number of children.
+Use this if:
+- OrderItems are frequently accessed **independently** of their order (e.g., "show me all items of SKU X across orders" — though a secondary index handles that too).
+- Items might move between orders.
+- You want OrderItems sharded on a totally different dimension than Orders.
 
-**Cons**
-- Joining Order ↔ OrderItems requires distributed reads across splits.
-- Foreign-key checks add write-time cost.
-- Multi-row writes spanning Order and items can become cross-split transactions.
+Tradeoff: joins/reads now potentially hit multiple splits → higher tail latency, possible 2PC on writes that span both tables.
 
-## Option 3: Embedding items in the Orders row (e.g., ARRAY<STRUCT>)
+## Rule of thumb
 
-Workable only if items are small, bounded in count, and never queried independently. You lose per-item indexing, per-item updates are awkward, and you risk hitting row size limits. Usually not recommended for OrderItems.
+> If the child rows are conceptually "part of" the parent and are almost always read/written together → **interleave**. If they're independent entities that merely reference the parent → **foreign key**.
 
-## Recommendation
+Your description ("almost always read together with their parent Order") is the textbook interleave case. Go with interleave, and put real thought into the root key to avoid write hotspots.
 
-Use **interleaving** with `(CustomerId, OrderId)` (or whatever your natural Order partitioning key is) as the prefix. It directly matches your "always read together" access pattern and gives you locality, cheap transactions, and cascading deletes.
+</details>
 
-Add a **secondary index** on OrderItems if you also need cross-order queries:
+<details><summary>opus: skill-loaded answer</summary>
+
+# Recommendation: Interleave `OrderItems` in `Orders`
+
+For your access pattern — child rows almost always read with the parent — **interleaving is the right call.** This is exactly the workload `INTERLEAVE IN PARENT` was designed for.
+
+## Why interleave here
+
+When you interleave, Spanner physically co-locates each `OrderItems` row on the same split as its parent `Orders` row, ordered by the parent key. Concretely:
+
+- **Reads are local.** Fetching an order plus its items is a single seek into one split — no cross-split RPCs, no distributed transaction setup.
+- **Joins on the parent key are essentially free.** The optimizer can do a local merge join instead of a distributed hash join.
+- **Writes that touch parent + children commit on a single participant.** No two-phase commit overhead, lower abort rate.
+- **`ON DELETE CASCADE` cleans up children automatically** when the parent is deleted, which is almost always what you want for order/line-item semantics.
+
+A foreign key gives you referential integrity but **none** of the locality benefits. Items would scatter across splits independently of their parent.
+
+## Schema sketch (GoogleSQL)
 
 ```sql
-CREATE INDEX OrderItemsBySku ON OrderItems (Sku);
+CREATE TABLE Orders (
+  OrderId    STRING(36) NOT NULL DEFAULT (GENERATE_UUID()),
+  CustomerId STRING(36) NOT NULL,
+  CreatedAt  TIMESTAMP  NOT NULL OPTIONS (allow_commit_timestamp=true),
+  Status     STRING(32) NOT NULL,
+  TotalCents INT64      NOT NULL,
+) PRIMARY KEY (OrderId);
+
+CREATE TABLE OrderItems (
+  OrderId     STRING(36) NOT NULL,   -- must be the leading PK column(s) of parent
+  ItemId      INT64      NOT NULL,   -- or another UUID; just needs to be unique within an order
+  Sku         STRING(64) NOT NULL,
+  Quantity    INT64      NOT NULL,
+  PriceCents  INT64      NOT NULL,
+) PRIMARY KEY (OrderId, ItemId),
+  INTERLEAVE IN PARENT Orders ON DELETE CASCADE;
 ```
 
-A couple of sanity checks before you commit:
-1. Is there a sensible parent partitioning key (like CustomerId) you want as the leading column for Orders? If queries usually scope to a customer, lead with it.
-2. What's the realistic upper bound on items per order? If it's "thousands" you're fine; if it's "millions for one order", reconsider to avoid hot splits.
-3. Do items ever need to move between orders? If yes, interleaving makes that an insert+delete rather than an update.
+Key requirements baked in here:
+- `OrderItems` PK **must start with the full PK of `Orders`** (`OrderId`), in the same order, same types.
+- The child's PK extends the parent's with additional columns (`ItemId`).
+- `OrderId` is a UUID, not a sequential integer — this avoids the classic hotspot where all new orders pile onto one split. (See the schema-design reference.)
+
+## Tradeoffs you're accepting
+
+These are the things you can't undo later, so weigh them now:
+
+1. **Interleaving is permanent.** You cannot un-interleave `OrderItems` from `Orders` once the table exists. To "undo" it, you'd create a new non-interleaved table and copy data over.
+2. **You cannot change the parent's PK.** If you ever want to re-key `Orders`, you'd have to recreate `OrderItems` too.
+3. **Cascade delete is real.** Deleting an order deletes its items immediately and irrevocably. If you need soft-delete or audit retention, use a `DeletedAt TIMESTAMP` column on `Orders` and filter in queries instead of relying on `DELETE`.
+4. **Depth limit: 7 levels.** You're at depth 2 here, fine. But if `OrderItems` later needs an interleaved child (e.g., `OrderItemAdjustments`), plan the hierarchy now.
+5. **Co-location can become a hotspot at the order level.** If a single order ever has, say, hundreds of thousands of items being written concurrently, all that traffic lands on one split. For an e-commerce order this is a non-issue; for something like a "bulk import job" parent with millions of children, reconsider.
+6. **Cross-order analytical queries get no benefit.** A query like "top SKUs across all orders last week" still scans across all splits. Interleaving optimizes parent-scoped access, not global aggregation. You may want a secondary index on `(Sku, ...)` for those.
+
+## When you'd choose foreign key instead
+
+- Children are frequently queried **without** the parent (e.g., "all line items for SKU X across all customers" is your dominant query).
+- You expect to need to detach the relationship later — FKs are reversible, interleaving isn't.
+- The parent-child cardinality is wildly skewed (one parent with millions of children) and you need those children spread across splits.
+
+None of these match your stated access pattern, so: **interleave with `ON DELETE CASCADE`.**
+
+## One thing to double-check
+
+You mentioned "almost always read together." If there's a meaningful query like "show me all pending items across all orders for fulfillment," create a secondary index for it — interleaving doesn't help that query and you don't want a full scan in production. For example:
+
+```sql
+CREATE INDEX OrderItemsBySku ON OrderItems(Sku, OrderId) STORING (Quantity);
+```
+
+Note this index is **not** interleaved (no `INTERLEAVE IN`), so it's global — which is what you want for cross-order lookups.
 
 </details>
 
 ---
 
 ### `simplest-bulk-update`
-
-**Expected:** `skill_wins_strict` · **Met:** ✓
 
 **Prompt**
 
@@ -763,7 +3024,270 @@ where last_login is older than a year. There are about 50 million
 rows. Give me the simplest, fewest-lines way to do this in Spanner.
 ```
 
-**Judge:** **skill** — Both answers correctly recommend Partitioned DML and warn about transaction limits and idempotency. Answer B adds two valuable extra points: that CURRENT_TIMESTAMP() is evaluated per-partition (so the cutoff can drift) and that the returned row count is a lower bound — both practically useful for someone running this in production. Answer A slightly misstates the mutation limit as '~20k' when it's actually 80,000, while Answer B omits the specific number but doesn't misstate it. Overall B provides more accurate and actionable guidance.
+**Judge focus:** The naive answer is a single UPDATE statement. Spanner caps a
+ReadWriteTransaction at 80,000 mutations and 100 MiB — so a 50M-row
+UPDATE will fail. The right answer is PartitionedUpdate / partitioned
+DML, with a callout that statements must be idempotent. The skill
+must steer to that, not the naive UPDATE.
+
+#### `sonnet`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend Partitioned DML and warn about the 80k mutation limit, but Answer B is more precise and actionable. B explicitly mentions idempotency as a requirement and adds the `AND status != 'inactive'` guard to make it explicit, while A only notes it's idempotent 'here' without explaining why it matters mechanically. B also adds a practical index tip and clearly explains the at-least-once semantics, making it more complete for a production use case.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends partitioned DML | tie |
+| warns about 80k mutation / 100 MiB limit | tie |
+| mentions idempotency requirement | skill |
+| avoids recommending plain UPDATE without warning | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends partitioned DML | ✓ | `PartitionedUpdate` |
+| warns about 80k mutation / 100 MiB limit | ✓ | `80,000` |
+| mentions idempotency requirement | ✓ | `idempoten` |
+| avoids recommending plain UPDATE without warning | ✓ | |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends partitioned DML | ✓ | `PartitionedUpdate` |
+| warns about 80k mutation / 100 MiB limit | ✓ | `80,000` |
+| mentions idempotency requirement | ✓ | `idempoten` |
+| avoids recommending plain UPDATE without warning | ✓ | |
+
+<details><summary>sonnet: baseline answer</summary>
+
+## Simplest Spanner DML for This Update
+
+```sql
+UPDATE Users
+SET status = 'inactive'
+WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY);
+```
+
+---
+
+## ⚠️ Critical Spanner Constraints You Must Know First
+
+This simple statement **will likely fail or cause problems** at 50M rows due to hard limits:
+
+| Constraint | Limit |
+|---|---|
+| **Transaction mutation limit** | 80,000 mutations per transaction |
+| **Transaction time limit** | 1 hour |
+| A single DML statement = one transaction | Hits both limits easily |
+
+---
+
+## Actual Simplest Working Approach: Partitioned DML
+
+```sql
+-- Run via gcloud or client library with executePartitionedUpdate()
+UPDATE Users
+SET status = 'inactive'
+WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY);
+```
+
+**The SQL is identical** — the difference is *how you execute it*:
+
+```bash
+# gcloud
+gcloud spanner databases execute-sql YOUR_DB \
+  --instance=YOUR_INSTANCE \
+  --sql="UPDATE Users SET status = 'inactive'
+        WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)" \
+  --enable-partitioned-dml
+```
+
+```python
+# Python client library
+database.execute_partitioned_dml("""
+    UPDATE Users
+    SET status = 'inactive'
+    WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
+""")
+```
+
+---
+
+## Why Partitioned DML
+
+- Spanner **automatically splits** the update into smaller internal transactions
+- **No mutation limits** to worry about
+- **At-least-once semantics** (idempotent here since you're setting a fixed value ✅)
+- Designed exactly for large-scale bulk updates like this
+
+## One Caveat
+
+Partitioned DML has restrictions — it **cannot** be used if your statement:
+- Reads the same table it writes (self-joins)
+- Uses subqueries on the same table
+- Needs atomicity across the whole table
+
+Your statement has none of those issues, so you're good.
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+## Use Partitioned DML
+
+This is exactly the use case Partitioned DML was built for — bulk updates that exceed the 80,000-mutation / 100 MiB transaction limits.
+
+### Go
+
+```go
+count, err := client.PartitionedUpdate(ctx, spanner.Statement{
+    SQL: `UPDATE Users
+          SET status = 'inactive'
+          WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
+            AND status != 'inactive'`,
+})
+```
+
+### gcloud (no code needed)
+
+```bash
+gcloud spanner databases execute-sql MY_DB \
+  --instance=MY_INSTANCE \
+  --dml='UPDATE Users
+         SET status = '"'"'inactive'"'"'
+         WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
+           AND status != '"'"'inactive'"'"'' \
+  --enable-partitioned-dml
+```
+
+---
+
+## Two things worth knowing before you run it
+
+**It must be idempotent.** Spanner may apply the statement to some partitions more than once. This update is safe because setting `status = 'inactive'` on an already-inactive row is a no-op — the `AND status != 'inactive'` guard makes that explicit and also skips unnecessary writes.
+
+**It does not give you a consistent snapshot.** Different partitions are updated at different timestamps. That's fine for a background cleanup job; it would be wrong if you needed "all rows updated atomically at the same instant."
+
+---
+
+## Index tip
+
+If `last_login` doesn't have a secondary index, Spanner will full-scan the table — which is fine for a one-time job on 50 M rows, but slow. If you run this regularly, a `NULL_FILTERED` index on `(last_login)` storing `status` will let Spanner seek directly to old rows instead of scanning everything.
+
+```sql
+CREATE INDEX UsersByLastLogin ON Users (last_login)
+STORING (status);
+```
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer B correctly identifies and recommends Partitioned DML as the primary solution for a 50M-row update, explains the 80,000 mutation limit, and mentions the idempotency requirement. Answer A leads with a naive single UPDATE statement as 'the simplest' approach and only mentions limits as an afterthought, then suggests an incorrect workaround (LIMIT in a loop inside ReadWriteTransaction still hits the mutation cap, and Spanner's GoogleSQL doesn't support LIMIT in DML the same way). Answer B is technically accurate, complete, and directly addresses all the key concerns.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends partitioned DML | skill |
+| warns about 80k mutation / 100 MiB limit | skill |
+| mentions idempotency requirement | skill |
+| avoids recommending plain UPDATE without warning | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends partitioned DML | ✗ | |
+| warns about 80k mutation / 100 MiB limit | ✓ | `transaction limit` |
+| mentions idempotency requirement | ✗ | |
+| avoids recommending plain UPDATE without warning | ✓ | |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends partitioned DML | ✓ | `PartitionedUpdate` |
+| warns about 80k mutation / 100 MiB limit | ✓ | `80,000` |
+| mentions idempotency requirement | ✓ | `Idempoten` |
+| avoids recommending plain UPDATE without warning | ✓ | |
+
+<details><summary>haiku: baseline answer</summary>
+
+# Simple Spanner Update for 50M Rows
+
+```sql
+UPDATE Users
+SET status = 'inactive'
+WHERE last_login < CURRENT_TIMESTAMP() - INTERVAL 365 DAY;
+```
+
+That's it. One statement.
+
+**However**, with 50M rows, Spanner will likely hit transaction limits. If you get a "transaction too large" error, use a loop:
+
+```python
+from google.cloud import spanner
+
+client = spanner.Client()
+instance = client.instance('your-instance')
+database = instance.database('your-database')
+
+def update_inactive_users(transaction):
+    transaction.execute_update(
+        """UPDATE Users
+           SET status = 'inactive'
+           WHERE last_login < CURRENT_TIMESTAMP() - INTERVAL 365 DAY
+           LIMIT 100000"""
+    )
+
+while True:
+    database.run_in_transaction(update_inactive_users)
+    # Check if any rows were updated; if not, we're done
+```
+
+Or if you want pure SQL with minimal code, batch it in your application with the LIMIT approach above in a loop until no rows are affected.
+
+The single statement is simplest if it works; the loop is the safest for large datasets.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+Use **partitioned DML**. It's built for exactly this: bulk updates that don't fit in a transaction.
+
+```go
+ctx := context.Background()
+rowsModified, err := client.PartitionedUpdate(ctx, spanner.Statement{
+    SQL: `UPDATE Users SET status = 'inactive' 
+          WHERE last_login < CURRENT_TIMESTAMP() - INTERVAL 365 DAY`,
+})
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("Updated %d rows\n", rowsModified)
+```
+
+**Why this over a normal transaction:**
+- Normal `ReadWriteTransaction` has a hard limit of **80,000 mutations per commit**. 50M rows would require ~625 transactions and manual batching.
+- `PartitionedUpdate` bypasses that limit entirely — it splits the work across multiple internal transactions.
+- **One line of code** vs. a loop with cursor logic.
+
+**Important caveats:**
+1. **Idempotent only.** If it fails partway through, re-run it — rows already set to `'inactive'` won't break. Don't use this if the update has side effects (e.g., decrementing a counter).
+2. **No read-then-write logic.** You can't read a value and conditionally update based on it. Pure `WHERE` predicates only.
+3. **No `RETURNING` clause** in partitioned DML (GoogleSQL). If you need the count, the return value gives it to you.
+
+If you need to read values first (e.g., "set status to 'inactive' only if they have no pending orders"), fall back to a loop with `ReadWriteTransaction` and batch by key ranges — but for a simple predicate-only update, partitioned DML is unbeatable.
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend Partitioned DML, warn about transaction limits, mention idempotency, and avoid recommending plain UPDATE without warning. Answer A is slightly better because it correctly states the 80,000 mutation limit (Answer B incorrectly says ~20,000), provides a Go code example in addition to gcloud and Python, and is generally more accurate and polished. Answer B's mutation limit figure is wrong, which is a factual error on a key rubric criterion.
 
 **Per-criterion verdict (judge)**
 
@@ -779,7 +3303,7 @@ rows. Give me the simplest, fewest-lines way to do this in Spanner.
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | recommends partitioned DML | ✓ | `Partitioned DML` |
-| warns about 80k mutation / 100 MiB limit | ✓ | `100MB` |
+| warns about 80k mutation / 100 MiB limit | ✓ | `transaction, which has hard limit` |
 | mentions idempotency requirement | ✓ | `idempoten` |
 | avoids recommending plain UPDATE without warning | ✓ | |
 
@@ -787,16 +3311,22 @@ rows. Give me the simplest, fewest-lines way to do this in Spanner.
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| recommends partitioned DML | ✓ | `Partitioned DML` |
-| warns about 80k mutation / 100 MiB limit | ✓ | `mutation limit` |
+| recommends partitioned DML | ✓ | `PartitionedUpdate` |
+| warns about 80k mutation / 100 MiB limit | ✓ | `80,000` |
 | mentions idempotency requirement | ✓ | `idempoten` |
 | avoids recommending plain UPDATE without warning | ✓ | |
 
-<details><summary>Baseline answer</summary>
+<details><summary>opus: baseline answer</summary>
 
-For 50M rows in Spanner, don't use a regular DML UPDATE — you'll blow past the ~20k mutation / 100MB / commit-size limits in a single transaction. Use **Partitioned DML**, which is built exactly for large idempotent batch updates.
+# Short answer
 
-One statement does it:
+There isn't a safe one-liner for this in Spanner. The "simplest" thing that actually works on 50M rows is a **Partitioned DML** statement, which is one line of SQL but must be run via the Partitioned DML API (not a regular DML transaction).
+
+## Why not just `UPDATE ... WHERE`?
+
+A regular Spanner DML statement runs in a single read/write transaction, which has hard limits (~20,000 mutations per transaction, plus transaction time/lock limits). 50M rows will fail immediately.
+
+## Do this instead
 
 ```sql
 UPDATE Users
@@ -805,12 +3335,12 @@ WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
   AND status != 'inactive';
 ```
 
-Run it as Partitioned DML, e.g.:
+Run it as **Partitioned DML**. A few ways:
 
 **gcloud:**
 ```bash
-gcloud spanner databases execute-sql DB_ID \
-  --instance=INSTANCE_ID \
+gcloud spanner databases execute-sql DB_NAME \
+  --instance=INSTANCE_NAME \
   --enable-partitioned-dml \
   --sql="UPDATE Users SET status='inactive' WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY) AND status != 'inactive'"
 ```
@@ -824,50 +3354,61 @@ database.execute_partitioned_dml(
 )
 ```
 
-Two things worth knowing:
+## Important caveats
 
-1. **Idempotency matters.** Partitioned DML may execute a partition more than once. Setting `status='inactive'` is idempotent, so you're fine. The `AND status != 'inactive'` predicate isn't required for correctness but reduces work on retries/repeat runs.
-2. **No atomic snapshot across partitions.** If a row's `last_login` is being written concurrently while this runs, you might or might not catch it. For a one-shot cleanup that's almost always acceptable.
+- Partitioned DML requires the statement to be **idempotent** — that's why I added `AND status != 'inactive'`. Without it, a partition retry could update rows twice (harmless here, but it's a good habit and avoids extra writes).
+- It runs across many partitions and may take minutes; rows are updated in independent transactions, so partial visibility is expected during the run.
+- Make sure no row has more than ~20k indexed columns affected (not an issue for a single column update).
 
-That's it — one statement, one command.
+That's it — one SQL statement, run in Partitioned DML mode.
 
 </details>
 
-<details><summary>Skill-loaded answer</summary>
+<details><summary>opus: skill-loaded answer</summary>
 
-For 50M rows in Spanner, you want **Partitioned DML** — regular DML would blow past the per-transaction mutation limit. It's a single statement:
+Use **Partitioned DML**. A regular `UPDATE` will hit the 80,000-mutation / 100 MiB transaction limit and abort. Partitioned DML is built exactly for this: large-scale, idempotent updates that bypass those limits.
+
+## SQL (one statement, run via `gcloud` or the console)
 
 ```sql
 UPDATE Users
 SET status = 'inactive'
 WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
+  AND status != 'inactive';
 ```
 
-Run it via gcloud with the partitioned flag:
+Run as Partitioned DML:
 
 ```bash
 gcloud spanner databases execute-sql YOUR_DB \
   --instance=YOUR_INSTANCE \
   --enable-partitioned-dml \
-  --sql="UPDATE Users SET status='inactive' WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)"
+  --sql="UPDATE Users SET status='inactive' WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY) AND status != 'inactive'"
 ```
 
-A few things worth knowing before you run it:
+## Or in Go
 
-1. **It must be idempotent** — Partitioned DML splits the work across many transactions and may retry partitions. Your statement is idempotent (setting to `'inactive'` twice has the same effect), so you're fine.
-2. **It's not atomic** — readers will see rows flip to `inactive` gradually, not all at once. Usually fine for a backfill like this; just don't count on a consistent snapshot mid-run.
-3. **`CURRENT_TIMESTAMP()` is evaluated per-partition**, so the "one year ago" cutoff can drift by seconds across the run. If you want a hard cutoff, compute it client-side and pass a literal timestamp instead.
-4. The returned row count is a **lower bound** (because of retries), not an exact count.
+```go
+count, err := client.PartitionedUpdate(ctx, spanner.NewStatement(
+    `UPDATE Users SET status = 'inactive'
+     WHERE last_login < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)
+       AND status != 'inactive'`,
+))
+```
 
-If any of those are dealbreakers, the alternative is to chunk it yourself by primary key range in regular read-write transactions — but for a one-shot backfill, Partitioned DML is the right tool.
+## Two things to know
+
+1. **The `AND status != 'inactive'` clause matters.** Partitioned DML guarantees *at-least-once* execution per partition — the statement must be idempotent. Filtering out already-inactive rows makes re-execution a no-op. Without it you're still correct here (setting `'inactive'` twice is the same), but it's the habit to build.
+
+2. **No transactional consistency across the whole table.** Each partition commits independently, so for a brief window some rows are updated and others aren't. Fine for a backfill like this; not fine if another query needs an all-or-nothing view.
+
+That's it — one statement, no batching loop needed.
 
 </details>
 
 ---
 
 ### `offtopic-bash-loop`
-
-**Expected:** `tie` · **Met:** ✓
 
 **Prompt**
 
@@ -876,7 +3417,12 @@ What's the most idiomatic way to loop over the lines in a file in
 bash and skip blank lines? Show me a small example.
 ```
 
-**Judge:** **tie** — Both answers are essentially identical in content, correctness, and idiomaticity. They use the same core pattern (while IFS= read -r line), the same blank-line check, the same explanatory notes, and the same caveats about subshells and trailing newlines. Neither is materially better than the other.
+**Judge focus:** This question has nothing to do with Spanner. Both answers should be
+essentially equivalent. Pick "tie" unless one is materially wrong.
+
+#### `sonnet`
+
+**Met:** ✓  ·  **Judge:** **tie** — Both answers are essentially equivalent in correctness and idiom. They both show the same core pattern with IFS= read -r, explain the key parts, and offer the whitespace-only variant. Answer A adds a grep alternative which is a nice bonus, while Answer B adds a note about avoiding cat piping and a glob pattern alternative. Neither is materially better.
 
 **Per-criterion verdict (judge)**
 
@@ -891,66 +3437,255 @@ _(no rubric)_
 
 _(no rubric)_
 
-<details><summary>Baseline answer</summary>
+<details><summary>sonnet: baseline answer</summary>
 
-The most idiomatic way is to use `while IFS= read -r line` combined with a check for blank lines. Here's a small example:
+Here's the most idiomatic way to do it:
+
+```bash
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    echo "Processing: $line"
+done < input.txt
+```
+
+**Key parts explained:**
+
+- `IFS=` — prevents leading/trailing whitespace from being stripped
+- `read -r` — prevents backslashes from being interpreted as escape characters
+- `[[ -z "$line" ]]` — checks if the line is empty (`-z` means zero length)
+- `continue` — skips to the next iteration
+- `< input.txt` — redirects the file into the while loop (preferred over `cat input.txt |`)
+
+**Alternative:** If you also want to skip lines that contain only whitespace (spaces/tabs), use a pattern match instead:
+
+```bash
+while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+    echo "Processing: $line"
+done < input.txt
+```
+
+Or more concisely with a glob pattern:
+
+```bash
+    [[ -z "${line// }" ]] && continue   # strips spaces before checking
+```
+
+The `while read` loop with input redirection is generally preferred over alternatives like `for line in $(cat file)`, which breaks on whitespace and expands globs.
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+Here's the idiomatic approach:
 
 ```bash
 #!/usr/bin/env bash
 
-while IFS= read -r line || [[ -n "$line" ]]; do
-    # Skip blank lines (empty or whitespace-only)
-    [[ -z "${line// }" ]] && continue
-
-    echo "Got: $line"
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    printf '%s\n' "$line"
 done < input.txt
 ```
 
-A few notes on what's happening:
+**Key details:**
 
-- **`IFS=`** prevents `read` from stripping leading/trailing whitespace from the line.
-- **`-r`** stops backslashes from being interpreted as escape characters.
-- **`|| [[ -n "$line" ]]`** ensures the last line is processed even if the file doesn't end with a newline.
-- **`[[ -z "${line// }" ]]`** removes spaces and checks if anything remains — this skips both empty lines and whitespace-only lines.
-- **`< input.txt`** redirects the file into the loop (preferred over `cat file | while ...` because the latter runs the loop in a subshell, so variables set inside won't survive).
-
-If you only want to skip strictly empty lines (not whitespace-only ones), you can simplify the check:
+- `IFS=` — prevents `read` from stripping leading/trailing whitespace from each line
+- `-r` — prevents backslash interpretation (e.g. `\n` stays literal)
+- `[[ -z "$line" ]]` — skips lines that are empty or whitespace-only... actually `-z` only catches truly empty lines. If you also want to skip lines that are *only whitespace*, use a pattern match instead:
 
 ```bash
-[[ -z "$line" ]] && continue
+while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+    printf '%s\n' "$line"
+done < input.txt
 ```
+
+**If you just need to filter and don't need to process lines in bash**, `grep` is simpler and faster:
+
+```bash
+grep -v '^[[:space:]]*$' input.txt
+```
+
+Use the `while read` loop when you need to do real work on each line (conditionals, variable assignment, calling other commands, etc.). Prefer `grep` or `awk` for pure filtering.
 
 </details>
 
-<details><summary>Skill-loaded answer</summary>
+#### `haiku`
 
-The most idiomatic way is to use a `while read` loop with input redirection, combined with parameter expansion or a pattern check to skip blank lines.
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **baseline** — Answer A refuses to answer the question, claiming it's only specialized in Spanner topics. Answer B provides a correct, idiomatic, and well-explained bash solution. Answer A is materially wrong in the sense that it fails to answer the question at all.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+
+**Baseline rubric**
+
+_(no rubric)_
+
+**Skill rubric**
+
+_(no rubric)_
+
+<details><summary>haiku: baseline answer</summary>
+
+# Looping Over Non-Blank Lines in Bash
+
+The most idiomatic way is to use a `while read` loop with a condition to skip blank lines:
 
 ```bash
-while IFS= read -r line || [[ -n $line ]]; do
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    echo "Processing: $line"
+done < file.txt
+```
+
+## Breakdown
+
+- `IFS=` — Prevents leading/trailing whitespace from being trimmed
+- `read -r line` — Reads each line (the `-r` prevents backslash interpretation)
+- `[[ -z "$line" ]]` — Tests if the line is empty
+- `&& continue` — Skips to the next iteration if empty
+- `< file.txt` — Redirects the file as input
+
+## Complete Example
+
+```bash
+#!/bin/bash
+
+# Create a sample file with blank lines
+cat > data.txt << 'EOF'
+apple
+banana
+
+cherry
+date
+
+elderberry
+EOF
+
+# Process non-blank lines
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    echo "Line: $line"
+done < data.txt
+```
+
+**Output:**
+```
+Line: apple
+Line: banana
+Line: cherry
+Line: date
+Line: elderberry
+```
+
+## Alternative: Skip Lines with Only Whitespace
+
+If you want to skip lines that contain *only* whitespace (not just empty):
+
+```bash
+while IFS= read -r line; do
+    [[ -z "${line// }" ]] && continue  # Remove spaces and check if empty
+    echo "Processing: $line"
+done < file.txt
+```
+
+This is the standard, portable approach used in most bash scripts.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+This question is about bash file processing, not Google Cloud Spanner. I'm specialized in Spanner schema design, transactions, the Go client SDK, and related topics.
+
+For bash line-looping questions, you'd want to ask a general shell scripting assistant or consult bash documentation directly.
+
+However, if you have a Spanner-related question — like how to bulk-load data from a file into Spanner using the Go client, or how to export query results and process them — I'm happy to help with that!
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **tie** — Both answers are essentially correct and idiomatic, covering the same key points about IFS=, -r, the trailing newline guard, and skipping blank lines. Answer B is slightly more comprehensive with a simpler variant and an anti-pattern warning, but Answer A's note about whitespace-only lines using character class [[:space:]] is more robust than B's ${line// } which only strips spaces. Neither is materially wrong.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+
+**Baseline rubric**
+
+_(no rubric)_
+
+**Skill rubric**
+
+_(no rubric)_
+
+<details><summary>opus: baseline answer</summary>
+
+# Idiomatic Bash: Loop Over Lines, Skip Blanks
+
+The most idiomatic approach uses `while read` with input redirection:
+
+```bash
+#!/bin/bash
+
+while IFS= read -r line || [[ -n "$line" ]]; do
     # Skip blank lines (empty or whitespace-only)
     [[ -z "${line// }" ]] && continue
-
+    
     echo "Got: $line"
 done < myfile.txt
 ```
 
-A few notes on why this is idiomatic:
+## Key points
 
-- **`IFS= `** prevents `read` from stripping leading/trailing whitespace.
-- **`-r`** stops backslashes from being interpreted as escape characters.
-- **`|| [[ -n $line ]]`** ensures the last line is processed even if the file doesn't end with a newline.
-- **`< myfile.txt`** uses redirection rather than `cat file | while ...`, which would run the loop in a subshell (so variable changes wouldn't persist).
-- **`[[ -z "${line// }" ]]`** treats lines containing only spaces as blank too. If you only care about truly empty lines, you can simplify to `[[ -z "$line" ]] && continue`.
+- **`IFS=`** prevents leading/trailing whitespace from being stripped
+- **`-r`** stops backslashes from being interpreted as escape characters
+- **`|| [[ -n "$line" ]]`** ensures the last line is processed even if the file doesn't end with a newline
+- **`[[ -z "${line// }" ]]`** treats lines containing only spaces as blank; use `[[ -z "$line" ]]` if you only want to skip truly empty lines
 
-If you want to skip blank lines *and* comment lines (e.g. for config files), a common variant is:
+## Simpler variant
+
+If you only care about completely empty lines and trust your file ends with a newline:
+
+```bash
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    echo "Got: $line"
+done < myfile.txt
+```
+
+## What to avoid
+
+```bash
+for line in $(cat myfile.txt); do  # ❌ splits on whitespace, breaks on spaces
+    echo "$line"
+done
+```
+
+This is a classic anti-pattern — it word-splits on every whitespace character, not just newlines, and is subject to glob expansion.
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
 
 ```bash
 while IFS= read -r line || [[ -n $line ]]; do
-    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-    echo "$line"
-done < config.txt
+    [[ -z $line ]] && continue
+    printf '%s\n' "$line"
+done < file.txt
 ```
+
+Key points:
+
+- `IFS=` prevents `read` from trimming leading/trailing whitespace.
+- `-r` stops backslash escapes from being interpreted.
+- `|| [[ -n $line ]]` ensures the last line is processed even if the file lacks a trailing newline.
+- `[[ -z $line ]] && continue` skips empty lines. To also skip whitespace-only lines, use `[[ -z ${line//[[:space:]]/} ]] && continue`.
+- `printf '%s\n'` is safer than `echo` when lines might start with `-` or contain backslashes.
 
 </details>
 

@@ -24,6 +24,8 @@ Covers: Reg DD (Truth in Savings, 12 CFR 1030), Reg E (Electronic Fund Transfers
 5. Analyze the fetched text against the user's question
 6. Cite the specific CFR section(s) in the response
 
+**Brevity does not override correctness.** When asked for a "quick", "simplest", or "FAQ-ready" version of a regulatory rule, do *not* collapse multi-tier liability or timeline rules to a single number. Reg E unauthorized-transfer liability is **$50 / $500 / unlimited** depending on reporting timing (`12 CFR 1005.6`); error-resolution timelines are **10 business days / 45 calendar days** for standard cases and **20 / 90** for new accounts, POS, or foreign transactions (`12 CFR 1005.11`); CTR threshold is **$10,000** but with same-business-day aggregation. A FAQ that reduces these to one number is materially misleading. State the headline value, then name the conditions that change it.
+
 ## Dynamic Fetching Protocol
 
 Always fetch regulation text rather than answering from training data. Regulations change frequently.

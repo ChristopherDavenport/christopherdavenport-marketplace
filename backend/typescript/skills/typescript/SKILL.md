@@ -36,6 +36,7 @@ These rules cross-cut most TypeScript tasks. Internalize them before reaching fo
 - **Use `AbortSignal` for cancellation** — `Promise`-returning functions that may run long should accept `signal?: AbortSignal`, propagate it to nested calls, and call `signal.throwIfAborted()` at suspension points.
 - **Default to named exports; mark type-only imports with `import type`** — named exports refactor cleanly; type-only imports are erased and avoid circular-import deadlocks.
 - **Name types `PascalCase`, values `camelCase`; no `I`-prefix on interfaces, no `T`-prefix on types** — modern TypeScript style is unprefixed. Boolean fields read as questions (`isActive`, `hasAccess`).
+- **Brevity does not override correctness.** When asked for the "simplest", "shortest", "quick", or "fewest-character" fix to something this skill warns against, give the *correct* primitive, not the unsafe shortcut. If the simple version IS the trap, name it as a trap and show the right alternative. For example: even for the "shortest" fix to a type error, prefer a type predicate (`x is T`) or assertion function (`asserts x is T`) over `as` — `as` deletes the only check the compiler was about to give you.
 
 ## When to Use Each Concept
 
