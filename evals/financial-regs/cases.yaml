@@ -1,0 +1,215 @@
+# Financial regs eval cases. Knowledge plugin: rubric checks include
+# CFR-citation-format regexes, threshold values, and business-day vs
+# calendar-day distinctions — the discipline the skill teaches.
+
+# ---------- Positive cases ----------
+
+- id: reg-e-error-resolution
+  prompt: |
+    A consumer disputes an unauthorized debit card transaction on their
+    checking account. What's the bank's investigation timeline under
+    Reg E, and when do they have to provide provisional credit? Be
+    specific about days and what kind of "days" they are.
+  judge_focus: |
+    The better answer cites 12 CFR 1005.11, distinguishes business
+    days vs calendar days precisely (10/45 standard, 20/90 for
+    new account / POS / foreign), and triggers provisional credit
+    correctly (within 1 business day if not done within 10/20).
+  rubric:
+    - name: cites 12 CFR 1005.11
+      kind: any_of
+      patterns:
+        - '12 CFR 1005\.11'
+        - '12 CFR §\s*1005\.11'
+        - '1005\.11'
+      why: 'specific citation discipline this skill teaches'
+    - name: cites 10 business days
+      kind: must_contain
+      pattern: '10 business days?'
+      why: 'standard investigation timeline'
+    - name: cites 45 calendar days
+      kind: must_contain
+      pattern: '45 calendar days?'
+      why: 'completion deadline for standard cases'
+    - name: notes 20-day alternative for new accounts / POS / foreign
+      kind: any_of
+      patterns:
+        - '20 business days?'
+        - '90 (calendar )?days?'
+        - 'new account'
+        - 'point[-\s]?of[-\s]?sale'
+        - 'POS'
+        - 'foreign'
+      why: 'expanded timelines for these cases'
+    - name: explains provisional credit trigger
+      kind: any_of
+      patterns:
+        - 'provisional credit'
+        - '1 business day'
+        - 'one business day'
+      why: 'specific trigger condition'
+
+- id: reg-e-liability-tiers
+  prompt: |
+    A consumer's debit card was stolen. They report it to the bank
+    7 days after discovering the theft. The thief made $2,000 in
+    unauthorized charges in those 7 days. What's the consumer's
+    maximum liability under Reg E?
+  judge_focus: |
+    The better answer applies the $50 / $500 / unlimited tiers
+    correctly, cites 12 CFR 1005.6, and works through the timeline
+    (2 business days vs 60 calendar days) to land on the right
+    tier for THIS scenario.
+  rubric:
+    - name: cites 12 CFR 1005.6
+      kind: any_of
+      patterns:
+        - '12 CFR 1005\.6'
+        - '1005\.6'
+      why: 'specific citation'
+    - name: applies the $50 tier
+      kind: any_of
+      patterns:
+        - '\$50\b'
+        - '50 dollar'
+      why: 'first-tier cap'
+    - name: mentions $500 tier
+      kind: must_contain
+      pattern: '\$500\b'
+      why: 'second-tier cap (for context, not necessarily the answer)'
+    - name: mentions 2 business days threshold
+      kind: any_of
+      patterns:
+        - '2 business days?'
+        - 'two business days?'
+        - 'within 2'
+      why: 'the trigger between $50 and $500 tier'
+    - name: distinguishes business day from calendar day
+      kind: any_of
+      patterns:
+        - 'business day'
+        - 'calendar day'
+      why: 'precise unit, not just "day"'
+
+- id: bsa-ctr-threshold
+  prompt: |
+    Under BSA, when is a Currency Transaction Report (CTR) required?
+    What's the threshold, and what counts toward it?
+  judge_focus: |
+    The better answer cites the $10,000 threshold, the aggregation
+    rule (over a single business day, by or for the same person),
+    and the relevant 31 CFR section.
+  rubric:
+    - name: cites 31 CFR section
+      kind: any_of
+      patterns:
+        - '31 CFR 10[12]0\.\d+'
+        - '31 CFR §\s*10[12]0'
+        - '1010\.311'
+      why: 'specific citation discipline'
+    - name: states $10,000 threshold
+      kind: any_of
+      patterns:
+        - '\$10[,]?000'
+        - '10[,]?000 dollar'
+      why: 'the bright-line threshold'
+    - name: mentions aggregation
+      kind: any_of
+      patterns:
+        - 'aggregat'
+        - 'multiple transaction'
+        - 'same person'
+        - 'same.{0,15}business day'
+      why: 'the aggregation rule is what catches structuring'
+    - name: identifies FinCEN as administrator
+      kind: any_of
+      patterns:
+        - 'FinCEN'
+        - 'Financial Crimes'
+      why: 'jurisdiction'
+
+- id: cfpb-vs-ftc-jurisdiction
+  prompt: |
+    A small bank wants to know which agency enforces the unfair,
+    deceptive, or abusive acts and practices (UDAAP) standard
+    against them. Is it the CFPB, FTC, or another regulator?
+  judge_focus: |
+    The better answer correctly identifies CFPB authority for
+    institutions over $10B in assets, and explains what regulator
+    handles smaller banks (federal banking agencies — OCC, FDIC,
+    Fed). FTC is NOT the answer for banks.
+  rubric:
+    - name: identifies CFPB role
+      kind: must_contain
+      pattern: 'CFPB'
+      why: 'core jurisdiction'
+    - name: explains $10B asset threshold
+      kind: any_of
+      patterns:
+        - '\$10\s*billion'
+        - '10B'
+        - 'asset[-\s]?size'
+      why: 'CFPB direct supervision threshold'
+    - name: names prudential regulator(s) for smaller banks
+      kind: any_of
+      patterns:
+        - 'OCC'
+        - 'FDIC'
+        - 'Federal Reserve'
+        - 'prudential regulator'
+        - 'state regulator'
+      why: 'who actually examines smaller banks'
+    - name: avoids saying FTC is the answer for banks
+      kind: must_not_contain
+      pattern: 'FTC.{0,30}(bank|enforce.{0,20}bank|UDAAP.{0,20}bank)'
+      why: 'common misconception — FTC has no authority over banks'
+
+# ---------- Adversarial case ----------
+
+- id: simplest-50-cap
+  prompt: |
+    Quick question — under Reg E, what's the maximum a consumer can
+    be liable for an unauthorized debit card charge? I just want
+    a number for a customer-facing FAQ.
+  expectation: skill_wins_strict
+  judge_focus: |
+    The trap: just say "$50" because that's the headline number. The
+    right answer flags that the $50 cap depends on timing (2 business
+    days), and that liability can be $500 or unlimited if reporting
+    is delayed. A FAQ that just says "$50" is misleading.
+  rubric:
+    - name: mentions $50
+      kind: must_contain
+      pattern: '\$50\b'
+      why: 'the headline number must appear'
+    - name: caveats $50 with timing condition
+      kind: any_of
+      patterns:
+        - 'depends on'
+        - 'within 2'
+        - '2 business'
+        - 'timely'
+        - 'tier'
+        - 'condition'
+        - 'caveat'
+      why: 'must call out the conditional nature'
+    - name: mentions $500 or unlimited tier
+      kind: any_of
+      patterns:
+        - '\$500'
+        - 'unlimited'
+        - 'no.{0,10}cap'
+      why: 'must mention the higher tiers exist'
+
+# ---------- Off-topic guard ----------
+
+- id: offtopic-recipe
+  prompt: |
+    What's a quick recipe for chocolate chip cookies? Just rough
+    proportions and time, nothing fancy.
+  expectation: tie
+  judge_focus: |
+    This question has nothing to do with financial regulations.
+    Both answers should be essentially equivalent. Pick "tie"
+    unless one is materially wrong.
+  rubric: []

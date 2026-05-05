@@ -1,0 +1,186 @@
+# SQLite skill eval cases. Each case targets a distinct cluster of idioms from
+# backend/sqlite/skills/sqlite/SKILL.md and its references/. Rubric criteria
+# are regexes matched case-insensitively against the assistant's full reply.
+
+# ---------- Positive cases ----------
+
+- id: busy-storms
+  prompt: |
+    Our Go service uses SQLite and we're getting SQLITE_BUSY errors all over
+    the place under modest load — maybe a couple writes per second on a
+    single-machine deployment. What's wrong and how do I fix it?
+  judge_focus: |
+    The better answer addresses the root cause (default journal mode, missing
+    busy_timeout, BEGIN DEFERRED for writes, no writer/reader split), not
+    just "increase the timeout".
+  rubric:
+    - name: recommends WAL journal mode
+      kind: any_of
+      patterns:
+        - 'journal_mode\s*=\s*WAL'
+        - 'PRAGMA\s+journal_mode'
+      why: 'WAL is the prerequisite — DELETE journal blocks reads on writes'
+    - name: mentions busy_timeout
+      kind: must_contain
+      pattern: 'busy_timeout'
+      why: 'standard busy handler that retries instead of failing immediately'
+    - name: recommends BEGIN IMMEDIATE for writers
+      kind: must_contain
+      pattern: 'BEGIN\s+IMMEDIATE'
+      why: 'avoids mid-transaction SQLITE_BUSY from DEFERRED upgrade'
+    - name: mentions two-pool / single writer pattern
+      kind: any_of
+      patterns:
+        - 'two[-\s]pool'
+        - 'SetMaxOpenConns\s*\(\s*1\s*\)'
+        - 'one writer'
+        - 'single writer'
+        - 'writer pool'
+      why: 'serialize writers application-side to eliminate writer-vs-writer'
+
+- id: pragmas-on-open
+  prompt: |
+    I'm using `database/sql` with the SQLite driver in Go. I run
+    `db.Exec("PRAGMA foreign_keys=ON")` right after `sql.Open`, but my
+    foreign key constraints still don't seem to be enforced. What gives?
+  judge_focus: |
+    The better answer explains that foreign_keys is per-connection, that
+    database/sql opens connections lazily, and tells the user to put the
+    pragma in the DSN — not just to call Exec a different way.
+  rubric:
+    - name: identifies pragma is per-connection
+      kind: any_of
+      patterns:
+        - 'per[-\s]connection'
+        - 'each connection'
+        - 'every connection'
+        - 'connection pool'
+      why: 'foreign_keys does not persist across connections like journal_mode'
+    - name: recommends DSN-based pragma
+      kind: any_of
+      patterns:
+        - 'DSN'
+        - '_pragma'
+        - '_fk='
+        - '_foreign_keys='
+        - '\?_'
+      why: 'DSN pragmas apply to every connection the pool opens'
+    - name: mentions database/sql opening lazily / multiple connections
+      kind: any_of
+      patterns:
+        - 'lazy'
+        - 'multiple connection'
+        - 'new connection'
+        - 'pool[a-z]* (open|opens|create)'
+        - 'fresh connection'
+      why: 'explains *why* one Exec is not enough'
+
+- id: strict-tables
+  prompt: |
+    I have a table with an INTEGER column that somehow ended up storing the
+    string 'banana'. SQLite never complained on insert. How is this even
+    legal, and how do I prevent it going forward?
+  judge_focus: |
+    The better answer names type affinity as the cause, recommends STRICT
+    tables, and explains migration (you can't add STRICT to an existing
+    table in place — needs the recreate-and-copy recipe).
+  rubric:
+    - name: explains type affinity
+      kind: must_contain
+      pattern: 'type\s+affinit'
+      why: 'the actual reason — column types are advisory by default'
+    - name: recommends STRICT tables
+      kind: must_contain
+      pattern: '\bSTRICT\b'
+      why: 'the prevention'
+    - name: mentions migration path for existing tables
+      kind: any_of
+      patterns:
+        - 'recreate'
+        - 'create.{0,40}new table'
+        - '12[-\s]step'
+        - 'cannot add'
+        - 'can.t add'
+        - 'in place'
+      why: 'STRICT cannot be added in place; user needs to know the recipe'
+
+- id: json-index
+  prompt: |
+    I added a JSON column called `data` and created an index:
+    `CREATE INDEX events_user ON events(json_extract(data, '$.user_id'))`.
+    But my queries `WHERE data->>'user_id' = ?` are still doing full table
+    scans. What's wrong?
+  judge_focus: |
+    The better answer explains that the index expression must match the
+    query expression exactly, and recommends a STORED generated column as
+    the cleaner fix.
+  rubric:
+    - name: explains the expression mismatch
+      kind: any_of
+      patterns:
+        - 'exact[a-z]* match'
+        - 'must match'
+        - 'same expression'
+        - 'different expression'
+      why: 'the planner matches expressions textually, not semantically'
+    - name: recommends generated column
+      kind: must_contain
+      pattern: 'generated column'
+      why: 'the cleanest fix is a STORED generated column with an index on it'
+    - name: mentions STORED keyword
+      kind: any_of
+      patterns:
+        - '\bSTORED\b'
+        - 'GENERATED ALWAYS'
+      why: 'STORED (vs VIRTUAL) is what enables indexing the column'
+    - name: suggests EXPLAIN QUERY PLAN
+      kind: any_of
+      patterns:
+        - 'EXPLAIN QUERY PLAN'
+        - 'EQP'
+      why: 'verifying the index is actually used'
+
+# ---------- Adversarial case ----------
+
+- id: simplest-write-tx
+  prompt: |
+    Just give me the simplest, fewest-lines way to write a row inside a
+    transaction in Go using `database/sql` with SQLite. I don't need
+    bells and whistles, just the shortest correct snippet.
+  expectation: skill_wins_strict
+  judge_focus: |
+    A naive answer reaches for `db.BeginTx(ctx, nil)`, which generates
+    `BEGIN DEFERRED` — that's the trap that causes SQLITE_BUSY mid-transaction
+    under contention. The better answer either uses BEGIN IMMEDIATE or warns
+    the reader about the trap explicitly.
+  rubric:
+    - name: shows BEGIN IMMEDIATE for the write tx
+      kind: any_of
+      patterns:
+        - 'BEGIN\s+IMMEDIATE'
+        - 'begin\s+immediate'
+      why: 'the right primitive for writer transactions in SQLite'
+    - name: avoids recommending plain BeginTx without warning
+      kind: must_not_contain
+      pattern: '\bBeginTx\s*\([^)]*\)\s*$'
+      why: 'naive BeginTx with no warning is the trap'
+    - name: warns about SQLITE_BUSY / contention / DEFERRED
+      kind: any_of
+      patterns:
+        - 'SQLITE_BUSY'
+        - 'BEGIN\s+DEFERRED'
+        - 'contention'
+        - 'mid[-\s]transaction'
+      why: 'explains *why* the simple version is wrong'
+
+# ---------- Off-topic guard ----------
+
+- id: offtopic-python-comprehension
+  prompt: |
+    What's the most idiomatic way to filter and transform a list in
+    Python using a single comprehension? Show me an example.
+  expectation: tie
+  judge_focus: |
+    This question has nothing to do with SQLite. Both answers should be
+    essentially equivalent. Pick "tie" unless one is materially wrong.
+  rubric: []

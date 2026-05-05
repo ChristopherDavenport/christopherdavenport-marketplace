@@ -1,0 +1,185 @@
+# TypeScript skill eval cases. Anchored to distinct idiom clusters from
+# backend/typescript/skills/typescript/SKILL.md and references/.
+
+# ---------- Positive cases ----------
+
+- id: discriminated-union-exhaustive
+  prompt: |
+    I have a TypeScript type representing a request lifecycle:
+    `type Request = { kind: "pending" } | { kind: "ok", value: string } | { kind: "error", message: string }`.
+    Show me how to handle all variants in a function and ensure that
+    if I add a new variant later, the compiler will catch all the
+    places I forgot to update.
+  judge_focus: |
+    The better answer uses a switch on the discriminant with a
+    `default: const _: never = x` exhaustive check, not casts or
+    runtime assertions.
+  rubric:
+    - name: uses switch on discriminant
+      kind: any_of
+      patterns:
+        - 'switch\s*\(\s*\w+\.kind'
+        - 'switch.{0,40}kind'
+      why: 'canonical pattern'
+    - name: uses never-typed exhaustiveness check
+      kind: any_of
+      patterns:
+        - ':\s*never'
+        - 'assertNever'
+        - 'exhaustive'
+      why: 'the specific compile-time guarantee'
+    - name: avoids any
+      kind: must_not_contain
+      pattern: ':\s*any\b'
+      why: 'idiomatic answer never reaches for any here'
+
+- id: satisfies-vs-annotation
+  prompt: |
+    What's the difference between writing `const config: Config = { ... }`
+    and `const config = { ... } satisfies Config` in TypeScript? When
+    should I use `satisfies`?
+  judge_focus: |
+    The better answer explains that `: T` widens the inferred type to T,
+    while `satisfies T` validates the shape without widening — preserving
+    literal types for downstream inference.
+  rubric:
+    - name: mentions widening from annotation
+      kind: any_of
+      patterns:
+        - 'widen'
+        - 'wider'
+        - 'broader'
+        - 'lose.{0,15}literal'
+      why: 'the actual semantic difference'
+    - name: uses satisfies keyword
+      kind: must_contain
+      pattern: '\bsatisfies\b'
+      why: 'the operator under discussion'
+    - name: mentions preserving literal / narrow inferred type
+      kind: any_of
+      patterns:
+        - 'preserv'
+        - 'narrow'
+        - 'literal'
+        - 'inferr?ed'
+      why: 'the value of satisfies'
+
+- id: unknown-vs-any
+  prompt: |
+    I'm parsing JSON from an HTTP response in TypeScript. What type
+    should the parsed value have, and why?
+  judge_focus: |
+    The better answer recommends `unknown` (forces narrowing) over `any`
+    (silently disables typechecking), and shows a narrowing or validation
+    step.
+  rubric:
+    - name: recommends unknown
+      kind: must_contain
+      pattern: '\bunknown\b'
+      why: 'the right type at I/O boundary'
+    - name: explains why not any
+      kind: any_of
+      patterns:
+        - 'any.{0,30}(disable|silent|poison|propagat)'
+        - 'unsafe'
+        - 'no checks'
+      why: 'the trade-off'
+    - name: shows narrowing or validation step
+      kind: any_of
+      patterns:
+        - 'typeof'
+        - 'instanceof'
+        - 'narrow'
+        - 'type guard'
+        - 'predicate'
+        - 'zod'
+        - 'schema'
+        - 'validator'
+      why: 'unknown without narrowing is just slower any'
+
+- id: branded-types
+  prompt: |
+    In my TypeScript codebase I have UserId and OrderId, both currently
+    just `string`. We have a bug where someone passed an OrderId to a
+    function expecting a UserId and TypeScript didn't catch it. How do
+    I prevent this kind of mistake?
+  judge_focus: |
+    The better answer reaches for branded (nominal) types using a
+    phantom `__brand` property to make the types structurally distinct.
+  rubric:
+    - name: recommends branded types
+      kind: any_of
+      patterns:
+        - 'brand'
+        - 'nominal'
+        - '__brand'
+        - 'phantom'
+      why: 'the canonical TS pattern for nominal-flavored types'
+    - name: shows __brand or similar phantom property
+      kind: any_of
+      patterns:
+        - '__brand'
+        - '__tag'
+        - 'unique symbol'
+        - 'readonly\s+_[a-zA-Z]+:'
+      why: 'concrete implementation'
+    - name: explains structural typing as the cause
+      kind: any_of
+      patterns:
+        - 'structural'
+        - 'shape'
+        - 'duck typ'
+      why: 'why TypeScript does not catch it by default'
+
+# ---------- Adversarial case ----------
+
+- id: simplest-cast
+  prompt: |
+    I have a TypeScript error: `Type 'unknown' is not assignable to
+    type 'string'`. The value definitely is a string at runtime. Just
+    give me the simplest, fewest-character fix to make this compile.
+  expectation: skill_wins_strict
+  judge_focus: |
+    The naive answer is `as string`. That's the trap — it deletes the
+    only check the compiler was offering. The better answer either
+    refuses the cast and uses a type predicate, or uses the cast but
+    explicitly explains it as an unsafe escape hatch and recommends
+    the better fix (predicate / assertion function).
+  rubric:
+    - name: uses or recommends a type predicate / assertion function
+      kind: any_of
+      patterns:
+        - 'is string'
+        - 'asserts'
+        - 'type guard'
+        - 'predicate'
+      why: 'the safe fix'
+    - name: warns against bare as cast
+      kind: any_of
+      patterns:
+        - 'unsafe'
+        - 'escape hatch'
+        - 'silence'
+        - 'discouraged'
+        - 'should.{0,15}avoid'
+        - 'don.t reach for'
+        - 'better'
+      why: 'must call out the cost of as'
+    - name: avoids recommending bare as cast as the answer
+      kind: must_not_contain
+      pattern: '^\s*[a-zA-Z_]\w*\s+as\s+string\s*[;]?\s*$'
+      why: 'the trap pattern as a standalone recommendation'
+
+# ---------- Off-topic guard ----------
+
+- id: offtopic-shell-pipe
+  prompt: |
+    What's the simplest one-liner in bash to count the number of
+    files in the current directory (not recursively, hidden files
+    excluded)?
+  expectation: tie
+  judge_focus: |
+    This question has nothing to do with TypeScript. Both answers
+    should be essentially equivalent. Pick "tie" unless one is
+    materially wrong.
+  rubric: []

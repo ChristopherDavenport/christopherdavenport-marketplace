@@ -70,6 +70,7 @@ Then `uv run python -m evals <plugin-name>`.
 - id: short-slug
   prompt: |
     The question to send to Claude. Multi-line ok.
+  expectation: skill_wins  # see "Expectations" below; default skill_wins
   judge_focus: |
     One sentence the judge should weight when answers tie on rubric.
   rubric:
@@ -81,6 +82,18 @@ Then `uv run python -m evals <plugin-name>`.
 ```
 
 Regexes are matched case-insensitively (`re.IGNORECASE`) against the assistant's `result` text.
+
+### Expectations
+
+Each case declares what the harness should consider a *pass*. Three values:
+
+| Value | Meaning | Use for |
+|---|---|---|
+| `skill_wins` (default) | Judge picks `skill`. | Positive cases: skill should produce a measurably better answer than baseline. |
+| `tie` | Judge picks `tie`. | Off-topic guard: question has nothing to do with the skill. Confirms the skill isn't bleeding into unrelated answers (over-broad description). Typically pair with `rubric: []`. |
+| `skill_wins_strict` | Judge picks `skill` AND every `must_not_contain` rubric criterion passes on the skill answer. | Adversarial cases: prompt invites the anti-pattern ("simplest possible…"). The skill must steer away from the trap. |
+
+The report headline includes "Expectations met: N/M"; the per-case markdown flags `[FAILED EXPECTATION]` when actual ≠ expected. The summary also splits by expectation kind so off-topic cases the skill incorrectly "won" don't inflate the headline.
 
 ## Cost & reproducibility
 

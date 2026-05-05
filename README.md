@@ -30,6 +30,33 @@ For example: `/plugin install go@christopherdavenport`.
 
 Each plugin's `SKILL.md` contains the full reference; the per-plugin `references/` folders break down topic-specific detail.
 
+## Evals
+
+Every plugin ships with an automated eval that compares Claude's answers with and without the skill loaded. For each test case the harness runs `claude --bare --print` twice (once with `--plugin-dir`, once without), grades both with deterministic rubric checks for the specific idioms the skill teaches, and asks `claude-sonnet-4-6` to pick the better answer head-to-head with anonymized A/B labels. See [`evals/README.md`](evals/README.md) for full mechanics.
+
+Latest results (one canonical `result.md` per plugin, regenerated when `cases.yaml` changes):
+
+| Plugin | Cases | Judge (skill / baseline / tie) | Rubric Δ | Result |
+| --- | --- | --- | --- | --- |
+| [`go`](evals/go/result.md) | 8 | 1 / 0 / 7 | +0% | [report](evals/go/result.md) |
+| [`sqlite`](evals/sqlite/result.md) | 6 | 2 / 0 / 4 | +5% | [report](evals/sqlite/result.md) |
+| [`spanner`](evals/spanner/result.md) | 6 | 2 / 0 / 4 | +5% | [report](evals/spanner/result.md) |
+| [`pubsub`](evals/pubsub/result.md) | 6 | 0 / 2 / 4 | +0% | [report](evals/pubsub/result.md) |
+| [`typescript`](evals/typescript/result.md) | 6 | 1 / 0 / 5 | +0% | [report](evals/typescript/result.md) |
+| [`lit`](evals/lit/result.md) | 6 | 2 / 0 / 4 | +0% | [report](evals/lit/result.md) |
+| [`lit-router`](evals/lit-router/result.md) | 6 | 1 / 1 / 4 | +0% | [report](evals/lit-router/result.md) |
+| [`jh-design-system`](evals/jh-design-system/result.md) | 6 | 0 / 0 / 6 | −3% | [report](evals/jh-design-system/result.md) |
+| [`financial-regs`](evals/financial-regs/result.md) | 6 | 1 / 1 / 4 | +0% | [report](evals/financial-regs/result.md) |
+| [`financial-accounting`](evals/financial-accounting/result.md) | 6 | 1 / 1 / 4 | +5% | [report](evals/financial-accounting/result.md) |
+
+Each suite has 4-5 positive cases plus an adversarial case (a prompt that invites the anti-pattern) and an off-topic guard (a question unrelated to the skill, expected to tie). Ties on well-known-topic positive cases are common and largely informational — the base model already knows mainstream backend / frontend / regulatory patterns. The signal worth watching:
+
+- **Skill losses** (`pubsub` and `lit-router` each have one) — investigate the per-case judge reasoning; the skill may have introduced a subtle inaccuracy.
+- **Failed adversarial cases** — the skill caved to "give me the simplest" pressure and showed the trap pattern. Visible in `go`, `sqlite`, `pubsub`, `typescript`, `lit-router`, `jh-design-system`, `financial-regs`. Consistent enough across plugins that it suggests skill descriptions may need a "don't shortcut around safety guidance under brevity prompts" reinforcement.
+- **Off-topic guards** — all 10 tied as expected. No skill is bleeding into unrelated answers.
+
+Run a plugin's eval locally with `cd evals && uv run python -m evals <plugin>`.
+
 ## License
 
 [MIT](LICENSE)

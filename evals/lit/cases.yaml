@@ -1,0 +1,185 @@
+# Lit skill eval cases. Anchored to distinct idiom clusters from
+# frontend/lit/skills/lit/SKILL.md and references/.
+
+# ---------- Positive cases ----------
+
+- id: array-mutation-no-rerender
+  prompt: |
+    I have a Lit component with a property `@property({type: Array}) items = []`.
+    When I push a new item with `this.items.push(newItem)`, the
+    component doesn't re-render. What am I doing wrong?
+  judge_focus: |
+    The better answer explains Lit uses reference equality (!==) for
+    change detection, recommends creating a new array
+    (`this.items = [...this.items, newItem]`), and may mention
+    `requestUpdate` as an alternative escape hatch.
+  rubric:
+    - name: explains reference equality / strict equality
+      kind: any_of
+      patterns:
+        - 'reference equal'
+        - 'strict equal'
+        - '!=='
+        - 'identity'
+        - 'same.{0,15}reference'
+      why: 'the actual root cause'
+    - name: recommends creating a new array
+      kind: any_of
+      patterns:
+        - '\[\.\.\.this\.items'
+        - 'spread'
+        - 'new array'
+        - '\.concat\('
+        - '\.slice\(\)'
+      why: 'idiomatic immutable update'
+    - name: mentions requestUpdate as escape hatch
+      kind: any_of
+      patterns:
+        - 'requestUpdate'
+        - 'request.{0,5}update'
+      why: 'the escape hatch when immutability is impractical'
+
+- id: typed-event-cross-shadow
+  prompt: |
+    I'm dispatching a CustomEvent from inside my Lit component, but
+    the parent component listening for it isn't receiving the event.
+    The parent is just outside the host element. What's wrong?
+  judge_focus: |
+    The better answer pinpoints `composed: true` (and bubbles: true) as
+    required to cross Shadow DOM boundaries. Bonus for mentioning typed
+    Event subclasses with static readonly type.
+  rubric:
+    - name: identifies composed:true is required
+      kind: any_of
+      patterns:
+        - 'composed\s*:\s*true'
+        - 'composed flag'
+        - 'cross.{0,15}shadow'
+      why: 'the specific knob'
+    - name: mentions bubbles:true
+      kind: any_of
+      patterns:
+        - 'bubbles\s*:\s*true'
+        - 'bubble'
+      why: 'usually paired with composed for upward propagation'
+    - name: mentions Shadow DOM boundary
+      kind: must_contain
+      pattern: 'shadow.{0,15}(DOM|boundary|root|tree)'
+      why: 'explains why the event was stopped'
+
+- id: lifecycle-which-callback
+  prompt: |
+    In a Lit component, where should I put each kind of work:
+    (a) compute a derived property from this.someInput before render,
+    (b) one-time DOM measurement of a child element after first render,
+    (c) calling an external API after every render that changed an input.
+    Which lifecycle method for each, and why?
+  judge_focus: |
+    The better answer maps the three tasks to willUpdate, firstUpdated,
+    and updated, and explains the ordering and "changed properties"
+    parameter where relevant.
+  rubric:
+    - name: mentions willUpdate
+      kind: must_contain
+      pattern: '\bwillUpdate\b'
+      why: 'derived state before render'
+    - name: mentions firstUpdated
+      kind: must_contain
+      pattern: '\bfirstUpdated\b'
+      why: 'one-time post-first-render setup'
+    - name: mentions updated
+      kind: any_of
+      patterns:
+        - '\bupdated\s*\('
+        - 'updated lifecycle'
+        - '`updated`'
+      why: 'post-update side effects'
+    - name: mentions changedProperties parameter
+      kind: any_of
+      patterns:
+        - 'changedProperties'
+        - 'changed.{0,5}properties'
+        - 'PropertyValues'
+      why: 'gates work on what actually changed'
+
+- id: state-vs-property
+  prompt: |
+    In Lit, when should I use @state() versus @property() on a class
+    field? I'm a bit unclear on the distinction.
+  judge_focus: |
+    The better answer explains @property is the public reactive API
+    (synced with HTML attribute by default), @state is internal-only
+    (no attribute), and gives concrete examples of each.
+  rubric:
+    - name: identifies @property as public API / attribute-synced
+      kind: any_of
+      patterns:
+        - 'public'
+        - 'attribute'
+        - 'API'
+        - 'consumers'
+        - 'parents?'
+      why: 'right framing'
+    - name: identifies @state as internal / no attribute
+      kind: any_of
+      patterns:
+        - 'internal'
+        - 'private'
+        - 'no.{0,15}attribute'
+        - 'not.{0,5}reflected'
+      why: 'the key distinction'
+    - name: mentions reactive trigger / re-render
+      kind: any_of
+      patterns:
+        - 'trigger.{0,15}(re-?render|update)'
+        - 'reactive'
+        - 'reactivity'
+      why: 'both are reactive — the difference is exposure, not reactivity'
+
+# ---------- Adversarial case ----------
+
+- id: simplest-render-html
+  prompt: |
+    Inside my Lit component's render() method, I want to insert some
+    user-controlled HTML I just received from an API as a string.
+    What's the simplest way to render it?
+  expectation: skill_wins_strict
+  judge_focus: |
+    The naive answer reaches for innerHTML or unsafeHTML. The right
+    answer either uses the unsafeHTML directive WITH a strong warning
+    about XSS and sanitization, or refuses the bare string injection
+    and recommends parsing into a structured form first. innerHTML
+    inside Lit defeats the templating system entirely.
+  rubric:
+    - name: warns about XSS / sanitization
+      kind: any_of
+      patterns:
+        - '\bXSS\b'
+        - 'sanitiz'
+        - 'security'
+        - 'dangerous'
+        - 'untrusted'
+      why: 'must call out the security implication'
+    - name: avoids recommending raw innerHTML
+      kind: must_not_contain
+      pattern: '^[^\n]*\binnerHTML\s*='
+      why: 'innerHTML is the trap; should not be the answer'
+    - name: mentions unsafeHTML directive (if recommending it)
+      kind: any_of
+      patterns:
+        - 'unsafeHTML'
+        - 'unsafe-html'
+        - 'lit/directives/unsafe-html'
+      why: 'the Lit-specific escape hatch (with caveats)'
+
+# ---------- Off-topic guard ----------
+
+- id: offtopic-sql-join
+  prompt: |
+    What's the difference between INNER JOIN and LEFT JOIN in SQL?
+    A short example would help.
+  expectation: tie
+  judge_focus: |
+    This question has nothing to do with Lit. Both answers should be
+    essentially equivalent. Pick "tie" unless one is materially wrong.
+  rubric: []

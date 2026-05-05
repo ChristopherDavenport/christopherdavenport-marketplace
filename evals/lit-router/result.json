@@ -1,0 +1,418 @@
+{
+  "plugin": "lit-router",
+  "summary": {
+    "n_cases": 6,
+    "expectations_met": 1,
+    "by_expectation": {
+      "skill_wins": {
+        "total": 4,
+        "met": 0
+      },
+      "skill_wins_strict": {
+        "total": 1,
+        "met": 0
+      },
+      "tie": {
+        "total": 1,
+        "met": 1
+      }
+    },
+    "judge_wins_for_skill": 1,
+    "judge_wins_for_baseline": 1,
+    "judge_ties": 4,
+    "n_scored": 5,
+    "baseline_rubric_pass_rate": 0.9,
+    "skill_rubric_pass_rate": 0.9,
+    "rubric_delta": 0.0,
+    "total_cli_cost_usd": 0.9463
+  },
+  "cases": [
+    {
+      "id": "goto-doesnt-update-url",
+      "prompt": "I'm using @lit-labs/router. I call `this._router.goto('/dashboard')`\ninside a click handler, and the new route renders, but the URL\nbar doesn't change and the browser back button is broken. What's\ngoing on?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# Why `goto()` doesn't change the URL\n\nThis is a common gotcha with `@lit-labs/router`. The `goto()` method is **not** a navigation method — it's a *route resolver*. It only:\n\n1. Matches the path against the router's routes\n2. Runs the matched route's `render` (and `enter`) callbacks\n3. Triggers a re-render of the host element\n\nIt deliberately does **not** touch `window.history` or `window.location`. That's why the address bar is stale and the back button has nothing to pop — no history entry was ever pushed.\n\n## The fix: push history yourself\n\nYou need to update the History API and *then* tell the router to resolve the new path:\n\n```ts\nprivate _navigate(path: string) {\n  window.history.pushState({}, '', path);\n  this._router.goto(path);\n}\n\nprivate _onClick(e: Event) {\n  e.preventDefault();\n  this._navigate('/dashboard');\n}\n```\n\nAnd to keep the back/forward buttons working, listen for `popstate` and re-resolve:\n\n```ts\nconnectedCallback() {\n  super.connectedCallback();\n  window.addEventListener('popstate', this._onPopState);\n}\n\ndisconnectedCallback() {\n  window.removeEventListener('popstate', this._onPopState);\n  super.disconnectedCallback();\n}\n\nprivate _onPopState = () => {\n  this._router.goto(window.location.pathname);\n};\n```\n\n## The more idiomatic approach: just use `<a>`\n\n`@lit-labs/router` ships with link interception when you use real anchor tags inside the routed element:\n\n```ts\nrender() {\n  return html`<a href=\"/dashboard\">Dashboard</a>`;\n}\n```\n\nThe router intercepts same-origin link clicks, calls `pushState`, and resolves the route for you — no manual `goto()` needed. This handles modifier-key clicks (cmd/ctrl-click to open in a new tab), middle-clicks, and external links correctly, which is annoying to reproduce by hand.\n\n## Rule of thumb\n\n- **User-initiated navigation** (clicks, menu items) → render an `<a href>` and let the router intercept it.\n- **Programmatic navigation** (after a form submit, redirect, auth flow) → `history.pushState()` + `router.goto()`, and make sure you have a `popstate` listener wired up.\n\n`goto()` alone is essentially \"show me this route's UI without navigating\" — useful for things like a 404 fallback or `enter()` redirects, but not what you want from a click handler.",
+        "cost_usd": 0.04002724999999999,
+        "rubric": [
+          {
+            "name": "explains goto does not push history",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "no history",
+            "why": "the specific gotcha"
+          },
+          {
+            "name": "recommends history.pushState",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "history.pushState",
+            "why": "the manual workaround"
+          },
+          {
+            "name": "mentions <a href> link interception",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "<a href",
+            "why": "the cleaner alternative — the router intercepts these"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "## Why this happens\n\n`Router.goto()` is intentionally a \"render only\" operation — it matches the path against your routes and updates the rendered outlet, but it **does not push (or replace) anything on `window.history`**. So the URL bar is whatever it was before, and the browser's back/forward stack has no entry for the navigation, which is exactly why the back button does nothing useful.\n\nThis trips a lot of people up because the name `goto` sounds like a full navigation, but it's really `setRoute` under the hood.\n\n## Two ways to fix it\n\n### 1. The cleanest fix: use a real link\n\nThe `Router` (the top-level one you instantiate once per page) installs a global click listener that intercepts same-origin `<a href>` clicks, calls `history.pushState` for you, and then runs `goto()` internally. So this just works:\n\n```html\n<a href=\"/dashboard\">Dashboard</a>\n```\n\nBack button, URL bar, deep-linking — all correct, no JS in your click handler at all. Prefer this whenever the click target is semantically a link.\n\n### 2. If you really need an imperative call\n\nPush the history entry yourself, then call `goto`:\n\n```ts\nprivate _onClick(e: Event) {\n  e.preventDefault();\n  history.pushState({}, '', '/dashboard');\n  this._router.goto('/dashboard');\n}\n```\n\nUse `history.replaceState` instead of `pushState` if you don't want the navigation to land in the back stack (e.g. a redirect after login).\n\n## Quick gotcha to double-check\n\nMake sure you only have **one** `new Router(...)` on the page. If you've created additional `Router` instances for nested sections (instead of using the `Routes` controller), their global click/popstate listeners will fight each other and you can see symptoms that look a lot like \"URL doesn't update.\"",
+        "cost_usd": 0.062061500000000006,
+        "rubric": [
+          {
+            "name": "explains goto does not push history",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "history.pushState",
+            "why": "the specific gotcha"
+          },
+          {
+            "name": "recommends history.pushState",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "history.pushState",
+            "why": "the manual workaround"
+          },
+          {
+            "name": "mentions <a href> link interception",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "<a href",
+            "why": "the cleaner alternative — the router intercepts these"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "baseline",
+        "reasoning": "Both answers correctly explain that goto() does not push history and recommend both history.pushState and <a href> links. Answer B is more complete and idiomatic, adding the crucial popstate listener for back/forward button support, a clear rule of thumb for when to use each approach, and better explanation of why link interception handles edge cases like modifier-key clicks. Answer A has a useful but somewhat tangential note about multiple Router instances.",
+        "per_criterion": [
+          {
+            "name": "explains goto does not push history",
+            "better": "tie"
+          },
+          {
+            "name": "recommends history.pushState",
+            "better": "baseline"
+          },
+          {
+            "name": "mentions <a href> link interception",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "trailing-slash-routes",
+      "prompt": "I have a `@lit-labs/router` route with path `/users/*` for a\nnested users section. When I navigate to `/users` (no trailing\nslash), the route doesn't match. Why, and what do I do?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "## Why `/users` doesn't match `/users/*`\n\n`@lit-labs/router` builds its patterns on top of **URLPattern** semantics. In a pattern like `/users/*`, every character is significant — including the literal `/` between `users` and `*`. The `*` matches a wildcard segment, but the `/` *before* it is required.\n\nSo when the URL is `/users` (no trailing slash), URLPattern sees:\n\n- Pattern: `/users/*` → expects `/users` + `/` + (anything, including empty)\n- URL: `/users` → missing the required `/`\n\n→ no match. `/users/` and `/users/anything` both match; bare `/users` does not.\n\n## What to do\n\nYou have two clean fixes — pick whichever fits your app.\n\n### 1. Always link with the trailing slash (simplest)\n\nMake sure every link, redirect, and `goto()` call uses `/users/`:\n\n```html\n<a href=\"/users/\">Users</a>\n```\n\n```ts\nthis._routes.goto('/users/');\n```\n\nThis is the easiest fix and keeps your route table small.\n\n### 2. Register both paths\n\nIf you can't control every inbound link (e.g. external links, bookmarks, server-rendered URLs), register `/users` and `/users/*` as two routes pointing at the same render:\n\n```ts\nthis._routes = new Routes(this, [\n  { path: '/users',   render: () => this._renderUsers() },\n  { path: '/users/*', render: () => this._renderUsers() },\n]);\n```\n\nOr normalize on entry by redirecting the bare form:\n\n```ts\n{ path: '/users', enter: async () => { this._routes.goto('/users/'); return false; } },\n{ path: '/users/*', render: () => this._renderUsers() },\n```\n\n### What *not* to do\n\nDon't try to make `*` match the missing slash by writing `/users*` — that pattern matches `/usersanything` (e.g. `/usersettings`), which is almost never what you want for a nested section.\n\n### TL;DR\n\nURLPattern requires the literal `/` in `/users/*`, so `/users` is a non-match by design. Either always link to `/users/`, or register `/users` alongside `/users/*`.",
+        "cost_usd": 0.08764075,
+        "rubric": [
+          {
+            "name": "identifies URLPattern matching semantics",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "URLPattern",
+            "why": "root cause"
+          },
+          {
+            "name": "recommends adding trailing slash to links",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "trailing slash",
+            "why": "the simplest fix"
+          },
+          {
+            "name": "mentions registering both paths as alternative",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "both path",
+            "why": "second valid fix"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "## Why it doesn't match\n\n`@lit-labs/router` compiles each `path` string into a [`URLPattern`](https://developer.mozilla.org/en-US/docs/Web/API/URLPattern), and **`URLPattern` matching is literal, character-for-character**. The pattern `/users/*` is parsed as:\n\n- the literal text `/users/`\n- followed by `*`, which is a wildcard group meaning \"zero or more characters\"\n\nThe wildcard is **after** the second `/`, so the pattern requires that slash to be present in the URL. `/users` has no trailing slash, so it never even gets to the wildcard part — the literal prefix fails to match. (`*` matches zero characters, which is why `/users/` does match — the wildcard part is allowed to be empty, but the slash before it is not.)\n\nThis is just standard URLPattern / path-to-regexp semantics; lit-labs/router isn't doing anything special here.\n\n## What to do\n\nYou have three reasonable fixes; pick based on intent.\n\n**1. Make sure links/navigation include the trailing slash.** This is the simplest fix if `/users/` is really the canonical URL of the section:\n\n```html\n<a href=\"/users/\">Users</a>\n```\n\nSince the router intercepts same-origin clicks, this Just Works.\n\n**2. Register both paths.** If you want both `/users` and `/users/anything` to hit the same view, declare two routes:\n\n```ts\nthis._routes = new Routes(this, [\n  { path: '/users',   render: () => html`<x-users></x-users>` },\n  { path: '/users/*', render: () => html`<x-users></x-users>` },\n]);\n```\n\n**3. Redirect `/users` → `/users/`.** If you want a single canonical URL, give `/users` an `enter` hook that rewrites:\n\n```ts\n{\n  path: '/users',\n  enter: async () => {\n    history.replaceState(null, '', '/users/');\n    return false; // don't render this route; let the next match handle it\n  },\n}\n```\n\nFor most apps, option 1 (just write the slash in your links) is the cleanest, and option 2 is the most forgiving if users might type or bookmark the URL by hand.",
+        "cost_usd": 0.09268075,
+        "rubric": [
+          {
+            "name": "identifies URLPattern matching semantics",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "URLPattern",
+            "why": "root cause"
+          },
+          {
+            "name": "recommends adding trailing slash to links",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "trailing slash",
+            "why": "the simplest fix"
+          },
+          {
+            "name": "mentions registering both paths as alternative",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "both path",
+            "why": "second valid fix"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are excellent and cover all three rubric criteria thoroughly. Answer A provides a slightly cleaner explanation of the URLPattern semantics with the bullet-point breakdown, and adds a useful 'what not to do' warning about `/users*`. Answer B provides a clearer explanation of why `/users/` does match (the wildcard can be empty, but the slash is required) and presents three options more cleanly. Both are essentially equivalent in quality and correctness.",
+        "per_criterion": [
+          {
+            "name": "identifies URLPattern matching semantics",
+            "better": "tie"
+          },
+          {
+            "name": "recommends adding trailing slash to links",
+            "better": "tie"
+          },
+          {
+            "name": "mentions registering both paths as alternative",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "nested-routes-vs-router",
+      "prompt": "My @lit-labs/router app has nested route sections — one for\n`/users/...` and one for `/products/...`. Should each section\ncreate its own `new Router(...)`? What's the right pattern?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "Short answer: **No — don't create multiple `Router`s. Use one `Router` at the top, and a `Routes` controller for each nested section.**\n\n## Why only one `Router`\n\n`Router` extends `Routes`, but it adds a couple of *global, page‑level* side effects when it's installed:\n\n- A global **`click` listener** on `window` that intercepts `<a href>` navigations.\n- A global **`popstate` listener** on `window` that handles back/forward.\n\nIf you `new Router(...)` in two different components, you end up with two sets of those listeners fighting over the same navigation event — duplicated renders, double goto's, weird back‑button behavior, and whichever instance happens to win the race \"captures\" the URL. That's exactly the kind of bug this is designed to avoid.\n\nSo the rule is: **one `Router` per page**, almost always at your top‑level app shell.\n\n## The right pattern: `Router` at the top, `Routes` underneath\n\n`Routes` is the same controller as `Router` minus the global listeners. It's specifically designed for nested sections and it cooperates with the parent `Router` — when the parent matches a route ending in `/*`, it hands the tail off to the child `Routes`.\n\n```ts\n// app-shell.ts — the ONE Router on the page\nimport {LitElement, html} from 'lit';\nimport {Router} from '@lit-labs/router';\n\nclass AppShell extends LitElement {\n  private _router = new Router(this, [\n    {path: '/',           render: () => html`<home-page></home-page>`},\n    {path: '/users/*',    render: () => html`<users-section></users-section>`},\n    {path: '/products/*', render: () => html`<products-section></products-section>`},\n  ]);\n\n  render() { return this._router.outlet(); }\n}\n```\n\n```ts\n// users-section.ts — a nested section uses Routes, NOT Router\nimport {LitElement, html} from 'lit';\nimport {Routes} from '@lit-labs/router';\n\nclass UsersSection extends LitElement {\n  private _routes = new Routes(this, [\n    {path: '/',       render: () => html`<users-list></users-list>`},\n    {path: '/:id',    render: ({id}) => html`<user-detail .id=${id}></user-detail>`},\n    {path: '/:id/edit', render: ({id}) => html`<user-edit .id=${id}></user-edit>`},\n  ]);\n\n  render() { return this._routes.outlet(); }\n}\n```\n\n`products-section.ts` looks identical — also a `Routes`, not another `Router`.\n\n## Two related gotchas worth knowing\n\n1. **Trailing slash on the parent.** The parent path needs to end in `/*` (e.g. `/users/*`) so the tail is forwarded to the child. URLPattern is strict about this — `/users` (no slash) won't match `/users/foo`.\n2. **Linking between sections.** Use plain `<a href=\"/users/123\">` — the top‑level `Router`'s click listener intercepts it. Don't reach for `goto()` for normal navigation; `goto()` doesn't push history.\n\nTL;DR: one `Router` at the app shell, one `Routes` controller per nested section. Don't stack `Router`s.",
+        "cost_usd": 0.09536525,
+        "rubric": [
+          {
+            "name": "identifies one Router per page",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "ONE Router",
+            "why": "the rule"
+          },
+          {
+            "name": "recommends Routes for nesting",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Routes",
+            "why": "the right primitive for nested sections"
+          },
+          {
+            "name": "mentions global click / popstate listener as the reason",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "global **`click` listener",
+            "why": "why multiple Routers conflict"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# Short answer: No — one `Router` per page, `Routes` for nested sections\n\n`@lit-labs/router` exports two reactive controllers:\n\n| Controller | Where it goes |\n|---|---|\n| `Router`  | **Exactly one** per page — the top-level/root |\n| `Routes`  | One per nested section (users, products, etc.) |\n\n## Why only one `Router`\n\nWhen you instantiate `Router`, it installs **global** listeners on the document/window:\n\n- a global **click** listener that intercepts `<a href>` navigations\n- a global **`popstate`** listener for back/forward\n- it claims responsibility for reading `location.pathname`\n\nIf you `new Router(...)` again for `/users/...` and a third time for `/products/...`, you end up with three controllers all responding to the same click and popstate events, all trying to render based on the full pathname. They fight each other — you'll see double renders, the wrong section \"winning,\" or back-button glitches.\n\n`Routes` deliberately does **not** install those global listeners. It only resolves whatever path the parent `Router` (or parent `Routes`) hands down to it.\n\n## The right pattern\n\n```ts\n// app-root.ts — the ONE Router\nimport {Router} from '@lit-labs/router';\n\nclass AppRoot extends LitElement {\n  private _router = new Router(this, [\n    {path: '/',            render: () => html`<app-home></app-home>`},\n    {path: '/users/*',     render: () => html`<users-section></users-section>`},\n    {path: '/products/*',  render: () => html`<products-section></products-section>`},\n  ]);\n\n  render() { return this._router.outlet(); }\n}\n```\n\n```ts\n// users-section.ts — nested Routes, NOT a new Router\nimport {Routes} from '@lit-labs/router';\n\nclass UsersSection extends LitElement {\n  private _routes = new Routes(this, [\n    {path: '/',          render: () => html`<users-list></users-list>`},\n    {path: ':id',        render: ({id}) => html`<user-detail .id=${id}></user-detail>`},\n    {path: ':id/edit',   render: ({id}) => html`<user-edit   .id=${id}></user-edit>`},\n  ]);\n\n  render() { return this._routes.outlet(); }\n}\n```\n\n`products-section` follows the same shape with its own `Routes` controller.\n\n## A couple of related gotchas while you're here\n\n1. **Trailing slash on the parent path.** `/users/*` won't match a bare `/users` — link to `/users/` (or register both `/users` and `/users/*`).\n2. **Use `routes.link('detail')` for child links** inside a nested section so the href is resolved against the parent prefix (`/users/`), not the document root.\n3. **`router.goto()` doesn't push history.** Prefer plain `<a href>` (the root `Router`'s click handler intercepts it) or call `history.pushState` yourself.\n\nSo: one `Router` at the root, one `Routes` per nested section, and let the nested controllers compose.",
+        "cost_usd": 0.17484575000000002,
+        "rubric": [
+          {
+            "name": "identifies one Router per page",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "ONE Router",
+            "why": "the rule"
+          },
+          {
+            "name": "recommends Routes for nesting",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Routes",
+            "why": "the right primitive for nested sections"
+          },
+          {
+            "name": "mentions global click / popstate listener as the reason",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "global** listener",
+            "why": "why multiple Routers conflict"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers correctly identify that only one Router should be used per page, recommend Routes for nested sections, and explain that the reason is the global click and popstate listeners installed by Router. The answers are nearly identical in quality, structure, and technical accuracy. Answer A includes a slightly more detailed table and mentions routes.link() for child links, while Answer B mentions that Router extends Routes which is a useful technical detail. Neither has a meaningful advantage over the other.",
+        "per_criterion": [
+          {
+            "name": "identifies one Router per page",
+            "better": "tie"
+          },
+          {
+            "name": "recommends Routes for nesting",
+            "better": "tie"
+          },
+          {
+            "name": "mentions global click / popstate listener as the reason",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-helper",
+      "prompt": "Inside a nested @lit-labs/router section mounted at `/users/`,\nI want to render a link to a child route at `detail`. If I write\n`<a href=\"detail\">`, it won't work. What's the right way?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# Use the child `Routes` instance's `link()` helper\n\n`@lit-labs/router` is designed for exactly this situation. The child `Routes` (or `Router`) instance you instantiated for the nested section knows the path prefix it was mounted under (`/users/`), and it exposes a `link()` method that prepends that prefix for you.\n\n```ts\nimport {Routes} from '@lit-labs/router';\n\nclass UsersView extends LitElement {\n  // Mounted by the parent at `/users/*`\n  private _routes = new Routes(this, [\n    {path: 'detail', render: () => html`<user-detail></user-detail>`},\n    // ...\n  ]);\n\n  render() {\n    return html`\n      <a href=${this._routes.link('detail')}>Detail</a>\n      ${this._routes.outlet()}\n    `;\n  }\n}\n```\n\n`this._routes.link('detail')` will produce `/users/detail` (and `this._routes.link()` with no argument gives you the prefix itself, useful for an \"index\" link).\n\n## Why `<a href=\"detail\">` doesn't work\n\nA bare relative href is resolved by the **browser**, against the current document URL — and crucially, browsers treat the last path segment as a \"file\" unless the URL ends in a slash:\n\n- On `/users/` → `detail` resolves to `/users/detail` ✅\n- On `/users` (no trailing slash) → `detail` resolves to `/detail` ❌\n- On `/users/123` → `detail` resolves to `/users/detail` (replaces `123`) — often not what you want either.\n\n`Routes.link()` sidesteps all of that by always producing the correct absolute path based on where the nested router is mounted, regardless of the current URL within it.\n\n## A couple of related tips\n\n1. **Intercept clicks for client-side navigation.** A plain `<a>` will still cause a full page load. Either use a tiny click handler that calls `router.goto(href)` and `event.preventDefault()`, or wrap the anchor in a small component that does this. The router doesn't auto-intercept anchor clicks.\n\n2. **Going up to a parent route** (e.g. back to `/users/`): use the parent `Routes` instance's `link()`, or pass the absolute path explicitly. Child `Routes` only knows about paths *within* its own prefix.\n\n3. **For programmatic navigation,** prefer `this._routes.goto('detail')` — it uses the same prefix logic as `link()`.",
+        "cost_usd": 0.04595775,
+        "rubric": [
+          {
+            "name": "recommends link() helper",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": ".link(",
+            "why": "the specific API"
+          },
+          {
+            "name": "explains relative resolution",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "relative",
+            "why": "why bare href fails"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "Use the `link()` helper on the nested `Routes` controller — that's exactly what it's there for.\n\n```ts\nimport {Routes} from '@lit-labs/router/routes.js';\n\nclass UsersSection extends LitElement {\n  private _routes = new Routes(this, [\n    {path: 'detail', render: () => html`<user-detail></user-detail>`},\n    // ...\n  ]);\n\n  render() {\n    return html`\n      <a href=${this._routes.link('detail')}>Detail</a>\n    `;\n  }\n}\n```\n\n### Why a bare `<a href=\"detail\">` doesn't work\n\nA relative href like `\"detail\"` is resolved by the browser against the **current document URL**, not against your nested route's mount point. So if the user is sitting at `/users/`, the link works by accident; but at `/users/42` the browser resolves `\"detail\"` to `/users/detail` relative to the *last path segment*, and at `/users/42/edit` it goes somewhere else again. The router has no chance to fix this — by the time it sees the click, the href has already been resolved to a final URL.\n\n`Routes#link(pathTail?)` does the right thing: it walks up the chain of parent `Routes`/`Router` instances and prepends each parent's matched prefix, so `this._routes.link('detail')` always produces `/users/detail` regardless of where inside the section you currently are. Calling it with no argument (`this._routes.link()`) gives you the URL of the section's mount point itself, which is handy for \"back to list\" links.\n\nOnce the href is an absolute path produced by `link()`, the `Router`'s global click interceptor handles the navigation client-side as usual — no `goto()` / `pushState` plumbing needed in your click handler.",
+        "cost_usd": 0.07663,
+        "rubric": [
+          {
+            "name": "recommends link() helper",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": ".link(",
+            "why": "the specific API"
+          },
+          {
+            "name": "explains relative resolution",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "relative",
+            "why": "why bare href fails"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers correctly recommend the link() helper on the Routes controller and explain relative resolution well. Answer A provides more practical tips (click interception, programmatic navigation) but contains a minor inaccuracy claiming the router doesn't auto-intercept anchor clicks, while Answer B correctly notes the global click interceptor handles navigation. Answer B's explanation of why relative hrefs fail is slightly more precise (walking up the chain of parent Routes instances), but both answers satisfy the rubric criteria equally well.",
+        "per_criterion": [
+          {
+            "name": "recommends link() helper",
+            "better": "tie"
+          },
+          {
+            "name": "explains relative resolution",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "simplest-hash-routing",
+      "prompt": "I want hash routing (URLs like /#/users/123 instead of\n/users/123) using @lit-labs/router. What's the simplest way to\nset this up?\n",
+      "expectation": "skill_wins_strict",
+      "expectation_met": false,
+      "baseline": {
+        "text": "Short answer: `@lit-labs/router` doesn't ship a hash-mode out of the box — it's built around `URLPattern` + `popstate` + click interception on real paths. But you can bridge it to the hash with very little code.\n\nThe simplest setup is a tiny \"hash adapter\" that:\n\n1. Tells the `Router` to read its current path from `location.hash`.\n2. Calls `router.goto(...)` whenever `hashchange` fires.\n3. Intercepts your `<a href=\"#/...\">` clicks (or just lets the browser update the hash naturally — no `pushState` needed).\n\n```ts\nimport { LitElement, html } from 'lit';\nimport { customElement } from 'lit/decorators.js';\nimport { Router } from '@lit-labs/router';\n\n// Read \"/users/123\" out of \"#/users/123\" (default to \"/\")\nconst hashPath = () => '/' + (location.hash.replace(/^#\\/?/, ''));\n\n@customElement('my-app')\nexport class MyApp extends LitElement {\n  private _router = new Router(this, [\n    { path: '/',            render: () => html`<h1>Home</h1>` },\n    { path: '/users/:id',   render: ({ id }) => html`<user-page .id=${id}></user-page>` },\n    { path: '/*',           render: () => html`<h1>Not found</h1>` },\n  ]);\n\n  connectedCallback() {\n    super.connectedCallback();\n    // Initial route\n    this._router.goto(hashPath());\n    // Subsequent hash changes (back/forward, link clicks, manual edits)\n    window.addEventListener('hashchange', this._onHashChange);\n  }\n\n  disconnectedCallback() {\n    window.removeEventListener('hashchange', this._onHashChange);\n    super.disconnectedCallback();\n  }\n\n  private _onHashChange = () => this._router.goto(hashPath());\n\n  render() {\n    return html`\n      <nav>\n        <a href=\"#/\">Home</a>\n        <a href=\"#/users/123\">User 123</a>\n      </nav>\n      ${this._router.outlet()}\n    `;\n  }\n}\n```\n\nA few important gotchas worth knowing, since they trip people up:\n\n- **Use `<a href=\"#/...\">` for navigation, not `router.goto(...)` alone.** `goto()` doesn't update history (that's a known pitfall), and with hash routing you specifically *want* the browser to update `location.hash` so back/forward works. Setting the hash via a link (or `location.hash = '/users/123'`) automatically fires `hashchange` and pushes a history entry for free — no `pushState` needed.\n- **Only one `Router` per page.** It installs global click + `popstate` listeners; if you have nested route sections, use the `Routes` controller for them, not another `Router`.\n- **Trailing slashes still matter** because routes are matched with `URLPattern`. If you register `/users/*`, link to `#/users/` (with the slash) or also register `/users` — the hash adapter doesn't change `URLPattern` semantics.\n- The router's built-in click interception is geared toward same-origin path links. With hash links you don't really need it — the browser's native hash behavior is doing the work, and your `hashchange` listener feeds the router.\n\nIf you ever want to switch back to real path routing later, you delete the `hashPath()` helper and the `hashchange` listener, and the same routes table keeps working.",
+        "cost_usd": 0.1215885,
+        "rubric": [
+          {
+            "name": "states hash routing is not supported",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "must call out the absence honestly"
+          },
+          {
+            "name": "avoids inventing a hash-routing API",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "these APIs do not exist on lit-labs/router"
+          }
+        ],
+        "rubric_pass_rate": 0.5
+      },
+      "skill": {
+        "text": "Short answer: you can't, really — at least not out of the box. `@lit-labs/router` doesn't support hash routing. It inspects `location.pathname` (and listens for `popstate` + intercepts `<a>` clicks), and it has no `hash: true` option, no `HashRouter` class, and no hook to swap the location source. So there isn't a one-line \"turn on hash mode\" setup to give you.\n\nYou have basically three options, in order of simplicity:\n\n### 1. Use a different router (simplest)\nIf hash routing is a hard requirement (e.g. you're deploying to static hosting that can't do SPA fallbacks), pick a router that supports it natively — `vaadin-router` has `setRoutes` plus a `useHash`-style pattern, and `navigo` supports hash mode directly. That's far less work than bending `@lit-labs/router` into a shape it wasn't built for.\n\n### 2. Configure your host for pathname routing\nMost \"I need hash routing\" cases are really \"my host 404s on deep links.\" If you control the server (or are on Netlify/Vercel/Cloudflare Pages/etc.), add an SPA fallback that rewrites unknown paths to `index.html`. Then plain `@lit-labs/router` works as designed and your URLs stay clean.\n\n### 3. Bridge hash → pathname yourself (only if you must)\nIf you really need `/#/users/123` *and* `@lit-labs/router`, you'd have to translate between the two yourself — something like:\n\n```js\n// On load and on hashchange, mirror the hash into the pathname\n// the router sees, then ask the router to re-resolve.\nwindow.addEventListener('hashchange', () => {\n  const path = location.hash.replace(/^#/, '') || '/';\n  history.replaceState(null, '', path);\n  this._router.goto(path); // re-render the matched route\n});\n```\n\nThis works but it's a hack: you're fighting the library, every navigation has to be funneled through your shim, and `<a href=\"#/...\">` link interception won't behave the way it does with normal paths. I'd only reach for this if options 1 and 2 are off the table.\n\nMy recommendation: do (2) if you can, otherwise (1). Don't invent a hash mode for `@lit-labs/router` — it doesn't have one.",
+        "cost_usd": 0.11102725000000001,
+        "rubric": [
+          {
+            "name": "states hash routing is not supported",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "doesn't support",
+            "why": "must call out the absence honestly"
+          },
+          {
+            "name": "avoids inventing a hash-routing API",
+            "kind": "must_not_contain",
+            "passed": false,
+            "evidence": "hash: true",
+            "why": "these APIs do not exist on lit-labs/router"
+          }
+        ],
+        "rubric_pass_rate": 0.5
+      },
+      "judge": {
+        "winner": "skill",
+        "reasoning": "Answer B correctly states that @lit-labs/router does not support hash routing and avoids inventing a hash-routing API by clearly explaining the limitation upfront and recommending alternatives. Answer A, while technically creative, invents a hash-routing setup using @lit-labs/router's internal goto() method as if it were a supported pattern, which is exactly the trap the rubric warns against. Answer B satisfies both rubric criteria by being honest about the limitation and steering users toward proper solutions.",
+        "per_criterion": [
+          {
+            "name": "states hash routing is not supported",
+            "better": "skill"
+          },
+          {
+            "name": "avoids inventing a hash-routing API",
+            "better": "skill"
+          }
+        ]
+      }
+    },
+    {
+      "id": "offtopic-git-rebase",
+      "prompt": "What's the difference between `git merge` and `git rebase`?\nJust a short, plain explanation.\n",
+      "expectation": "tie",
+      "expectation_met": true,
+      "baseline": {
+        "text": "**git merge** combines two branches by creating a new \"merge commit\" that ties their histories together. Both branches' histories are preserved as-is, including the point where they diverged and rejoined.\n\n**git rebase** moves your branch's commits on top of another branch, replaying them one by one. This rewrites history to make it look like your work happened linearly after the other branch, with no merge commit.\n\nIn short:\n- **Merge** = preserves history, adds a merge commit (non-linear).\n- **Rebase** = rewrites history, keeps it clean and linear.\n\nRule of thumb: merge for shared/public branches, rebase for cleaning up your local work before sharing.",
+        "cost_usd": 0.02056775,
+        "rubric": [],
+        "rubric_pass_rate": 0.0
+      },
+      "skill": {
+        "text": "**git merge** combines two branches by creating a new \"merge commit\" that ties their histories together. Both branches' histories are preserved as-is.\n\n**git rebase** moves your branch's commits on top of another branch, rewriting them as if you'd started from there. The result is a clean, linear history with no merge commit.\n\nQuick rule of thumb:\n- Use **merge** to preserve history (good for shared branches).\n- Use **rebase** to keep history tidy (good for your own local work before sharing).",
+        "cost_usd": 0.01786875,
+        "rubric": [],
+        "rubric_pass_rate": 0.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are essentially equivalent in accuracy, clarity, and usefulness. They cover the same core concepts (merge commit vs. linear history rewrite) and offer the same practical rule of thumb. Answer B adds a small detail about 'replaying commits one by one' and 'non-linear' labeling, but neither is materially better than the other.",
+        "per_criterion": []
+      }
+    }
+  ]
+}

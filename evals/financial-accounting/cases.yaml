@@ -1,0 +1,226 @@
+# Financial accounting eval cases. Knowledge plugin: rubric checks
+# include ASC-citation-format regexes, Call Report line references, and
+# the post-CECL terminology (ALLL → ACL).
+
+# ---------- Positive cases ----------
+
+- id: cecl-allowance
+  prompt: |
+    Our community bank is recording the quarterly provision for the
+    allowance for credit losses on the loan portfolio. Walk me
+    through the journal entry and which ASC topic governs it.
+  judge_focus: |
+    The better answer cites ASC 326 (specifically 326-20 for amortized
+    cost loans), shows the journal entry with the right account types
+    (provision expense Dr / allowance for credit losses Cr), and uses
+    current "ACL" or "allowance for credit losses" terminology rather
+    than the superseded "ALLL".
+  rubric:
+    - name: cites ASC 326
+      kind: any_of
+      patterns:
+        - 'ASC 326'
+        - 'Topic 326'
+        - 'ASC §\s*326'
+      why: 'core CECL standard'
+    - name: cites specific subtopic 326-20
+      kind: any_of
+      patterns:
+        - 'ASC 326-20'
+        - '326-20-'
+      why: 'amortized-cost subtopic, not 326-30 (AFS)'
+    - name: shows journal entry direction
+      kind: any_of
+      patterns:
+        - 'debit.{0,30}provision'
+        - 'Dr.{0,30}provision'
+        - 'credit.{0,30}allowance'
+        - 'Cr.{0,30}allowance'
+      why: 'standard double-entry direction'
+    - name: avoids superseded ALLL terminology as primary
+      kind: must_not_contain
+      pattern: 'recommend[a-z]*\s+(using|the)?\s*ALLL'
+      why: 'ALLL was replaced by ACL under CECL'
+    - name: mentions post-CECL contra-asset framing
+      kind: any_of
+      patterns:
+        - 'contra[-\s]?asset'
+        - 'allowance for credit losses'
+        - '\bACL\b'
+      why: 'modern post-CECL terminology'
+
+- id: deposits-on-bank-balance-sheet
+  prompt: |
+    A customer makes a $5,000 cash deposit at our bank's teller
+    window. Show me the bank's journal entry and explain why the
+    deposit shows as a credit on our books.
+  judge_focus: |
+    The better answer correctly identifies that customer deposits
+    are LIABILITIES on the bank's balance sheet (not assets), and
+    walks through the entry: Dr Cash $5,000 / Cr Deposits Payable
+    $5,000. Bonus for citing the relevant Call Report line.
+  rubric:
+    - name: identifies deposits as liability on bank books
+      kind: any_of
+      patterns:
+        - 'liability'
+        - 'liabilities'
+      why: 'core conceptual point — common confusion'
+    - name: shows correct entry direction (Cash Dr, Deposit Cr)
+      kind: any_of
+      patterns:
+        - 'debit.{0,30}cash'
+        - 'Dr.{0,5}cash'
+        - 'credit.{0,30}deposit'
+        - 'Cr.{0,5}deposit'
+      why: 'concrete entry'
+    - name: mentions Call Report or Schedule RC-E
+      kind: any_of
+      patterns:
+        - 'Call Report'
+        - 'RC-E'
+        - 'Schedule RC'
+      why: 'industry-specific reporting alignment'
+    - name: explains liability framing (owes the customer)
+      kind: any_of
+      patterns:
+        - 'owes?'
+        - 'obligation'
+        - 'borrow'
+        - 'payable'
+      why: 'reframes for a non-banking reader'
+
+- id: loan-fees-deferral
+  prompt: |
+    We charged a borrower a $2,000 origination fee on a 5-year term
+    loan. How do we recognize this fee under GAAP, and which ASC
+    section governs it?
+  judge_focus: |
+    The better answer cites ASC 310-20 (Receivables — Nonrefundable
+    Fees), explains effective-interest amortization over the loan
+    life, and notes that the fee defers as a contra to the loan
+    balance (not booked immediately to income).
+  rubric:
+    - name: cites ASC 310-20
+      kind: any_of
+      patterns:
+        - 'ASC 310-20'
+        - '310-20-'
+      why: 'specific subtopic for nonrefundable fees'
+    - name: mentions effective-interest method
+      kind: any_of
+      patterns:
+        - 'effective[-\s]?interest'
+        - 'effective yield'
+      why: 'the recognition method'
+    - name: mentions deferral / contra-asset framing
+      kind: any_of
+      patterns:
+        - 'defer'
+        - 'amortiz'
+        - 'contra'
+      why: 'fee is not booked to income immediately'
+    - name: rejects immediate fee income recognition
+      kind: any_of
+      patterns:
+        - 'not.{0,15}immediately'
+        - 'not.{0,15}upfront'
+        - 'over the (life|term)'
+        - 'rather than'
+      why: 'common mistake to call out'
+
+- id: control-account-reconciliation
+  prompt: |
+    What's the difference between a general ledger control account
+    and a sub-ledger? Why does it matter that they reconcile, and
+    how often should banks reconcile them?
+  judge_focus: |
+    The better answer crisply distinguishes the two (control account
+    holds the summary balance; sub-ledger holds detailed records),
+    explains the reconciliation discipline (sub total must equal
+    control balance), and gives realistic FI cadence (daily for
+    high-volume, monthly for low-volume).
+  rubric:
+    - name: defines control account
+      kind: any_of
+      patterns:
+        - 'control account'
+        - 'summary.{0,15}(balance|total)'
+        - 'aggregate'
+      why: 'core concept'
+    - name: defines sub-ledger
+      kind: any_of
+      patterns:
+        - 'sub[-\s]?ledger'
+        - 'subsidiary ledger'
+        - 'detail[a-z]* record'
+      why: 'core concept'
+    - name: explains reconciliation discipline
+      kind: any_of
+      patterns:
+        - 'reconcil'
+        - 'tie out'
+        - 'tie[-\s]?out'
+        - 'must equal'
+        - 'matches?'
+      why: 'the core FI discipline'
+    - name: mentions cadence (daily / monthly)
+      kind: any_of
+      patterns:
+        - 'daily'
+        - 'monthly'
+        - 'period.{0,15}close'
+      why: 'realistic FI operating practice'
+
+# ---------- Adversarial case ----------
+
+- id: simplest-loan-loss
+  prompt: |
+    Just give me the quick journal entry to record a loan loss when
+    a borrower defaults. The loan was $50,000.
+  expectation: skill_wins_strict
+  judge_focus: |
+    The trap: simply Dr "Loan loss expense" Cr "Loans" $50,000.
+    Under CECL (ASC 326), losses don't hit P&L directly — they
+    charge off against the existing allowance: Dr ACL Cr Loans
+    $50,000, with no income statement impact unless the ACL is
+    insufficient. The better answer flags this distinction.
+  rubric:
+    - name: shows charge-off against allowance
+      kind: any_of
+      patterns:
+        - 'allowance'
+        - 'ACL'
+      why: 'right account is debited'
+    - name: explains no direct P&L hit
+      kind: any_of
+      patterns:
+        - 'no.{0,15}(P&L|income statement)'
+        - 'doesn.t.{0,15}(hit|affect).{0,15}(P&L|income)'
+        - 'already (provided|reserved)'
+        - 'against the allowance'
+        - 'covered by'
+      why: 'critical conceptual distinction post-CECL'
+    - name: cites ASC 326 framework
+      kind: any_of
+      patterns:
+        - 'ASC 326'
+        - 'CECL'
+      why: 'must mention the standard'
+    - name: avoids debiting expense directly
+      kind: must_not_contain
+      pattern: 'debit\s+(loan\s+)?loss\s+expense.{0,40}credit\s+loans'
+      why: 'the trap entry'
+
+# ---------- Off-topic guard ----------
+
+- id: offtopic-typescript-tuple
+  prompt: |
+    What's the most idiomatic way to define a fixed-length tuple
+    type in TypeScript? Give me a small example.
+  expectation: tie
+  judge_focus: |
+    This question has nothing to do with financial accounting.
+    Both answers should be essentially equivalent. Pick "tie"
+    unless one is materially wrong.
+  rubric: []

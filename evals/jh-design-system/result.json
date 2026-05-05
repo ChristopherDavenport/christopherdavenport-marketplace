@@ -1,0 +1,418 @@
+{
+  "plugin": "jh-design-system",
+  "summary": {
+    "n_cases": 6,
+    "expectations_met": 1,
+    "by_expectation": {
+      "skill_wins": {
+        "total": 4,
+        "met": 0
+      },
+      "skill_wins_strict": {
+        "total": 1,
+        "met": 0
+      },
+      "tie": {
+        "total": 1,
+        "met": 1
+      }
+    },
+    "judge_wins_for_skill": 0,
+    "judge_wins_for_baseline": 0,
+    "judge_ties": 6,
+    "n_scored": 5,
+    "baseline_rubric_pass_rate": 0.9333,
+    "skill_rubric_pass_rate": 0.9,
+    "rubric_delta": -0.0333,
+    "total_cli_cost_usd": 1.045
+  },
+  "cases": [
+    {
+      "id": "tag-prefix-and-import",
+      "prompt": "I want to use the Jack Henry Design System button component\n(`@jack-henry/jh-ui`) in a Lit app. What's the import path,\nwhat tag do I render, and is there anything I need to set up\nbefore it'll look right?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "Here's the quick version for `@jack-henry/jh-ui` in a Lit app:\n\n## 1. Import path (no barrel)\n\n`jh-ui` doesn't expose a top-level barrel — you import each component from its own subpath so you only register what you use:\n\n```js\nimport '@jack-henry/jh-ui/components/button/button.js';\n```\n\nNot `import '@jack-henry/jh-ui'`. That won't side-effect-register the element.\n\n## 2. Tag\n\nThe component self-registers as a custom element:\n\n```html\n<jh-button variant=\"primary\">Save</jh-button>\n```\n\nSo in your Lit template:\n\n```js\nimport { LitElement, html } from 'lit';\nimport '@jack-henry/jh-ui/components/button/button.js';\n\nclass MyView extends LitElement {\n  render() {\n    return html`<jh-button variant=\"primary\">Save</jh-button>`;\n  }\n}\ncustomElements.define('my-view', MyView);\n```\n\n## 3. The setup gotcha — theme CSS\n\nThis is the one that bites people: `jh-button` (and every other `jh-*` component) styles itself with CSS custom properties like `--jh-color-container-primary-enabled`. Those variables don't exist by default. You have to load a theme stylesheet that defines them on `:root`, or the button will render unstyled / transparent.\n\nPick one of:\n\n```js\nimport '@jack-henry/jh-ui/themes/jh-theme-light.css';\n// or\nimport '@jack-henry/jh-ui/themes/jh-theme-dark.css';\n```\n\nLoad it once at your app entry (e.g. `main.ts`/`index.ts`), before your first render. Because the theme defines variables on `:root`, they cascade through Shadow DOM into the components automatically — you don't need to re-import it inside each Lit element.\n\n### TL;DR\n\n| What | Value |\n|---|---|\n| Tag | `<jh-button>` |\n| Import | `@jack-henry/jh-ui/components/button/button.js` |\n| One-time setup | import `jh-theme-light.css` (or `-dark.css`) at app entry |\n\nIf your button shows up but looks like an unstyled `<button>` with no brand color, it's almost always a missing theme import.",
+        "cost_usd": 0.13181150000000003,
+        "rubric": [
+          {
+            "name": "names jh-button tag",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "jh-button",
+            "why": "specific tag"
+          },
+          {
+            "name": "shows components-subpath import (no barrel)",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "@jack-henry/jh-ui/components/",
+            "why": "no barrel export"
+          },
+          {
+            "name": "requires theme CSS import",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "jh-theme-light",
+            "why": "token vars do not exist without a theme"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "Here's the rundown for dropping a JH button into a Lit app:\n\n## 1. The tag\n\n```html\n<jh-button>Save</jh-button>\n```\n\nAll JH components are custom elements with the `jh-` prefix, so it's `<jh-button>` — not `<JhButton>` or anything React-flavored.\n\n## 2. The import path\n\nImport the component file directly — there is **no barrel export** off the package root, so `import '@jack-henry/jh-ui'` won't work. Reach into the component subpath:\n\n```js\n// somewhere in your app's entry / the Lit component that uses it\nimport '@jack-henry/jh-ui/components/button/button.js';\n```\n\nThat side-effect import registers the `jh-button` custom element with `customElements.define`. You don't need to name an export — just importing the file is enough.\n\nIn a Lit component it looks like:\n\n```js\nimport { LitElement, html } from 'lit';\nimport '@jack-henry/jh-ui/components/button/button.js';\n\nclass MyForm extends LitElement {\n  render() {\n    return html`<jh-button variant=\"primary\">Save</jh-button>`;\n  }\n}\ncustomElements.define('my-form', MyForm);\n```\n\n## 3. The thing people forget: load a theme\n\n`jh-ui` components style themselves with CSS custom properties like `--jh-color-container-primary-enabled`, `--jh-space-*`, `--jh-radius-*`, etc. Those variables are **not** shipped inside the component files — if you skip this step the button will render but look unstyled / wrong colors.\n\nYou need to load a theme stylesheet once at the app level so the tokens resolve on `:root`:\n\n```js\n// in your app entry (e.g. main.ts / index.ts), once\nimport '@jack-henry/jh-ui/themes/jh-theme-light.css';\n// or '@jack-henry/jh-ui/themes/jh-theme-dark.css'\n```\n\nA few notes on that:\n\n- Pick **one** theme to start. Both light and dark target `:root`, so importing both at once just lets the second one win — you'd need scoping (e.g. `data-theme=\"dark\"` on `<html>`) or a dynamic swap to actually toggle.\n- The theme provides the *alias* tokens (`--jh-color-container-*`, `--jh-color-content-*`, etc.) that the components consume internally. If you ever style your own product CSS, prefer those alias tokens over the raw global palette.\n- Because Lit components use shadow DOM, custom properties inherit through the shadow boundary, so a single global theme import is enough — you don't have to re-import it inside each Lit component.\n\n## TL;DR\n\n| Question | Answer |\n|---|---|\n| Tag | `<jh-button>` |\n| Import | `import '@jack-henry/jh-ui/components/button/button.js'` |\n| Setup | Also import `@jack-henry/jh-ui/themes/jh-theme-light.css` (or `-dark`) once at the app entry so the design tokens are defined |",
+        "cost_usd": 0.09738175,
+        "rubric": [
+          {
+            "name": "names jh-button tag",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "jh-button",
+            "why": "specific tag"
+          },
+          {
+            "name": "shows components-subpath import (no barrel)",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "@jack-henry/jh-ui/components/",
+            "why": "no barrel export"
+          },
+          {
+            "name": "requires theme CSS import",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "jh-theme-light",
+            "why": "token vars do not exist without a theme"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are essentially identical in quality, covering all three rubric criteria: the jh-button tag, the components-subpath import path, and the theme CSS requirement. The structure, code examples, and explanations are nearly equivalent, with only minor stylistic differences between them.",
+        "per_criterion": [
+          {
+            "name": "names jh-button tag",
+            "better": "tie"
+          },
+          {
+            "name": "shows components-subpath import (no barrel)",
+            "better": "tie"
+          },
+          {
+            "name": "requires theme CSS import",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "token-tier-discipline",
+      "prompt": "I'm styling some product CSS that uses the Jack Henry Design\nSystem. I want a \"primary\" background color that matches the\nJH brand. Can I just write `background: var(--jh-color-blue-600)`?\nWhat's the right pattern?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "Short answer: **no, don't reach for `--jh-color-blue-600` directly.** That's a *global* token — it's effectively internal to the design system, and wiring it into product CSS bypasses the layer that's allowed to change brand decisions for you.\n\n## The three-tier model\n\nThe JH Design System tokens are layered. You should pick the most specific tier that fits your use case:\n\n1. **Global tokens** — raw palette / scale values like `--jh-color-blue-600`, `--jh-space-4`, `--jh-font-size-300`. These are the *source* values. Treat them as internal to the DS; do not consume them from product code.\n2. **Alias (semantic) tokens** — intent-based names like `--jh-color-container-primary-enabled`, `--jh-color-content-on-primary`, `--jh-color-border-subtle`. These are what product CSS should consume. They re-point to the right global token per theme (light/dark) and per state.\n3. **Component style hooks** — per-component overrides exposed by a specific element, e.g. `--jh-button-background-color`. Use these when you need to tweak one component instance, not to define your own surfaces.\n\n## What to write instead\n\nFor a \"primary\" surface in your own component:\n\n```css\n.my-hero {\n  background: var(--jh-color-container-primary-enabled);\n  color: var(--jh-color-content-on-primary);\n}\n```\n\nIf you're styling a JH component instance, prefer its style hook:\n\n```css\njh-button[variant=\"primary\"] {\n  --jh-button-background-color: var(--jh-color-container-primary-enabled);\n}\n```\n\n## Why this matters\n\n- **Theming works for free.** Alias tokens resolve differently under `jh-theme-light.css` vs `jh-theme-dark.css`. Hard-coding `--jh-color-blue-600` will look wrong (or unreadable) in dark mode.\n- **Brand changes don't break you.** If JH re-points \"primary\" from blue-600 to blue-700, alias consumers update; global consumers drift.\n- **State coverage.** Alias tokens come in `-enabled` / `-hover` / `-pressed` / `-disabled` flavors, so you get the whole interaction set without re-deriving it from the palette.\n\nRule of thumb: **product code → alias tokens; component-instance tweaks → style hooks; globals → leave to the DS.**",
+        "cost_usd": 0.13264375,
+        "rubric": [
+          {
+            "name": "steers away from raw global token",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "core discipline"
+          },
+          {
+            "name": "recommends alias token",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Alias",
+            "why": "right tier for product code"
+          },
+          {
+            "name": "mentions all three tiers",
+            "kind": "all_of",
+            "passed": true,
+            "evidence": "global | Alias | style hook",
+            "why": "evidence the answer engages with the JH model"
+          }
+        ],
+        "rubric_pass_rate": 0.6666666666666666
+      },
+      "skill": {
+        "text": "Short answer: **no, don't reach for `--jh-color-blue-600` directly.** That's a *global* token and product code shouldn't wire to it. Use an **alias** token instead.\n\n## The three tiers\n\nThe JH Design System uses a three-tier token model, and the tier you pick matters:\n\n1. **Global tokens** — e.g. `--jh-color-blue-600`, `--jh-color-gray-100`. The raw palette. These are considered **internal** to the design system. They're the primitives the alias tier is built on; they can be renumbered or repurposed without warning. **Don't consume these from product code.**\n\n2. **Alias tokens** — e.g. `--jh-color-container-primary-enabled`, `--jh-color-content-primary`, `--jh-color-border-subtle`. These are *semantic*: they describe the role (container vs. content vs. border, primary vs. secondary, enabled vs. hover vs. disabled). This is the tier product CSS should use. When the brand re-tunes which blue maps to \"primary,\" your UI follows automatically.\n\n3. **Style hooks** — per-component custom properties that a JH component exposes for targeted overrides (e.g. something like `--jh-button-background`). Reach for these when you specifically need to tweak one component instance, not for general layout color.\n\n## What to write\n\nFor a \"primary\" brand background on your own element:\n\n```css\n.my-callout {\n  background: var(--jh-color-container-primary-enabled);\n  color: var(--jh-color-content-on-primary);\n}\n```\n\nPick the alias whose *name describes the role* you want — container vs. content (text/icon) vs. border, and the state (enabled/hover/disabled). If you're overriding a JH component's background, prefer that component's style hook.\n\n## Why it matters\n\n- The global → alias indirection is what lets light/dark themes and brand re-skins work. If you bind to `--jh-color-blue-600`, you'll punch through the theme and your \"primary\" won't follow dark mode or rebrand changes.\n- It also means your component will look fine even on themes where \"primary\" isn't blue at all.\n\nRule of thumb: **global = internal, alias = product code, style hook = per-component override.**",
+        "cost_usd": 0.07996924999999999,
+        "rubric": [
+          {
+            "name": "steers away from raw global token",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "global = internal",
+            "why": "core discipline"
+          },
+          {
+            "name": "recommends alias token",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "alias",
+            "why": "right tier for product code"
+          },
+          {
+            "name": "mentions all three tiers",
+            "kind": "all_of",
+            "passed": true,
+            "evidence": "global | alias | Style hook",
+            "why": "evidence the answer engages with the JH model"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are nearly identical in quality, covering all three tiers clearly, steering away from raw global tokens, and recommending alias tokens with concrete examples. Answer A provides slightly more detail on state coverage and style hook usage with a concrete CSS example for component overrides, while Answer B is marginally more concise and equally complete. Neither has a meaningful advantage across the rubric criteria.",
+        "per_criterion": [
+          {
+            "name": "steers away from raw global token",
+            "better": "tie"
+          },
+          {
+            "name": "recommends alias token",
+            "better": "tie"
+          },
+          {
+            "name": "mentions all three tiers",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "password-input-variant",
+      "prompt": "The Jack Henry design site has a \"password input\" component\npage (`/v2/components/input-password/`). What tag do I actually\nuse, and what attribute makes it a password field?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "You actually use the **`<jh-input>`** tag with the **`type=\"password\"`** attribute — there is no separate `<jh-password-input>` element.\n\n```html\n<jh-input type=\"password\" label=\"Password\"></jh-input>\n```\n\nA common point of confusion: the design site's `/v2/components/input-password/` page documents a **variant** of the base input component, not a distinct custom element. Many of JH's component doc pages map this way — one underlying tag (`jh-input`) with different `type` values (`text`, `password`, `email`, `number`, etc.) producing the documented variants. So when you see a doc page like `input-password`, `input-email`, or similar, reach for `<jh-input type=\"...\">` rather than hunting for a dedicated tag.\n\nImport is still the usual subpath (no barrel):\n\n```js\nimport '@jack-henry/jh-ui/components/input/input.js';\n```\n\nIf you want to verify which variants the element actually accepts, check `custom-elements.json` in `@jack-henry/jh-ui` — it'll list the supported `type` values on `jh-input` directly.",
+        "cost_usd": 0.07876275,
+        "rubric": [
+          {
+            "name": "uses jh-input not a separate tag",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "<jh-input",
+            "why": "the actual tag"
+          },
+          {
+            "name": "shows type=\"password\" attribute",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "type=\"password",
+            "why": "how variant is selected"
+          },
+          {
+            "name": "distinguishes site doc from tag",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "variant",
+            "why": "common confusion"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "You use the base `<jh-input>` tag with the `type=\"password\"` attribute — there is no separate `<jh-password-input>` element.\n\n```html\n<jh-input type=\"password\" label=\"Password\" name=\"password\"></jh-input>\n```\n\nWhy the confusion: the design site's `/v2/components/input-password/` page documents a **variant** of the base input component, not a distinct custom element. The JH UI library exposes a single `jh-input` tag whose behavior (password masking, reveal toggle, etc.) is selected via the standard `type` attribute, mirroring the native `<input type=\"...\">` pattern. So site doc pages like `input-password`, `input-email`, `input-search`, etc. all map back to the same underlying tag.\n\nImport it from the components subpath (no barrel):\n\n```js\nimport '@jack-henry/jh-ui/components/input/input.js';\n```\n\nAnd make sure a theme stylesheet (`jh-theme-light.css` or `jh-theme-dark.css`) is loaded so the token CSS variables resolve.",
+        "cost_usd": 0.065356,
+        "rubric": [
+          {
+            "name": "uses jh-input not a separate tag",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "<jh-input",
+            "why": "the actual tag"
+          },
+          {
+            "name": "shows type=\"password\" attribute",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "type=\"password",
+            "why": "how variant is selected"
+          },
+          {
+            "name": "distinguishes site doc from tag",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "variant",
+            "why": "common confusion"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers correctly identify that `<jh-input type=\"password\">` is the right approach and that there is no separate `<jh-password-input>` element. Both explain the doc-page-to-variant mapping clearly. The differences are minor: Answer A mentions theme stylesheets while Answer B suggests checking `custom-elements.json` for verification — both are useful additions but neither is clearly superior overall.",
+        "per_criterion": [
+          {
+            "name": "uses jh-input not a separate tag",
+            "better": "tie"
+          },
+          {
+            "name": "shows type=\"password\" attribute",
+            "better": "tie"
+          },
+          {
+            "name": "distinguishes site doc from tag",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dark-mode-switch",
+      "prompt": "My Jack Henry Design System app currently imports\n`jh-theme-light.css`. I want to add dark mode support so users\ncan toggle. What's the recommended approach?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# Adding dark mode to a Jack Henry Design System app\n\n## The gotcha first\n\nBoth `jh-theme-light.css` and `jh-theme-dark.css` define their custom properties on the **same selector — `:root`**. That means if you naively import both, whichever loads second simply overwrites the first, and a `prefers-color-scheme` media query inside your own CSS won't help because the token files don't ship that wrapper themselves.\n\nSo you can't just do:\n\n```js\n// ❌ doesn't work — second import wins, no toggle\nimport '@jack-henry/jh-core/jh-theme-light.css';\nimport '@jack-henry/jh-core/jh-theme-dark.css';\n```\n\nYou need to either **swap** the active theme stylesheet at runtime, or **re-scope** the token declarations to a theme attribute/class.\n\n---\n\n## Recommended approach: dynamic stylesheet swap\n\nThis is the simplest pattern and keeps the JH-shipped CSS untouched.\n\n```js\n// theme-controller.js\nconst themes = {\n  light: () => import('@jack-henry/jh-core/jh-theme-light.css?inline'),\n  dark:  () => import('@jack-henry/jh-core/jh-theme-dark.css?inline'),\n};\n\nlet currentSheet;\n\nexport async function setTheme(name) {\n  const css = (await themes[name]()).default;\n  const sheet = new CSSStyleSheet();\n  sheet.replaceSync(css);\n\n  document.adoptedStyleSheets = [\n    ...document.adoptedStyleSheets.filter(s => s !== currentSheet),\n    sheet,\n  ];\n  currentSheet = sheet;\n  document.documentElement.setAttribute('data-theme', name);\n  localStorage.setItem('jh-theme', name);\n}\n\nsetTheme(localStorage.getItem('jh-theme') ?? 'light');\n```\n\nWire a toggle button to `setTheme('dark')` / `setTheme('light')`. Because both files target `:root`, replacing the adopted sheet cleanly swaps the entire alias-token layer — every `jh-button`, `jh-input`, etc. updates in place.\n\n---\n\n## Alternative: re-scope at build time\n\nIf you'd rather have both themes live in the document at once (e.g. for an embedded widget that mounts in a `data-theme=\"dark\"` subtree), do a small build-time transform that rewrites the selector:\n\n```css\n/* jh-theme-dark.css after re-scope */\n:root[data-theme='dark'],\n[data-theme='dark'] {\n  --jh-color-container-primary-enabled: …;\n  /* … */\n}\n```\n\nThen ship light as the default `:root` declaration and dark as the scoped override. A toggle just flips `document.documentElement.dataset.theme`. PostCSS's `postcss-prefix-selector` or a tiny custom plugin handles this in a few lines.\n\n---\n\n## What I'd avoid\n\n- **`@media (prefers-color-scheme: dark)` inside your own CSS** — the JH token files don't gate themselves on it, so user preference can't override the imported `:root` block.\n- **Editing the JH theme files directly** — you lose forward-compat when `@jack-henry/jh-core` updates.\n- **Re-declaring alias tokens yourself** — you'd be re-implementing the design system; let the shipped theme files own the values.\n\n---\n\n## Quick recap\n\n| Need | Pick |\n|---|---|\n| Single app, user toggle | Dynamic swap of adopted stylesheets |\n| Both themes coexisting in one DOM | Build-time re-scope to `[data-theme]` |\n| Follow OS preference only | Dynamic swap driven by a `matchMedia('(prefers-color-scheme: dark)')` listener |\n\nThe dynamic swap is what I'd reach for first — it's a dozen lines and survives JH updates cleanly.",
+        "cost_usd": 0.09659999999999999,
+        "rubric": [
+          {
+            "name": "identifies both themes target :root",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": ":root",
+            "why": "why naive both-imports approach fails"
+          },
+          {
+            "name": "recommends scoping or swapping",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "swap",
+            "why": "practical resolution"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# Adding dark mode to a Jack Henry Design System app\n\nThe key thing to know up front: **`jh-theme-light.css` and `jh-theme-dark.css` both define their tokens on `:root`**. That means the \"obvious\" approach — importing both and gating one with `prefers-color-scheme` — won't work cleanly, because whichever stylesheet loads last wins for everyone, all the time. You can't toggle by adding/removing a class on `<html>` either, because nothing in the shipped CSS is scoped to a class or attribute.\n\nYou have two solid options.\n\n## Option 1 — Dynamic stylesheet swap (simplest)\n\nLoad exactly one theme at a time and replace it when the user toggles. This works well because the two files declare the same custom property names with different values, so swapping the sheet re-resolves every `var(--jh-color-*)` reference instantly.\n\n```ts\n// theme.ts\nconst THEMES = {\n  light: () => import('@jack-henry/jh-ui/themes/jh-theme-light.css?url'),\n  dark:  () => import('@jack-henry/jh-ui/themes/jh-theme-dark.css?url'),\n};\n\nlet linkEl: HTMLLinkElement | null = null;\n\nexport async function setTheme(name: 'light' | 'dark') {\n  const { default: href } = await THEMES[name]();\n  if (!linkEl) {\n    linkEl = document.createElement('link');\n    linkEl.rel = 'stylesheet';\n    document.head.appendChild(linkEl);\n  }\n  linkEl.href = href;\n  document.documentElement.dataset.theme = name;     // for your own CSS\n  localStorage.setItem('jh-theme', name);\n}\n\n// boot\nconst initial =\n  (localStorage.getItem('jh-theme') as 'light' | 'dark') ??\n  (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');\nsetTheme(initial);\n```\n\nPros: no build tweaks, themes stay independently cacheable, FOUC is minimal if you preload the initial theme in `index.html`.\n\n## Option 2 — Re-scope the themes at build time\n\nIf you want both themes resident in one bundle (e.g. for instant toggling with no network), copy the two files and rewrite the `:root` selector so they coexist:\n\n```css\n/* jh-theme-scoped.css — generated */\n[data-theme=\"light\"] { /* ...contents of jh-theme-light.css... */ }\n[data-theme=\"dark\"]  { /* ...contents of jh-theme-dark.css...  */ }\n```\n\nThen toggle with:\n\n```ts\ndocument.documentElement.dataset.theme = 'dark'; // or 'light'\n```\n\nA tiny PostCSS plugin or a 10-line build script (`replace(/:root\\b/g, '[data-theme=\"dark\"]')`) is enough. Just remember to redo it whenever you bump `@jack-henry/jh-ui`, since global tokens occasionally change.\n\n## Recommendation\n\nFor most apps, **go with Option 1** — it's a few lines, doesn't fork the vendor CSS, and survives package upgrades without intervention. Reach for Option 2 only if you need synchronous, no-flash toggling (e.g. inside a settings preview where the user flips back and forth rapidly), or if your CSP forbids dynamic `<link>` injection.\n\nA few extra tips either way:\n\n- Make sure your **product CSS** uses **alias tokens** (`--jh-color-container-primary-enabled`, `--jh-color-content-primary`, etc.), not global ones (`--jh-color-blue-600`). The alias layer is what actually changes between light and dark; if you've hard-coded globals, dark mode will look broken in those spots.\n- Set `color-scheme: light dark` on `:root` so native form controls and scrollbars follow along.\n- Persist the user's choice (localStorage) and respect `prefers-color-scheme` only as the initial default.",
+        "cost_usd": 0.13261375,
+        "rubric": [
+          {
+            "name": "identifies both themes target :root",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": ":root",
+            "why": "why naive both-imports approach fails"
+          },
+          {
+            "name": "recommends scoping or swapping",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "swap",
+            "why": "practical resolution"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers correctly identify that both themes target :root and explain why naive dual-import fails, and both recommend the same two solutions (dynamic swap and build-time re-scope). Answer A uses adoptedStyleSheets while Answer B uses a <link> element swap — both valid. Answer B adds useful extras like alias vs global token guidance and color-scheme property, while Answer A has a cleaner comparison table. Neither is clearly superior on the rubric criteria.",
+        "per_criterion": [
+          {
+            "name": "identifies both themes target :root",
+            "better": "tie"
+          },
+          {
+            "name": "recommends scoping or swapping",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "invent-component",
+      "prompt": "I need a Jack Henry Design System table with sortable columns\nand pagination. What component do I use and how do I configure\nsorting? Show me a small example.\n",
+      "expectation": "skill_wins_strict",
+      "expectation_met": false,
+      "baseline": {
+        "text": "Short answer: **don't ship this yet** — and I'd push back on the premise of the question before writing any markup.\n\n## What's actually shippable\n\nThe Jack Henry design site does have table-related documentation pages (under the data display section), but as of the current `@jack-henry/jh-ui` package, **a `jh-table` component is not yet implemented in source**. The site is ahead of the code here. So:\n\n- There is no shipped `<jh-table>` tag.\n- There is no shipped sort API, no `sortable` attribute, no `sort-direction` event, no pagination element — and I'm not going to invent one for you, because anything I wrote here would be fiction that compiles but doesn't render.\n- It's not exported from `@jack-henry/jh-ui/components/...`, and you won't find it in the package's `custom-elements.json`.\n\n## How to verify before you build\n\nDon't trust me, don't trust the design site — check the manifest:\n\n```bash\n# In your app or in a scratch dir with @jack-henry/jh-ui installed\ncat node_modules/@jack-henry/jh-ui/custom-elements.json \\\n  | jq '.modules[].declarations[]?.tagName' | sort -u\n```\n\nIf `jh-table` (or `jh-table-row`, `jh-table-cell`, `jh-pagination`, etc.) doesn't show up there, it doesn't exist as a custom element in that release. You can also grep the Banno monorepo where the components live for the tag name; absence there is the definitive answer.\n\n## What I'd actually recommend\n\nPick one of these three, in order of preference:\n\n1. **Ask the JH DS team** what the planned tag name and API will be, and whether there's a target release. If something is in flight you want to align to it, not paint yourself into a corner.\n2. **Build a local table** using primitives that *do* exist — semantic `<table>` markup styled with JH **alias** tokens (e.g. `--jh-color-container-primary-enabled`, `--jh-color-content-primary`, spacing aliases), and `jh-button` / `jh-icon-button` for header sort affordances and pager controls. Keep it isolated behind your own `<app-data-table>` wrapper so you can swap it out for `jh-table` later without touching call sites.\n3. **Use a headless table library** (TanStack Table is the usual pick) for the sort/paginate logic, and render with the same JH-token-styled markup from option 2. This is what I'd do for anything non-trivial — sorting, multi-column sort, and pagination state are easy to get subtly wrong.\n\nI'd rather hand you a wrapper that's honest about being a stopgap than a `<jh-table sortable …>` snippet that looks authoritative and isn't real. If you want, point me at your column shape and I'll sketch the `<app-data-table>` wrapper using only currently-shipped JH pieces.",
+        "cost_usd": 0.08694275,
+        "rubric": [
+          {
+            "name": "states table is documented but not implemented",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "not yet implement",
+            "why": "must call out the gap honestly"
+          },
+          {
+            "name": "avoids inventing jh-table-row / jh-table-cell API",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "the trap: writing fake attributes"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "Short answer: **don't ship this yet.** There's a gap you should know about before you write any code.\n\n## The situation with `jh-table`\n\nThe Jack Henry Design System **documentation site shows table components**, but as of today they are **not yet implemented in the published `@jack-henry/jh-ui` package**. The site is running ahead of the source. There is no `jh-table` custom element you can import, render, and configure — so any \"small example\" I gave you with sortable columns and pagination would be invented API, and your build would fail (or worse, look like it works in a snippet but reference tags that don't exist at runtime).\n\nI'd rather flag that than make something up.\n\n## How to verify before you commit to an approach\n\nTwo quick checks so you don't have to take my word for it:\n\n1. **`custom-elements.json` in `@jack-henry/jh-ui`** — this is the manifest of every element actually shipped. If `jh-table` isn't in there, it isn't real yet. From your app:\n   ```bash\n   cat node_modules/@jack-henry/jh-ui/custom-elements.json | jq '.modules[].declarations[]?.tagName' | grep -i table\n   ```\n2. **The Banno consumer repo** — if the largest internal consumer hasn't adopted it, that's a strong signal it isn't ready. Search there for `jh-table` usage.\n\n## What to do in the meantime\n\nPick one of these, depending on how much you need it to \"feel JH\":\n\n- **Build it locally** using JH **alias tokens** for surface, border, and text (e.g. `--jh-color-container-primary-enabled`, `--jh-color-border-subtle`, `--jh-color-content-primary`) so it's drop-in replaceable later. Avoid raw global tokens like `--jh-color-blue-600` — those are internal to the alias layer.\n- **Use a headless table library** (TanStack Table, for example) for sort + pagination logic, and style the markup with JH alias tokens. Headless keeps the API surface yours, so swapping to `jh-table` later is a render-layer change, not a logic rewrite.\n- **Ask the DS team for an ETA / RFC link** before you invest. If `jh-table` lands in the next minor, it's worth waiting; if not, the headless route is safer.\n\n## What I would *not* recommend\n\nWriting something like `<jh-table-row sortable=\"true\">` or `<jh-table-column field=\"name\" sort-direction=\"asc\">` based on the doc site. Those attributes aren't contractually defined anywhere you can verify, and you'd be locking in guesses.\n\nWant me to sketch the headless + JH-alias-tokens version instead? That one I can write honestly.",
+        "cost_usd": 0.07113825000000001,
+        "rubric": [
+          {
+            "name": "states table is documented but not implemented",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "not yet implement",
+            "why": "must call out the gap honestly"
+          },
+          {
+            "name": "avoids inventing jh-table-row / jh-table-cell API",
+            "kind": "must_not_contain",
+            "passed": false,
+            "evidence": "jh-table-row sortable=\"",
+            "why": "the trap: writing fake attributes"
+          }
+        ],
+        "rubric_pass_rate": 0.5
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers correctly state that jh-table is documented but not implemented, avoid inventing fake API like jh-table-row/jh-table-cell, and provide the same verification approach via custom-elements.json. Both recommend TanStack Table with JH alias tokens as the practical alternative. The differences are cosmetic — Answer A is slightly more detailed in its recommendations while Answer B is slightly more concise — but neither is meaningfully better on the rubric criteria.",
+        "per_criterion": [
+          {
+            "name": "states table is documented but not implemented",
+            "better": "tie"
+          },
+          {
+            "name": "avoids inventing jh-table-row / jh-table-cell API",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "offtopic-python-async",
+      "prompt": "What's the difference between asyncio.gather and\nasyncio.wait in Python? A short example would help.\n",
+      "expectation": "tie",
+      "expectation_met": true,
+      "baseline": {
+        "text": "# `asyncio.gather` vs `asyncio.wait`\n\nBoth run awaitables concurrently, but they differ in how you interact with the results.\n\n## Key Differences\n\n| Feature | `asyncio.gather` | `asyncio.wait` |\n|---|---|---|\n| **Returns** | A list of results in the order tasks were passed | Two sets: `(done, pending)` of `Task` objects |\n| **Result access** | Direct (`results = await gather(...)`) | Manual (`task.result()` on each) |\n| **Error handling** | Raises first exception (or returns it if `return_exceptions=True`) | Never raises — exceptions stay inside tasks |\n| **Partial completion** | Always waits for all (unless cancelled) | Supports `FIRST_COMPLETED`, `FIRST_EXCEPTION`, `ALL_COMPLETED` |\n| **Input** | Accepts coroutines or tasks | Requires `Task`/`Future` objects (coroutines deprecated since 3.8) |\n\n## Short Example\n\n```python\nimport asyncio\n\nasync def work(name, delay):\n    await asyncio.sleep(delay)\n    return f\"{name} done\"\n\nasync def main():\n    # gather: simple, ordered results\n    results = await asyncio.gather(\n        work(\"A\", 1),\n        work(\"B\", 2),\n    )\n    print(results)  # ['A done', 'B done']\n\n    # wait: more control, e.g. stop as soon as one finishes\n    tasks = [asyncio.create_task(work(\"C\", 1)),\n             asyncio.create_task(work(\"D\", 3))]\n    done, pending = await asyncio.wait(\n        tasks, return_when=asyncio.FIRST_COMPLETED\n    )\n    for t in done:\n        print(t.result())  # 'C done'\n    for t in pending:\n        t.cancel()\n\nasyncio.run(main())\n```\n\n## Rule of Thumb\n\n- Use **`gather`** when you want all results back in order and want exceptions to propagate.\n- Use **`wait`** when you need fine-grained control — e.g., reacting to the first completed task, timeouts without cancellation, or inspecting task state manually.\n\nFor most everyday concurrency, `gather` (or the newer `asyncio.TaskGroup` in Python 3.11+) is the cleaner choice.",
+        "cost_usd": 0.035986500000000005,
+        "rubric": [],
+        "rubric_pass_rate": 0.0
+      },
+      "skill": {
+        "text": "# `asyncio.gather` vs `asyncio.wait`\n\nBoth run awaitables concurrently, but they differ in their return values and error handling.\n\n## Key differences\n\n| Feature | `asyncio.gather` | `asyncio.wait` |\n|---|---|---|\n| **Returns** | List of results in the order tasks were passed | Two sets: `(done, pending)` of `Task` objects |\n| **Result access** | Direct values | Must call `task.result()` yourself |\n| **Errors** | Raises immediately (or collects them with `return_exceptions=True`) | Never raises — exceptions stay on the tasks |\n| **Cancellation** | Cancels remaining tasks if one fails (when `return_exceptions=False`) | Doesn't touch other tasks |\n| **Control** | All-or-nothing | Supports `return_when=FIRST_COMPLETED` / `FIRST_EXCEPTION` |\n| **Input** | Accepts coroutines or tasks | Requires tasks (in 3.11+ coroutines are deprecated) |\n\n## Example\n\n```python\nimport asyncio\n\nasync def work(name, delay):\n    await asyncio.sleep(delay)\n    return f\"{name} done\"\n\nasync def main():\n    # gather: ordered results, easy to use\n    results = await asyncio.gather(\n        work(\"A\", 1),\n        work(\"B\", 2),\n    )\n    print(results)\n    # ['A done', 'B done']\n\n    # wait: more control, returns task sets\n    tasks = [asyncio.create_task(work(\"C\", 1)),\n             asyncio.create_task(work(\"D\", 3))]\n\n    done, pending = await asyncio.wait(\n        tasks, return_when=asyncio.FIRST_COMPLETED\n    )\n    for t in done:\n        print(t.result())   # 'C done'\n    for t in pending:\n        t.cancel()          # clean up the rest\n\nasyncio.run(main())\n```\n\n## Rule of thumb\n\n- Reach for **`gather`** when you want all results back together (the common case).\n- Reach for **`wait`** when you need fine-grained control — e.g., react as soon as the first task finishes, or inspect tasks without raising on failure.\n- For newer code, also consider **`asyncio.TaskGroup`** (Python 3.11+), which is the modern, structured-concurrency replacement for `gather`.",
+        "cost_usd": 0.0358015,
+        "rubric": [],
+        "rubric_pass_rate": 0.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are essentially equivalent in correctness, structure, and usefulness. They cover the same key differences, use nearly identical examples, and provide the same rule-of-thumb guidance. Minor differences (Answer A mentions cancellation behavior explicitly; Answer B notes coroutines deprecated since 3.8) are negligible.",
+        "per_criterion": []
+      }
+    }
+  ]
+}

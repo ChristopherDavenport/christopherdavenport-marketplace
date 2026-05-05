@@ -21,8 +21,25 @@ def serialize_results(plugin: str, cases: list[dict[str, Any]]) -> dict[str, Any
     judge_losses = sum(1 for c in cases if c["judge"]["winner"] == "baseline")
     judge_ties = n - judge_wins - judge_losses
 
-    baseline_pass = sum(c["baseline"]["rubric_pass_rate"] for c in cases) / n
-    skill_pass = sum(c["skill"]["rubric_pass_rate"] for c in cases) / n
+    expectations_met = sum(1 for c in cases if c.get("expectation_met"))
+
+    by_expectation: dict[str, dict[str, int]] = {}
+    for c in cases:
+        exp = c.get("expectation", "skill_wins")
+        b = by_expectation.setdefault(exp, {"total": 0, "met": 0})
+        b["total"] += 1
+        if c.get("expectation_met"):
+            b["met"] += 1
+
+    # Average rubric only over cases that have a non-empty rubric — off-topic
+    # guards typically declare no rubric and would otherwise drag the mean.
+    scored = [c for c in cases if c["baseline"]["rubric"]]
+    if scored:
+        baseline_pass = sum(c["baseline"]["rubric_pass_rate"] for c in scored) / len(scored)
+        skill_pass = sum(c["skill"]["rubric_pass_rate"] for c in scored) / len(scored)
+    else:
+        baseline_pass = 0.0
+        skill_pass = 0.0
 
     total_cost = sum(
         c["baseline"]["cost_usd"] + c["skill"]["cost_usd"] for c in cases
@@ -32,9 +49,12 @@ def serialize_results(plugin: str, cases: list[dict[str, Any]]) -> dict[str, Any
         "plugin": plugin,
         "summary": {
             "n_cases": n,
+            "expectations_met": expectations_met,
+            "by_expectation": by_expectation,
             "judge_wins_for_skill": judge_wins,
             "judge_wins_for_baseline": judge_losses,
             "judge_ties": judge_ties,
+            "n_scored": len(scored),
             "baseline_rubric_pass_rate": round(baseline_pass, 4),
             "skill_rubric_pass_rate": round(skill_pass, 4),
             "rubric_delta": round(skill_pass - baseline_pass, 4),
@@ -64,13 +84,21 @@ def render_markdown(payload: dict[str, Any]) -> str:
     plugin = payload["plugin"]
     cases = payload["cases"]
 
+    by_exp = s.get("by_expectation", {})
+    by_exp_line = ", ".join(
+        f"{kind} {v['met']}/{v['total']}" for kind, v in sorted(by_exp.items())
+    ) or "(none)"
+
     headline_parts = [
         f"# Eval report: `{plugin}`",
         "",
         f"- Cases: **{s['n_cases']}**",
+        f"- Expectations met: **{s['expectations_met']}/{s['n_cases']}** "
+        f"({by_exp_line})",
         f"- Judge: skill won **{s['judge_wins_for_skill']}**, baseline won "
         f"**{s['judge_wins_for_baseline']}**, ties **{s['judge_ties']}**",
-        f"- Rubric pass-rate: baseline **{s['baseline_rubric_pass_rate']:.0%}**, "
+        f"- Rubric pass-rate (over {s['n_scored']} scored case(s)): baseline "
+        f"**{s['baseline_rubric_pass_rate']:.0%}**, "
         f"skill **{s['skill_rubric_pass_rate']:.0%}** "
         f"(Δ **{s['rubric_delta']:+.0%}**)",
         f"- CLI cost: **${s['total_cli_cost_usd']:.2f}** "
@@ -78,11 +106,17 @@ def render_markdown(payload: dict[str, Any]) -> str:
         "",
     ]
 
-    table = ["## Cases", "", "| Case | Judge | Baseline rubric | Skill rubric |",
-             "| --- | --- | --- | --- |"]
+    table = [
+        "## Cases",
+        "",
+        "| Case | Expected | Met | Judge | Baseline rubric | Skill rubric |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
     for c in cases:
+        met_mark = "✓" if c.get("expectation_met") else "✗"
         table.append(
-            f"| `{c['id']}` | **{c['judge']['winner']}** "
+            f"| `{c['id']}` | {c.get('expectation', 'skill_wins')} | {met_mark} "
+            f"| **{c['judge']['winner']}** "
             f"| {c['baseline']['rubric_pass_rate']:.0%} "
             f"| {c['skill']['rubric_pass_rate']:.0%} |"
         )
@@ -90,8 +124,13 @@ def render_markdown(payload: dict[str, Any]) -> str:
 
     details = ["## Per-case detail", ""]
     for c in cases:
+        exp = c.get("expectation", "skill_wins")
+        met = c.get("expectation_met", True)
+        flag = "" if met else " — **[FAILED EXPECTATION]**"
         details += [
             f"### `{c['id']}`",
+            "",
+            f"**Expected:** `{exp}` · **Met:** {'✓' if met else '✗'}{flag}",
             "",
             "**Prompt**",
             "",

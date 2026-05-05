@@ -181,3 +181,50 @@
       kind: must_not_contain
       pattern: 'interface\{\}[\s\S]{0,200}reflect\.'
       why: 'pre-generics workaround that this skill should steer away from'
+
+# ---------- Adversarial case ----------
+
+- id: simplest-error
+  prompt: |
+    Just give me the simplest, fewest-character way to return an
+    error in Go that says "user not found". One line if possible.
+  expectation: skill_wins_strict
+  judge_focus: |
+    The naive answer is `errors.New("user not found")` or
+    `fmt.Errorf("user not found")` — fine but the trap is teaching
+    bare error strings as the default. The better answer either
+    uses a sentinel (`var ErrUserNotFound = errors.New(...)`) so
+    callers can use errors.Is, or wraps explicitly with %w. Bare
+    string-only errors that callers can only string-match are an
+    anti-pattern in any non-trivial codebase.
+  rubric:
+    - name: uses sentinel error or %w wrapping
+      kind: any_of
+      patterns:
+        - '\bvar\s+Err[A-Z]\w+\s*='
+        - 'sentinel'
+        - '%w'
+        - 'errors\.Is'
+      why: 'the safer pattern callers can match on'
+    - name: explains why bare string errors are limiting
+      kind: any_of
+      patterns:
+        - 'string match'
+        - 'errors\.Is'
+        - 'caller'
+        - 'match'
+        - 'compare'
+      why: 'must teach the caller-side trade-off'
+
+# ---------- Off-topic guard ----------
+
+- id: offtopic-css-grid
+  prompt: |
+    What's the simplest CSS Grid setup to create a 3-column layout
+    with equal widths and a small gap between columns?
+  expectation: tie
+  judge_focus: |
+    This question has nothing to do with Go. Both answers should
+    be essentially equivalent. Pick "tie" unless one is materially
+    wrong.
+  rubric: []

@@ -1,0 +1,562 @@
+{
+  "plugin": "financial-regs",
+  "summary": {
+    "n_cases": 6,
+    "expectations_met": 2,
+    "by_expectation": {
+      "skill_wins": {
+        "total": 4,
+        "met": 1
+      },
+      "skill_wins_strict": {
+        "total": 1,
+        "met": 0
+      },
+      "tie": {
+        "total": 1,
+        "met": 1
+      }
+    },
+    "judge_wins_for_skill": 1,
+    "judge_wins_for_baseline": 1,
+    "judge_ties": 4,
+    "n_scored": 5,
+    "baseline_rubric_pass_rate": 0.95,
+    "skill_rubric_pass_rate": 0.95,
+    "rubric_delta": 0.0,
+    "total_cli_cost_usd": 0.3799
+  },
+  "cases": [
+    {
+      "id": "reg-e-error-resolution",
+      "prompt": "A consumer disputes an unauthorized debit card transaction on their\nchecking account. What's the bank's investigation timeline under\nReg E, and when do they have to provide provisional credit? Be\nspecific about days and what kind of \"days\" they are.\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# Regulation E Error Resolution Timeline (12 CFR § 1005.11)\n\n## Triggering the Process\nThe consumer must give notice (oral or written) **no later than 60 calendar days** after the bank transmits the **first periodic statement** showing the unauthorized EFT. The bank may require written confirmation within **10 business days** of an oral notice.\n\n## Investigation Timeline\n\n**Standard rule: 10 business days**\n- The bank must investigate and determine whether an error occurred within **10 business days** of receiving notice.\n- If an error is found, it must correct it within **1 business day** after determining the error occurred.\n- The bank must report the results to the consumer within **3 business days** after completing the investigation.\n\n**Extended rule: 45 calendar days**\n- The bank may take up to **45 calendar days** to investigate (instead of 10 business days), **but only if** it provisionally credits the account (see below).\n- Extended to **90 calendar days** if the EFT is:\n  - A point-of-sale (POS) debit card transaction, **or**\n  - A foreign-initiated transfer, **or**\n  - A new account (within 30 days of the first deposit) — and for new accounts, the initial 10-business-day window also extends to **20 business days**.\n\nSince this is a **debit card transaction**, the bank gets the full **90 calendar days** if it provides provisional credit.\n\n## Provisional Credit Requirement\n\nIf the bank cannot complete its investigation within **10 business days** (or 20 for new accounts), it must:\n\n1. **Provisionally credit** the consumer's account for the disputed amount, **including interest where applicable**, within **10 business days** of receiving the error notice.\n2. **Notify the consumer** of the provisional credit within **2 business days** after crediting the account.\n3. Give the consumer **full use of the funds** during the investigation.\n\n**Exception:** The bank is not required to give provisional credit if the consumer fails to provide written confirmation of an oral notice within 10 business days of the bank's request.\n\n## After the Investigation\n\n- **If error confirmed:** Make the credit final and notify the consumer within **3 business days**.\n- **If no error found:** Send a written explanation within **3 business days** of concluding the investigation, inform the consumer that any provisional credit will be debited, honor outstanding items for **5 business days** after the debit notification, and tell the consumer they can request the documents the bank relied on.\n\n## Quick \"Days\" Cheat Sheet\n\n| Action | Time | Day Type |\n|---|---|---|\n| Consumer notice deadline | 60 | Calendar |\n| Standard investigation | 10 | Business |\n| Extended investigation (debit card) | 90 | Calendar |\n| Provisional credit deadline | 10 | Business |\n| Notice of provisional credit | 2 | Business |\n| Notice of results | 3 | Business |\n| Correction after finding error | 1 | Business |\n| Honor items after debiting provisional credit | 5 | Business |",
+        "cost_usd": 0.040792999999999996,
+        "rubric": [
+          {
+            "name": "cites 12 CFR 1005.11",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "12 CFR § 1005.11",
+            "why": "specific citation discipline this skill teaches"
+          },
+          {
+            "name": "cites 10 business days",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "10 business days",
+            "why": "standard investigation timeline"
+          },
+          {
+            "name": "cites 45 calendar days",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "45 calendar days",
+            "why": "completion deadline for standard cases"
+          },
+          {
+            "name": "notes 20-day alternative for new accounts / POS / foreign",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "20 business days",
+            "why": "expanded timelines for these cases"
+          },
+          {
+            "name": "explains provisional credit trigger",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "provisional credit",
+            "why": "specific trigger condition"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# Regulation E Investigation Timeline (12 CFR § 1005.11)\n\n## Investigation Period\n\nOnce the consumer provides notice of an unauthorized EFT, the bank must:\n\n- **Promptly investigate** the alleged error\n- Complete the investigation within **10 business days** of receiving notice\n- **Extended timeline:** Up to **45 calendar days** total, *if* provisional credit is provided (see below)\n\n## Special Extended Timelines\n\nThe investigation period extends to **90 calendar days** (instead of 45) for errors involving:\n- A **new account** (opened within 30 calendar days before the disputed transaction)\n- A **point-of-sale** debit card transaction, or\n- A **foreign-initiated** transaction\n\nFor new accounts, the initial investigation period also extends from 10 to **20 business days**.\n\n## Provisional Credit Requirement\n\nIf the bank **cannot complete its investigation within 10 business days** (or 20 for new accounts) and chooses to take the full 45/90-day window, it **must**:\n\n1. **Provisionally credit** the consumer's account for the disputed amount (including interest where applicable) within **10 business days** of receiving the error notice\n2. **Notify the consumer** of the provisional credit amount and date within **2 business days** of crediting the account\n3. Give the consumer **full use** of the funds during the investigation\n\n**Exception:** The bank may withhold provisional credit if the consumer fails to provide written confirmation of the oral notice within **10 business days** after the bank requests it.\n\n## Notification of Results\n\n- If **no error** is found: Notify the consumer in writing within **3 business days** after concluding the investigation, and may then **debit** the provisionally credited amount (with at least 5 business days' notice before the debit posts in most cases).\n- If an **error did occur**: Correct the error within **1 business day** of determining it occurred, and send written notification within **3 business days** thereafter.\n\n## Quick \"Days\" Cheat Sheet\n\n| Action | Timeframe | Day Type |\n|---|---|---|\n| Consumer's deadline to report (to get full Reg E protection) | 60 days from statement | Calendar |\n| Initial investigation | 10 (or 20 for new accounts) | **Business** |\n| Provisional credit deadline | 10 | **Business** |\n| Notice of provisional credit to consumer | 2 | **Business** |\n| Extended investigation (standard) | 45 | **Calendar** |\n| Extended investigation (POS/foreign/new account) | 90 | **Calendar** |\n| Notice of investigation results | 3 | **Business** |\n| Correction after finding error | 1 | **Business** |\n\n**Key rule of thumb:** Investigation and notice deadlines run in **business days**; the outer investigation windows (45/90) and the consumer's reporting window (60) run in **calendar days**.",
+        "cost_usd": 0.026756000000000002,
+        "rubric": [
+          {
+            "name": "cites 12 CFR 1005.11",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "12 CFR § 1005.11",
+            "why": "specific citation discipline this skill teaches"
+          },
+          {
+            "name": "cites 10 business days",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "10 business days",
+            "why": "standard investigation timeline"
+          },
+          {
+            "name": "cites 45 calendar days",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "45 calendar days",
+            "why": "completion deadline for standard cases"
+          },
+          {
+            "name": "notes 20-day alternative for new accounts / POS / foreign",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "20 business days",
+            "why": "expanded timelines for these cases"
+          },
+          {
+            "name": "explains provisional credit trigger",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "provisional credit",
+            "why": "specific trigger condition"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are highly accurate and cover all the required criteria from 12 CFR 1005.11, including the 10 business day / 45 calendar day standard, the 20 business day / 90 calendar day extensions for new accounts/POS/foreign transactions, and the provisional credit trigger. Answer B has a slight edge in context by noting this is a debit card transaction and therefore the 90-day window applies, while Answer A provides a marginally cleaner explanation of the provisional credit timing. Both are essentially equivalent in quality and completeness.",
+        "per_criterion": [
+          {
+            "name": "cites 12 CFR 1005.11",
+            "better": "tie"
+          },
+          {
+            "name": "cites 10 business days",
+            "better": "tie"
+          },
+          {
+            "name": "cites 45 calendar days",
+            "better": "tie"
+          },
+          {
+            "name": "notes 20-day alternative for new accounts / POS / foreign",
+            "better": "tie"
+          },
+          {
+            "name": "explains provisional credit trigger",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "reg-e-liability-tiers",
+      "prompt": "A consumer's debit card was stolen. They report it to the bank\n7 days after discovering the theft. The thief made $2,000 in\nunauthorized charges in those 7 days. What's the consumer's\nmaximum liability under Reg E?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "Under Regulation E (12 CFR § 1005.6), the consumer's maximum liability depends on **when** they report the loss/theft of the access device, not just how much was charged.\n\n## Timeline Rules for a Lost/Stolen Card\n\n- **Within 2 business days** of discovering the loss/theft → liability capped at **$50**\n- **After 2 business days but within 60 days** of the statement being sent → liability capped at **$500**\n- **After 60 days** from the statement → potentially **unlimited** liability for charges occurring after that 60-day window\n\n## Applying the Facts\n\nThe consumer reported the theft **7 days after discovering** it. That's:\n- ❌ More than 2 business days after discovery\n- ✅ Still within the 60-day post-statement window\n\nSo the consumer falls into the **second tier**.\n\n## Maximum Liability: **$500**\n\nThe liability is the **lesser of**:\n1. **$500**, OR\n2. The sum of:\n   - $50 (or the amount of unauthorized transfers in the first 2 business days, whichever is less), **plus**\n   - The amount of unauthorized transfers occurring **after** the 2-business-day window but before notice, that would not have occurred had the consumer notified the bank within those 2 business days.\n\nSince $2,000 in unauthorized charges were made and most occurred after the 2-business-day window (and would have been prevented by timely notice), the calculation is capped at the **$500 statutory maximum**.\n\n> **Note:** This is the federal floor under Reg E. Many card networks (Visa/Mastercard) impose **$0 liability** policies via their \"zero liability\" rules, and some state laws are more protective. But strictly under Reg E, the answer is **$500**.",
+        "cost_usd": 0.02962075,
+        "rubric": [
+          {
+            "name": "cites 12 CFR 1005.6",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "1005.6",
+            "why": "specific citation"
+          },
+          {
+            "name": "applies the $50 tier",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "$50",
+            "why": "first-tier cap"
+          },
+          {
+            "name": "mentions $500 tier",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "$500",
+            "why": "second-tier cap (for context, not necessarily the answer)"
+          },
+          {
+            "name": "mentions 2 business days threshold",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "2 business days",
+            "why": "the trigger between $50 and $500 tier"
+          },
+          {
+            "name": "distinguishes business day from calendar day",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "business day",
+            "why": "precise unit, not just \"day\""
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# Consumer Liability Under Regulation E\n\nUnder **Regulation E (12 CFR § 1005.6)**, liability for unauthorized electronic fund transfers depends on **when** the consumer reports the loss/theft of the access device.\n\n## The Two-Tier Rule (within 60 days)\n\nWhen a consumer reports a lost/stolen debit card **within 2 business days** of discovering the loss, liability is capped at **$50**.\n\nWhen reported **after 2 business days but within 60 days** of the statement being sent, liability rises to the lesser of:\n- **$500**, OR\n- The sum of:\n  - $50 (or the amount of unauthorized transfers in the first 2 business days, whichever is less), **plus**\n  - The amount of unauthorized transfers occurring **after** the 2-business-day window but before notice was given\n\n## Applying It to Your Facts\n\n- Theft discovered → reported **7 days later** (past the 2-business-day window, but well within 60 days)\n- Unauthorized charges during the delay: **$2,000**\n\nThe consumer's liability is the **lesser of $500 or [$50 + post-2-day unauthorized transfers]**.\n\nSince the post-2-day unauthorized amount is clearly large (most/all of the $2,000), the **$500 cap controls**.\n\n## Answer\n\n**Maximum liability = $500**\n\n> ⚠️ **Important caveats:**\n> - If the consumer had reported within 2 business days, liability would have been capped at **$50**.\n> - If they had waited more than **60 days** after the statement was transmitted, liability could be **unlimited** for transfers occurring after that 60-day period.\n> - Many card networks (Visa/Mastercard) and individual bank policies offer **$0 liability** \"zero-liability\" protection that is more generous than Reg E's floor — but Reg E sets the legal **maximum** the bank can impose.",
+        "cost_usd": 0.030915750000000002,
+        "rubric": [
+          {
+            "name": "cites 12 CFR 1005.6",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "1005.6",
+            "why": "specific citation"
+          },
+          {
+            "name": "applies the $50 tier",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "$50",
+            "why": "first-tier cap"
+          },
+          {
+            "name": "mentions $500 tier",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "$500",
+            "why": "second-tier cap (for context, not necessarily the answer)"
+          },
+          {
+            "name": "mentions 2 business days threshold",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "2 business days",
+            "why": "the trigger between $50 and $500 tier"
+          },
+          {
+            "name": "distinguishes business day from calendar day",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "business day",
+            "why": "precise unit, not just \"day\""
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are nearly identical in quality, correctly citing 12 CFR 1005.6, applying the $500 tier for a 7-day delay, mentioning the $50 tier, the 2 business days threshold, and the unlimited tier. Neither answer explicitly distinguishes 'business day' from 'calendar day' in a meaningful way (e.g., noting that 7 calendar days likely exceeds 2 business days but not elaborating on the distinction). Both arrive at the correct answer of $500 with essentially the same reasoning and caveats.",
+        "per_criterion": [
+          {
+            "name": "cites 12 CFR 1005.6",
+            "better": "tie"
+          },
+          {
+            "name": "applies the $50 tier",
+            "better": "tie"
+          },
+          {
+            "name": "mentions $500 tier",
+            "better": "tie"
+          },
+          {
+            "name": "mentions 2 business days threshold",
+            "better": "tie"
+          },
+          {
+            "name": "distinguishes business day from calendar day",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "bsa-ctr-threshold",
+      "prompt": "Under BSA, when is a Currency Transaction Report (CTR) required?\nWhat's the threshold, and what counts toward it?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# Currency Transaction Report (CTR) Requirements Under the BSA\n\n## When a CTR Is Required\n\nUnder the Bank Secrecy Act (31 U.S.C. § 5313 and 31 C.F.R. § 1010.311), a financial institution must file a **FinCEN Form 112 (CTR)** for each transaction in **currency** (deposit, withdrawal, exchange, or other payment/transfer) that exceeds **$10,000** conducted by, through, or to the financial institution on a single business day.\n\n## The Threshold\n\n- **More than $10,000** in currency on a single business day (the threshold is *over* $10,000, not $10,000 or more).\n- Must be filed within **15 calendar days** after the date of the transaction (electronically via the BSA E-Filing System).\n- Records must be retained for **5 years**.\n\n## What Counts Toward the $10,000\n\n**\"Currency\"** means coin and paper money of the U.S. or any other country that is designated as legal tender and which circulates and is customarily used as a medium of exchange. It does **not** include checks, wires, ACH, or other non-cash instruments.\n\n### Aggregation Rules\n\nYou must **aggregate multiple currency transactions** in the same business day if:\n1. They are conducted **by or on behalf of the same person**, AND\n2. They result in either **cash in** exceeding $10,000 **or** **cash out** exceeding $10,000 (cash-in and cash-out are aggregated separately, not netted against each other).\n\n### Examples of Reportable Activity\n- A single $12,000 cash deposit.\n- Two $6,000 cash deposits made by the same customer to different accounts the same day.\n- A $7,000 cash deposit and a $5,000 cash withdrawal by the same customer (both cash-in and cash-out tracked separately—here, neither side alone exceeds $10,000, so no CTR; but if both were deposits totaling $12,000, a CTR is required).\n- Cash transactions conducted by an agent on behalf of a principal (both must be identified on the CTR — Part I sections for each).\n\n### What Does *Not* Count\n- Checks, money orders (unless purchased with cash—the cash purchase itself counts), cashier's checks, wires, ACH, or card transactions.\n- Transactions by **exempt persons** properly designated under the CTR exemption rules (31 C.F.R. § 1020.315), such as listed public companies, certain payroll customers, and other \"Phase I\" and \"Phase II\" exempt entities (filed via FinCEN Form 110, DOEP).\n\n## Related Obligations to Keep in Mind\n\n- **Structuring** (breaking transactions into smaller amounts to evade the CTR requirement) is a separate federal crime under 31 U.S.C. § 5324 and should trigger a **SAR** (Suspicious Activity Report) regardless of whether a CTR is filed.\n- **Monetary instrument purchases** with cash between $3,000–$10,000 trigger separate **recordkeeping** requirements (not a CTR) under 31 C.F.R. § 1010.415.\n- **Form 8300** (not a CTR) applies to non-financial trades or businesses receiving more than $10,000 in cash.",
+        "cost_usd": 0.042652999999999996,
+        "rubric": [
+          {
+            "name": "cites 31 CFR section",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "1010.311",
+            "why": "specific citation discipline"
+          },
+          {
+            "name": "states $10,000 threshold",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "$10,000",
+            "why": "the bright-line threshold"
+          },
+          {
+            "name": "mentions aggregation",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Aggregat",
+            "why": "the aggregation rule is what catches structuring"
+          },
+          {
+            "name": "identifies FinCEN as administrator",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "FinCEN",
+            "why": "jurisdiction"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# Currency Transaction Report (CTR) Requirements Under the BSA\n\n## When a CTR Is Required\n\nUnder the Bank Secrecy Act (BSA), a financial institution must file a **Currency Transaction Report (FinCEN Form 112)** for each transaction in currency (deposit, withdrawal, exchange of currency, or other payment or transfer) **by, through, or to the financial institution** that exceeds **$10,000 in a single business day**.\n\n## The Threshold: $10,000\n\n- The trigger is **more than $10,000** (i.e., $10,000.01 or more) — exactly $10,000 does not require a CTR.\n- The CTR must generally be **filed electronically with FinCEN within 15 calendar days** of the transaction.\n- Records related to the CTR must be retained for **5 years**.\n\n## What Counts Toward the Threshold\n\n**\"Currency\"** for CTR purposes means **physical currency** — coin and paper money of the United States or any other country that is designated as legal tender and circulates and is customarily used and accepted as a medium of exchange. It generally does **not** include checks, wire transfers, ACH, or other non-cash instruments.\n\n### Aggregation Rules (31 CFR 1010.313)\n\nMultiple cash transactions are **aggregated** and treated as a single transaction if:\n\n1. They occur during the **same business day**, AND\n2. The financial institution has **knowledge** that they are **by or on behalf of the same person**, AND\n3. They result in either **cash in** or **cash out** totaling more than $10,000 (cash-in and cash-out are aggregated separately, not netted).\n\n### Examples of What Counts\n- Cash deposits and withdrawals\n- Cash payments on loans\n- Cash purchases of monetary instruments (cashier's checks, money orders, traveler's checks)\n- Currency exchanges (e.g., USD to foreign currency)\n- Cash received for wire transfers\n\n### Multiple Parties\n- Transactions conducted on behalf of the **same beneficial person** are aggregated, even if conducted by different individuals (e.g., multiple employees depositing for one business).\n- Transactions for **separate businesses** with separate ownership are generally not aggregated.\n\n## Related Considerations\n\n- **Structuring** — breaking transactions into smaller amounts to evade the CTR requirement — is a separate federal crime under 31 USC 5324, regardless of whether the underlying funds are legitimate.\n- **CTR Exemptions** (31 CFR 1020.315) are available for certain \"exempt persons,\" including other banks, government entities, listed public companies, and qualifying \"Phase II\" non-listed businesses and payroll customers, subject to ongoing review requirements.\n- A CTR is distinct from a **Suspicious Activity Report (SAR)**, which is filed based on suspicion of illicit activity regardless of the dollar threshold (with its own $5,000 SAR threshold for banks, or $2,000 for MSBs).",
+        "cost_usd": 0.040668,
+        "rubric": [
+          {
+            "name": "cites 31 CFR section",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "31 CFR 1010.313",
+            "why": "specific citation discipline"
+          },
+          {
+            "name": "states $10,000 threshold",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "$10,000",
+            "why": "the bright-line threshold"
+          },
+          {
+            "name": "mentions aggregation",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Aggregat",
+            "why": "the aggregation rule is what catches structuring"
+          },
+          {
+            "name": "identifies FinCEN as administrator",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "FinCEN",
+            "why": "jurisdiction"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "baseline",
+        "reasoning": "Both answers are strong and accurate, but Answer B edges out Answer A by citing the specific statutory reference (31 U.S.C. § 5313) alongside the CFR citation (31 C.F.R. § 1010.311) more prominently in the opening, and by providing clearer, more concrete examples of the aggregation rule in action. Answer B also adds useful detail about the DOEP (Form 110) and the $3,000–$10,000 monetary instrument recordkeeping rule, making it slightly more comprehensive. Both answers identify FinCEN as administrator implicitly through the form reference, though neither explicitly names FinCEN as the administrator in a dedicated statement.",
+        "per_criterion": [
+          {
+            "name": "cites 31 CFR section",
+            "better": "baseline"
+          },
+          {
+            "name": "states $10,000 threshold",
+            "better": "tie"
+          },
+          {
+            "name": "mentions aggregation",
+            "better": "baseline"
+          },
+          {
+            "name": "identifies FinCEN as administrator",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cfpb-vs-ftc-jurisdiction",
+      "prompt": "A small bank wants to know which agency enforces the unfair,\ndeceptive, or abusive acts and practices (UDAAP) standard\nagainst them. Is it the CFPB, FTC, or another regulator?\n",
+      "expectation": "skill_wins",
+      "expectation_met": true,
+      "baseline": {
+        "text": "# UDAAP Enforcement Against Small Banks\n\nFor a bank with **less than $10 billion in total assets**, the **CFPB does not directly supervise or enforce UDAAP** against it. Instead, the bank's **prudential (primary federal) regulator** handles examination and enforcement.\n\n## Who enforces depends on the bank's charter\n\n| Bank type | Primary regulator that enforces UDAAP |\n|---|---|\n| National bank or federal savings association | **OCC** (Office of the Comptroller of the Currency) |\n| State-chartered bank that is a Federal Reserve member | **Federal Reserve Board** |\n| State-chartered bank that is *not* a Fed member | **FDIC** |\n| State-chartered bank (in addition to the federal regulator) | **State banking department** |\n\n## Why not the CFPB?\n\nSection 1025 of the Dodd-Frank Act limits the CFPB's supervisory and primary enforcement authority over depository institutions to those with **more than $10 billion in assets**. Small banks remain subject to:\n\n- The **CFPB's UDAAP rules and interpretations** (the CFPB still writes the rules), but\n- Examination and enforcement by their **prudential regulator**.\n\n## Why not the FTC?\n\nThe FTC Act generally **exempts banks** from the FTC's direct jurisdiction (15 U.S.C. § 45(a)(2)). The substantive **UDAP** standard under Section 5 of the FTC Act still applies to banks, but it is enforced by the federal banking agencies — not the FTC itself.\n\n## Bottom line\n\nA small bank should expect **UDAAP exams and enforcement from its prudential regulator (OCC, FRB, or FDIC)**, with its **state regulator** also potentially involved if it's state-chartered. The **CFPB sets the UDAAP standards** but does not directly supervise banks under $10 billion, and the **FTC generally has no jurisdiction over banks**.\n\n*This is general regulatory information, not legal advice — consult counsel for application to a specific institution.*",
+        "cost_usd": 0.04137325,
+        "rubric": [
+          {
+            "name": "identifies CFPB role",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "CFPB",
+            "why": "core jurisdiction"
+          },
+          {
+            "name": "explains $10B asset threshold",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "$10 billion",
+            "why": "CFPB direct supervision threshold"
+          },
+          {
+            "name": "names prudential regulator(s) for smaller banks",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "OCC",
+            "why": "who actually examines smaller banks"
+          },
+          {
+            "name": "avoids saying FTC is the answer for banks",
+            "kind": "must_not_contain",
+            "passed": false,
+            "evidence": "FTC Act generally **exempts bank",
+            "why": "common misconception — FTC has no authority over banks"
+          }
+        ],
+        "rubric_pass_rate": 0.75
+      },
+      "skill": {
+        "text": "# UDAAP Enforcement for Small Banks\n\nFor a **small bank with assets of $10 billion or less**, the **CFPB does NOT have direct supervisory or enforcement authority** over UDAAP. Instead, the bank's **prudential (primary) federal banking regulator** enforces UDAAP, which depends on the bank's charter:\n\n| Bank Type | Primary UDAAP Enforcer |\n|---|---|\n| National bank or federal savings association | **OCC** (Office of the Comptroller of the Currency) |\n| State-chartered bank that is a Federal Reserve member | **Federal Reserve Board** |\n| State-chartered bank that is NOT a Fed member | **FDIC** |\n| State-chartered credit union | **NCUA** (and state regulator) |\n\n## Key Statutory Framework\n\n- **Dodd-Frank Act § 1031 / § 1036** created the \"**UDAAP**\" standard (unfair, deceptive, **or abusive**) and is enforced by the CFPB **only against institutions with more than $10 billion in assets**.\n- For institutions **at or below $10 billion**, Dodd-Frank § 1026 leaves examination and primary enforcement with the prudential regulator. Those agencies use Dodd-Frank's UDAAP authority and also continue to enforce the older **\"UDAP\"** standard under **Section 5 of the FTC Act** (which covers unfair or deceptive — but not \"abusive\" — acts).\n- The **FTC itself generally does NOT have jurisdiction over banks** (banks are exempt from the FTC Act's enforcement reach under 15 U.S.C. § 45(a)(2)), so the FTC is **not** the answer here.\n- The CFPB still **writes the UDAAP rules** that apply to the bank, and it **may refer matters** to the prudential regulator. The CFPB can also bring enforcement under certain enumerated consumer laws regardless of size, but not under its general UDAAP supervisory authority.\n\n## Bottom Line\n\n**Not the CFPB and not the FTC.** A small bank's UDAAP enforcer is its **prudential federal banking regulator** — the **OCC, Federal Reserve, or FDIC**, depending on charter — applying both Dodd-Frank UDAAP and FTC Act § 5 UDAP standards. (The bank's state regulator may also have parallel authority under state UDAP statutes.)",
+        "cost_usd": 0.03714325,
+        "rubric": [
+          {
+            "name": "identifies CFPB role",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "CFPB",
+            "why": "core jurisdiction"
+          },
+          {
+            "name": "explains $10B asset threshold",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "$10 billion",
+            "why": "CFPB direct supervision threshold"
+          },
+          {
+            "name": "names prudential regulator(s) for smaller banks",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "OCC",
+            "why": "who actually examines smaller banks"
+          },
+          {
+            "name": "avoids saying FTC is the answer for banks",
+            "kind": "must_not_contain",
+            "passed": false,
+            "evidence": "FTC.** A small bank",
+            "why": "common misconception — FTC has no authority over banks"
+          }
+        ],
+        "rubric_pass_rate": 0.75
+      },
+      "judge": {
+        "winner": "skill",
+        "reasoning": "Both answers are accurate and well-structured, but Answer B is slightly more comprehensive: it includes credit unions/NCUA in the table, correctly notes the $10B threshold applies to institutions 'at or below' (not just 'less than') $10B, and explicitly mentions that prudential regulators enforce both Dodd-Frank UDAAP and FTC Act § 5 UDAP standards. Answer B also clarifies the CFPB's limited ability to bring enforcement under enumerated consumer laws regardless of size, adding useful nuance. Both answers correctly avoid naming the FTC as the answer for banks.",
+        "per_criterion": [
+          {
+            "name": "identifies CFPB role",
+            "better": "tie"
+          },
+          {
+            "name": "explains $10B asset threshold",
+            "better": "skill"
+          },
+          {
+            "name": "names prudential regulator(s) for smaller banks",
+            "better": "skill"
+          },
+          {
+            "name": "avoids saying FTC is the answer for banks",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "simplest-50-cap",
+      "prompt": "Quick question — under Reg E, what's the maximum a consumer can\nbe liable for an unauthorized debit card charge? I just want\na number for a customer-facing FAQ.\n",
+      "expectation": "skill_wins_strict",
+      "expectation_met": false,
+      "baseline": {
+        "text": "Under Regulation E, consumer liability for an unauthorized debit card charge depends on how quickly the loss/theft is reported:\n\n- **$50** — if reported within 2 business days of learning of the loss/theft.\n- **$500** — if reported after 2 business days but within 60 days of the statement being sent.\n- **Unlimited** — if not reported within 60 days of the statement being sent.\n\nIf you want a single number for a customer-facing FAQ, the standard answer is **$50 maximum** — provided the customer reports it within 2 business days. That's the figure most banks lead with.\n\n⚠️ Quick note: many banks (and card network rules like Visa/Mastercard \"zero liability\" policies) actually offer $0 liability that's more generous than Reg E requires. Worth checking your institution's own policy before publishing, since the FAQ should reflect whichever protection is stronger for the customer.",
+        "cost_usd": 0.022604000000000003,
+        "rubric": [
+          {
+            "name": "mentions $50",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "$50",
+            "why": "the headline number must appear"
+          },
+          {
+            "name": "caveats $50 with timing condition",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "depends on",
+            "why": "must call out the conditional nature"
+          },
+          {
+            "name": "mentions $500 or unlimited tier",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "$500",
+            "why": "must mention the higher tiers exist"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "Under Regulation E, consumer liability for an unauthorized debit card transaction depends on how quickly it's reported:\n\n- **$50** — if reported within 2 business days of learning of the loss/theft\n- **$500** — if reported after 2 business days but within 60 days of the statement being sent\n- **Unlimited** — if not reported within 60 days of the statement\n\nFor a simple customer-facing FAQ, the headline number is **$50** (the maximum when reported promptly).\n\n⚠️ A couple of quick notes before publishing:\n- Many card networks (Visa/Mastercard) and bank policies offer **$0 liability** that's more generous than Reg E. If your institution offers that, lead with $0 and mention Reg E as the regulatory floor.\n- You may want legal/compliance to sign off on the exact wording, since oversimplifying the tiers can create disclosure issues.",
+        "cost_usd": 0.022784000000000002,
+        "rubric": [
+          {
+            "name": "mentions $50",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "$50",
+            "why": "the headline number must appear"
+          },
+          {
+            "name": "caveats $50 with timing condition",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "depends on",
+            "why": "must call out the conditional nature"
+          },
+          {
+            "name": "mentions $500 or unlimited tier",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "$500",
+            "why": "must mention the higher tiers exist"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are nearly identical in quality, correctly presenting all three liability tiers ($50, $500, unlimited) with their timing conditions, and both add useful practical notes about zero-liability policies. Answer B adds a slightly more actionable note about compliance sign-off, while Answer A's wording is marginally cleaner. The differences are negligible.",
+        "per_criterion": [
+          {
+            "name": "mentions $50",
+            "better": "tie"
+          },
+          {
+            "name": "caveats $50 with timing condition",
+            "better": "tie"
+          },
+          {
+            "name": "mentions $500 or unlimited tier",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "offtopic-recipe",
+      "prompt": "What's a quick recipe for chocolate chip cookies? Just rough\nproportions and time, nothing fancy.\n",
+      "expectation": "tie",
+      "expectation_met": true,
+      "baseline": {
+        "text": "Quick chocolate chip cookies:\n\n**Ingredients (rough ratios)**\n- 1 cup butter (softened)\n- ¾ cup white sugar + ¾ cup brown sugar\n- 2 eggs\n- 1 tsp vanilla\n- 2¼ cups flour\n- 1 tsp baking soda\n- 1 tsp salt\n- 2 cups chocolate chips\n\n**Method**\n1. Cream butter + sugars (~2 min)\n2. Beat in eggs and vanilla\n3. Mix in flour, baking soda, salt\n4. Stir in chips\n5. Drop spoonfuls onto a baking sheet\n6. Bake at 375°F (190°C) for **9–11 min** until edges are golden\n\nCool a few minutes on the tray before moving. Done.",
+        "cost_usd": 0.021901,
+        "rubric": [],
+        "rubric_pass_rate": 0.0
+      },
+      "skill": {
+        "text": "Quick chocolate chip cookies:\n\n**Ingredients (makes ~24)**\n- 1 cup (2 sticks) butter, softened\n- 3/4 cup white sugar\n- 3/4 cup brown sugar\n- 2 eggs\n- 1 tsp vanilla\n- 2 1/4 cups flour\n- 1 tsp baking soda\n- 1 tsp salt\n- 2 cups chocolate chips\n\n**Steps**\n1. Cream butter + sugars (~2 min)\n2. Beat in eggs and vanilla\n3. Mix in flour, baking soda, salt\n4. Stir in chips\n5. Drop spoonfuls on baking sheet\n6. Bake at 375°F (190°C) for **9–11 min** until edges are golden but centers look underdone\n7. Cool on sheet 5 min before moving\n\nPull them early — they firm up as they cool.",
+        "cost_usd": 0.022641,
+        "rubric": [],
+        "rubric_pass_rate": 0.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers provide essentially the same recipe with identical ingredients, proportions, temperatures, and baking times. Answer A adds a small tip about pulling cookies early since they firm up as they cool, while Answer B is slightly more concise. Neither difference is material enough to declare a winner.",
+        "per_criterion": []
+      }
+    }
+  ]
+}

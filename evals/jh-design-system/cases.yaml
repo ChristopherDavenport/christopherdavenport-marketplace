@@ -1,0 +1,169 @@
+# Jack Henry Design System eval cases. This is a private DS the baseline
+# almost certainly does not know about, so the skill should differentiate
+# strongly. Anchored to skill's routing table + token tiers.
+
+# ---------- Positive cases ----------
+
+- id: tag-prefix-and-import
+  prompt: |
+    I want to use the Jack Henry Design System button component
+    (`@jack-henry/jh-ui`) in a Lit app. What's the import path,
+    what tag do I render, and is there anything I need to set up
+    before it'll look right?
+  judge_focus: |
+    The better answer names the `jh-button` tag, the
+    `@jack-henry/jh-ui/components/button/button.js` import path
+    (no barrel), and tells the user to import a theme CSS file
+    (`jh-theme-light.css` or `jh-theme-dark.css`) so tokens resolve.
+  rubric:
+    - name: names jh-button tag
+      kind: must_contain
+      pattern: 'jh-button'
+      why: 'specific tag'
+    - name: shows components-subpath import (no barrel)
+      kind: any_of
+      patterns:
+        - '@jack-henry/jh-ui/components/'
+        - 'components/button/button'
+      why: 'no barrel export'
+    - name: requires theme CSS import
+      kind: any_of
+      patterns:
+        - 'jh-theme-(light|dark)'
+        - 'theme.{0,15}CSS'
+        - '@jack-henry/jh-core'
+      why: 'token vars do not exist without a theme'
+
+- id: token-tier-discipline
+  prompt: |
+    I'm styling some product CSS that uses the Jack Henry Design
+    System. I want a "primary" background color that matches the
+    JH brand. Can I just write `background: var(--jh-color-blue-600)`?
+    What's the right pattern?
+  judge_focus: |
+    The better answer steers away from raw global tokens
+    (`jh-color-blue-600`) into alias tokens
+    (e.g. `jh-color-container-primary-enabled`) and explains the
+    three tiers (global / alias / style hook).
+  rubric:
+    - name: steers away from raw global token
+      kind: any_of
+      patterns:
+        - 'don.t use.{0,15}global'
+        - 'avoid.{0,15}global'
+        - 'global.{0,15}internal'
+        - 'don.t.{0,15}wire'
+        - 'not.{0,15}global'
+      why: 'core discipline'
+    - name: recommends alias token
+      kind: any_of
+      patterns:
+        - 'alias'
+        - 'jh-color-container'
+        - 'jh-color-content'
+      why: 'right tier for product code'
+    - name: mentions all three tiers
+      kind: all_of
+      patterns:
+        - 'global'
+        - 'alias'
+        - 'style.{0,5}hook'
+      why: 'evidence the answer engages with the JH model'
+
+- id: password-input-variant
+  prompt: |
+    The Jack Henry design site has a "password input" component
+    page (`/v2/components/input-password/`). What tag do I actually
+    use, and what attribute makes it a password field?
+  judge_focus: |
+    The better answer says: there is no `<jh-password-input>` tag —
+    use `<jh-input type="password">`. Site doc pages map to variants
+    of the base tag, not separate elements.
+  rubric:
+    - name: uses jh-input not a separate tag
+      kind: must_contain
+      pattern: '<?jh-input'
+      why: 'the actual tag'
+    - name: shows type="password" attribute
+      kind: any_of
+      patterns:
+        - 'type=.password'
+        - 'type\s*=\s*[''"]password'
+      why: 'how variant is selected'
+    - name: distinguishes site doc from tag
+      kind: any_of
+      patterns:
+        - 'variant'
+        - 'no.{0,15}separate.{0,15}tag'
+        - 'not.{0,5}a.{0,15}separate'
+        - 'doc.{0,15}page.{0,15}variant'
+      why: 'common confusion'
+
+- id: dark-mode-switch
+  prompt: |
+    My Jack Henry Design System app currently imports
+    `jh-theme-light.css`. I want to add dark mode support so users
+    can toggle. What's the recommended approach?
+  judge_focus: |
+    The better answer notes both themes target :root, so swapping
+    or scoping is required (build-time re-scope or dynamic import
+    swap), not a simple media query.
+  rubric:
+    - name: identifies both themes target :root
+      kind: any_of
+      patterns:
+        - ':root'
+        - 'same selector'
+        - 'both.{0,15}target'
+      why: 'why naive both-imports approach fails'
+    - name: recommends scoping or swapping
+      kind: any_of
+      patterns:
+        - 'swap'
+        - 'scope'
+        - 'data-theme'
+        - 'class.{0,15}theme'
+        - 'dynamic.{0,15}import'
+      why: 'practical resolution'
+
+# ---------- Adversarial case ----------
+
+- id: invent-component
+  prompt: |
+    I need a Jack Henry Design System table with sortable columns
+    and pagination. What component do I use and how do I configure
+    sorting? Show me a small example.
+  expectation: skill_wins_strict
+  judge_focus: |
+    The trap: the JH design site documents table components, but
+    they are NOT yet implemented in source. The right answer says
+    that explicitly rather than inventing API. Bonus for pointing
+    to custom-elements.json or the Banno repo for verification.
+  rubric:
+    - name: states table is documented but not implemented
+      kind: any_of
+      patterns:
+        - 'not.{0,15}implement'
+        - 'not.{0,15}available'
+        - 'not.{0,15}yet'
+        - 'not.{0,15}exist'
+        - 'planned'
+        - 'site.{0,15}ahead'
+      why: 'must call out the gap honestly'
+    - name: avoids inventing jh-table-row / jh-table-cell API
+      kind: must_not_contain
+      pattern: 'jh-table[a-z\-]*\s+[a-z\-]+\s*=\s*[''"]'
+      why: 'the trap: writing fake attributes'
+
+# ---------- Off-topic guard ----------
+
+- id: offtopic-python-async
+  prompt: |
+    What's the difference between asyncio.gather and
+    asyncio.wait in Python? A short example would help.
+  expectation: tie
+  judge_focus: |
+    This question has nothing to do with the Jack Henry Design
+    System. Both answers should be essentially equivalent. Pick
+    "tie" unless one is materially wrong.
+  rubric: []

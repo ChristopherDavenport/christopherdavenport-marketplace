@@ -1,0 +1,632 @@
+{
+  "plugin": "go",
+  "summary": {
+    "n_cases": 8,
+    "expectations_met": 2,
+    "by_expectation": {
+      "skill_wins": {
+        "total": 6,
+        "met": 1
+      },
+      "skill_wins_strict": {
+        "total": 1,
+        "met": 0
+      },
+      "tie": {
+        "total": 1,
+        "met": 1
+      }
+    },
+    "judge_wins_for_skill": 1,
+    "judge_wins_for_baseline": 0,
+    "judge_ties": 7,
+    "n_scored": 7,
+    "baseline_rubric_pass_rate": 0.8571,
+    "skill_rubric_pass_rate": 0.8571,
+    "rubric_delta": 0.0,
+    "total_cli_cost_usd": 0.5361
+  },
+  "cases": [
+    {
+      "id": "error-wrapping",
+      "prompt": "I have a Go function that opens a config file and just does\n`return os.Open(path)`. Callers get errors like\n\"open /etc/foo.yml: no such file or directory\" with no hint of which\nsubsystem hit it. What's the right way to fix this?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# Wrap the error with context using `fmt.Errorf` and `%w`\n\nThe idiomatic Go fix is to **wrap** the error at the boundary so callers get context about *what* you were doing, while still being able to inspect the underlying error programmatically.\n\n## The fix\n\n```go\nfunc loadConfig(path string) (*os.File, error) {\n    f, err := os.Open(path)\n    if err != nil {\n        return nil, fmt.Errorf(\"config: open %q: %w\", path, err)\n    }\n    return f, nil\n}\n```\n\nNow the error reads:\n\n```\nconfig: open \"/etc/foo.yml\": open /etc/foo.yml: no such file or directory\n```\n\nThe `config:` prefix tells you which subsystem hit it.\n\n## Why `%w` and not `%v` or `%s`\n\nThe `%w` verb (Go 1.13+) **wraps** the original error rather than just stringifying it. That preserves two important capabilities:\n\n```go\n// 1. Sentinel checks still work\nif errors.Is(err, os.ErrNotExist) {\n    // create defaults, etc.\n}\n\n// 2. Type assertions still work\nvar pathErr *os.PathError\nif errors.As(err, &pathErr) {\n    log.Printf(\"syscall %s failed on %s\", pathErr.Op, pathErr.Path)\n}\n```\n\nIf you used `%v`/`%s` instead, you'd flatten the chain and lose both of those.\n\n## A few related guidelines\n\n1. **Wrap once per layer, not at every call.** Each layer adds *its* context (\"config:\", \"user service:\", \"http handler:\"). Don't re-wrap the same error inside the same function.\n2. **Don't include redundant words like `\"failed to\"` or `\"error:\"`** — Go errors are conventionally lowercase fragments that get joined with `:`. So `\"open config %q: %w\"` reads better than `\"failed to open config: %w\"` once nested.\n3. **Include the dynamic bits** (the path, the user ID, the request ID) — those are what make a wrapped error actually useful in a log line.\n4. **If you have multiple errors** to combine (e.g., a primary error plus a cleanup error), use `errors.Join` (Go 1.20+) rather than picking one to drop.\n5. **Define a sentinel or typed error** if callers need to branch on this specific failure:\n\n   ```go\n   var ErrConfigMissing = errors.New(\"config: file missing\")\n\n   if errors.Is(err, os.ErrNotExist) {\n       return nil, fmt.Errorf(\"%w: %s\", ErrConfigMissing, path)\n   }\n   ```\n\n## When *not* to wrap\n\n- **In `main` or top-level handlers** — that's where you log/print, not wrap.\n- **When the inner error already has all the context you'd add** (rare, but `*os.PathError` already has the op and path; if your subsystem name adds nothing, skip it).\n- **Never** swallow the error with `fmt.Errorf(\"...: %s\", err)` unless you've consciously decided callers should not be able to `errors.Is` it.\n\nThat single `%w` change is usually enough to make production logs go from \"no idea where this came from\" to \"obviously the config loader.\"",
+        "cost_usd": 0.042478749999999996,
+        "rubric": [
+          {
+            "name": "uses %w directive",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "%w",
+            "why": "fmt.Errorf(\"...: %w\", err) preserves the errors.Is/As chain"
+          },
+          {
+            "name": "mentions errors.Is or errors.As",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "errors.Is",
+            "why": "sentinels and typed errors should be matched via these, not =="
+          },
+          {
+            "name": "uses fmt.Errorf for context",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "fmt.Errorf",
+            "why": "canonical wrapping API"
+          },
+          {
+            "name": "avoids %v wrapping anti-pattern",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "%v drops the error chain so errors.Is/As stop working"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# Wrapping Errors with Context in Go\n\nThe idiomatic fix is to use `fmt.Errorf` with the `%w` verb to wrap the error with context about *what your code was trying to do*, while preserving the original error for inspection.\n\n## The fix\n\n```go\nfunc loadConfig(path string) (*os.File, error) {\n    f, err := os.Open(path)\n    if err != nil {\n        return nil, fmt.Errorf(\"loadConfig: open %q: %w\", path, err)\n    }\n    return f, nil\n}\n```\n\nNow callers see:\n\n```\nloadConfig: open \"/etc/foo.yml\": open /etc/foo.yml: no such file or directory\n```\n\nThe duplication in the message is a hint you can clean up — `os.PathError` already includes the op and path, so often you just want:\n\n```go\nreturn nil, fmt.Errorf(\"loadConfig: %w\", err)\n// → loadConfig: open /etc/foo.yml: no such file or directory\n```\n\n## Why `%w` and not `%v` or `%s`\n\n- `%w` *wraps* the error — callers can still use `errors.Is` / `errors.As` to inspect it.\n- `%v` / `%s` flatten it into a string and lose that ability.\n\nSo a caller can still do:\n\n```go\nf, err := loadConfig(\"/etc/foo.yml\")\nif errors.Is(err, fs.ErrNotExist) {\n    // fall back to defaults\n}\n\nvar pathErr *fs.PathError\nif errors.As(err, &pathErr) {\n    log.Printf(\"path %s failed op %s\", pathErr.Path, pathErr.Op)\n}\n```\n\n## Guidelines for good wrapping\n\n1. **Add context the caller can't already infer.** Function name, subsystem, or the higher-level operation (\"loading billing config\", not just \"open\").\n2. **Don't include the error's text in your prefix** — `%w` will append it. Avoid `fmt.Errorf(\"failed to open %s: %s: %w\", path, err, err)`.\n3. **Lowercase, no trailing punctuation.** Per Go convention, error strings are lowercase and don't end in `.` or `\\n`, so they compose cleanly when wrapped further up the stack.\n4. **Wrap at boundaries, not at every layer.** Wrapping in every function produces noisy \"loadConfig: readSection: parseLine: ...\" chains. Wrap when you cross a meaningful boundary (package, subsystem, RPC).\n5. **Consider sentinel errors for expected cases.** If \"config missing\" is a normal condition, define `var ErrConfigMissing = errors.New(\"config missing\")` and have callers branch on `errors.Is`.\n\n## A slightly richer version\n\nIf multiple subsystems load configs, include the subsystem name so logs are greppable:\n\n```go\nfunc (s *BillingService) loadConfig(path string) (*os.File, error) {\n    f, err := os.Open(path)\n    if err != nil {\n        return nil, fmt.Errorf(\"billing: load config: %w\", err)\n    }\n    return f, nil\n}\n```\n\nThat gives you log lines like `billing: load config: open /etc/foo.yml: no such file or directory` — which tells you both the subsystem and the underlying cause without losing programmatic access to the `fs.PathError`.",
+        "cost_usd": 0.028149500000000004,
+        "rubric": [
+          {
+            "name": "uses %w directive",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "%w",
+            "why": "fmt.Errorf(\"...: %w\", err) preserves the errors.Is/As chain"
+          },
+          {
+            "name": "mentions errors.Is or errors.As",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "errors.Is",
+            "why": "sentinels and typed errors should be matched via these, not =="
+          },
+          {
+            "name": "uses fmt.Errorf for context",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "fmt.Errorf",
+            "why": "canonical wrapping API"
+          },
+          {
+            "name": "avoids %v wrapping anti-pattern",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "%v drops the error chain so errors.Is/As stop working"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are excellent and cover all four rubric criteria equally well: both use %w, mention errors.Is and errors.As with concrete examples, use fmt.Errorf for context, and explicitly warn against %v/%s as the anti-pattern. The differences are stylistic — Answer A notes the message duplication issue with os.PathError and suggests a cleaner wrap, while Answer B adds errors.Join and a sentinel error example. Neither is meaningfully better on the judging criteria.",
+        "per_criterion": [
+          {
+            "name": "uses %w directive",
+            "better": "tie"
+          },
+          {
+            "name": "mentions errors.Is or errors.As",
+            "better": "tie"
+          },
+          {
+            "name": "uses fmt.Errorf for context",
+            "better": "tie"
+          },
+          {
+            "name": "avoids %v wrapping anti-pattern",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "goroutine-lifetime",
+      "prompt": "Show me the basic Go pattern for running a periodic background task\n(something that ticks every few seconds and does some work).\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "Here's the standard Go pattern for a periodic background task using `time.Ticker`:\n\n## Basic Pattern\n\n```go\npackage main\n\nimport (\n\t\"context\"\n\t\"log\"\n\t\"time\"\n)\n\nfunc runPeriodic(ctx context.Context, interval time.Duration, work func()) {\n\tticker := time.NewTicker(interval)\n\tdefer ticker.Stop()\n\n\tfor {\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\tlog.Println(\"stopping periodic task:\", ctx.Err())\n\t\t\treturn\n\t\tcase t := <-ticker.C:\n\t\t\tlog.Println(\"tick at\", t)\n\t\t\twork()\n\t\t}\n\t}\n}\n\nfunc main() {\n\tctx, cancel := context.WithCancel(context.Background())\n\tdefer cancel()\n\n\tgo runPeriodic(ctx, 5*time.Second, func() {\n\t\t// do some work here\n\t\tlog.Println(\"doing work...\")\n\t})\n\n\t// keep main alive (or wait on signals, etc.)\n\ttime.Sleep(30 * time.Second)\n\tcancel()\n}\n```\n\n## Key Points\n\n1. **Always `defer ticker.Stop()`** — otherwise the ticker leaks resources until GC.\n2. **Use `context.Context` for cancellation** — never rely on `time.Sleep` in a loop, since you can't interrupt it cleanly.\n3. **`select` on both `ctx.Done()` and `ticker.C`** — this is what makes shutdown responsive.\n4. **`time.NewTicker` (not `time.Tick`)** — `time.Tick` cannot be stopped and leaks.\n\n## Production-Ready Variant (with graceful shutdown on signals)\n\n```go\npackage main\n\nimport (\n\t\"context\"\n\t\"log\"\n\t\"os\"\n\t\"os/signal\"\n\t\"sync\"\n\t\"syscall\"\n\t\"time\"\n)\n\nfunc main() {\n\tctx, stop := signal.NotifyContext(context.Background(),\n\t\tos.Interrupt, syscall.SIGTERM)\n\tdefer stop()\n\n\tvar wg sync.WaitGroup\n\twg.Add(1)\n\tgo func() {\n\t\tdefer wg.Done()\n\t\trunPeriodic(ctx, 5*time.Second, doWork)\n\t}()\n\n\t<-ctx.Done()\n\tlog.Println(\"shutdown signal received\")\n\twg.Wait()\n\tlog.Println(\"clean exit\")\n}\n\nfunc doWork() {\n\t// your periodic work\n}\n```\n\n## A Couple of Gotchas\n\n- **Slow work**: if `work()` takes longer than `interval`, ticks will queue up to a small buffer, then drop. If you need to skip overlapping runs, guard with a `sync.Mutex` or a `chan struct{}` semaphore.\n- **First tick is delayed by `interval`**: if you want immediate execution, call `work()` once before entering the loop.\n- **Jitter**: for many workers hitting the same downstream, add a small random offset to avoid thundering herds.",
+        "cost_usd": 0.040781000000000005,
+        "rubric": [
+          {
+            "name": "uses context.Context",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "context.Context",
+            "why": "cancellation contract for the goroutine"
+          },
+          {
+            "name": "selects on ctx.Done",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "ctx.Done()",
+            "why": "canonical cancellation idiom inside the loop"
+          },
+          {
+            "name": "uses time.NewTicker (preferred over time.Tick)",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "time.NewTicker",
+            "why": "NewTicker is stoppable; time.Tick leaks because you cannot stop it"
+          },
+          {
+            "name": "avoids time.Tick (which leaks)",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "time.Tick has no Stop and is therefore a leak in long-running code"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# Periodic Background Task in Go\n\nHere's the canonical pattern using `time.Ticker` with proper cancellation via `context.Context`:\n\n```go\npackage main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"os\"\n\t\"os/signal\"\n\t\"syscall\"\n\t\"time\"\n)\n\nfunc runPeriodic(ctx context.Context, interval time.Duration) {\n\tticker := time.NewTicker(interval)\n\tdefer ticker.Stop() // always release the ticker\n\n\tfor {\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\tfmt.Println(\"stopping:\", ctx.Err())\n\t\t\treturn\n\t\tcase t := <-ticker.C:\n\t\t\tdoWork(t)\n\t\t}\n\t}\n}\n\nfunc doWork(t time.Time) {\n\tfmt.Println(\"tick at\", t.Format(time.RFC3339))\n\t// ... your work here ...\n}\n\nfunc main() {\n\t// Cancel on Ctrl-C / SIGTERM\n\tctx, stop := signal.NotifyContext(\n\t\tcontext.Background(),\n\t\tos.Interrupt, syscall.SIGTERM,\n\t)\n\tdefer stop()\n\n\tgo runPeriodic(ctx, 5*time.Second)\n\n\t<-ctx.Done() // wait for shutdown signal\n}\n```\n\n## Key points\n\n1. **`time.NewTicker` over `time.Sleep`** — a ticker fires on a steady cadence and won't drift if your work occasionally takes longer than expected (it just drops ticks).\n2. **Always `defer ticker.Stop()`** — frees the underlying timer resources.\n3. **Drive cancellation with a `context.Context`** — the `select` lets the goroutine exit promptly when the context is cancelled.\n4. **`signal.NotifyContext`** (Go 1.16+) ties graceful shutdown to OS signals in one line.\n\n## Common variations\n\n**Run immediately, then on each tick** (tickers don't fire at t=0):\n\n```go\ndoWork(time.Now())\nfor {\n    select {\n    case <-ctx.Done():\n        return\n    case t := <-ticker.C:\n        doWork(t)\n    }\n}\n```\n\n**Don't let slow work overlap** — wrap `doWork` in a guard or skip if a previous run is still in flight:\n\n```go\nvar running atomic.Bool\ncase <-ticker.C:\n    if !running.CompareAndSwap(false, true) {\n        continue // previous tick still running, skip\n    }\n    go func() {\n        defer running.Store(false)\n        doWork(time.Now())\n    }()\n```\n\n**Wait for the goroutine on shutdown** — use a `sync.WaitGroup` if `main` needs to know the worker has finished cleanly:\n\n```go\nvar wg sync.WaitGroup\nwg.Add(1)\ngo func() {\n    defer wg.Done()\n    runPeriodic(ctx, 5*time.Second)\n}()\n<-ctx.Done()\nwg.Wait()\n```\n\nThat's the whole pattern — ticker + context + select is the idiomatic backbone for nearly any periodic worker in Go.",
+        "cost_usd": 0.039425,
+        "rubric": [
+          {
+            "name": "uses context.Context",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "context.Context",
+            "why": "cancellation contract for the goroutine"
+          },
+          {
+            "name": "selects on ctx.Done",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "ctx.Done()",
+            "why": "canonical cancellation idiom inside the loop"
+          },
+          {
+            "name": "uses time.NewTicker (preferred over time.Tick)",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "time.NewTicker",
+            "why": "NewTicker is stoppable; time.Tick leaks because you cannot stop it"
+          },
+          {
+            "name": "avoids time.Tick (which leaks)",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "time.Tick has no Stop and is therefore a leak in long-running code"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are nearly identical in quality, correctly using context.Context, selecting on ctx.Done(), using time.NewTicker with defer ticker.Stop(), and explicitly avoiding time.Tick. Both cover the same key patterns and gotchas (immediate execution, slow work overlap, graceful shutdown with WaitGroup). Answer A provides a slightly more structured two-phase presentation (basic then production-ready), while Answer B is slightly more concise and uses atomic.Bool for the overlap guard which is more idiomatic than a mutex for that use case. The differences are minor enough to call this a tie.",
+        "per_criterion": [
+          {
+            "name": "uses context.Context",
+            "better": "tie"
+          },
+          {
+            "name": "selects on ctx.Done",
+            "better": "tie"
+          },
+          {
+            "name": "uses time.NewTicker (preferred over time.Tick)",
+            "better": "tie"
+          },
+          {
+            "name": "avoids time.Tick (which leaks)",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "receiver-consistency",
+      "prompt": "I have a struct `Counter` with a method `Inc()` that increments an\ninternal field. Should the receiver be a value `(c Counter)` or a\npointer `(c *Counter)`? Why?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# Pointer Receiver: `(c *Counter)`\n\nYou should use a **pointer receiver** for `Inc()`. Here's why:\n\n## The Core Reason: Mutation\n\nIn Go, value receivers operate on a **copy** of the struct. So if you wrote:\n\n```go\nfunc (c Counter) Inc() {\n    c.count++ // modifies the local copy, lost when method returns\n}\n```\n\nThe increment would happen on the copy and be discarded when the method returns. The original `Counter` would never change.\n\nWith a pointer receiver:\n\n```go\nfunc (c *Counter) Inc() {\n    c.count++ // modifies the actual Counter the caller holds\n}\n```\n\nYou're modifying the value the caller actually cares about.\n\n## Supporting Reasons\n\nBeyond correctness, pointer receivers are preferred here for several conventional reasons:\n\n1. **Consistency**: Go's style guide recommends that if *any* method on a type needs a pointer receiver, *all* methods should use pointer receivers. A `Counter` with mutating methods like `Inc()`, `Reset()`, `Add(n)` should consistently be `*Counter`.\n\n2. **Avoids accidental copies**: A `Counter` is conceptually an identity (a thing that holds state over time), not a value (like an `int` or a `time.Time`). Copying it is almost always a bug — you'd end up with two counters drifting apart.\n\n3. **Concurrency safety**: If you later add a `sync.Mutex` to `Counter` (very likely for a counter!), it *must* not be copied. Pointer receivers prevent this. In fact, `go vet` will flag copies of structs containing a `sync.Mutex`.\n\n4. **Interface satisfaction**: Only `*Counter` will satisfy an interface like `Incrementer { Inc() }` in a way that lets the same instance be incremented through the interface. With a value receiver, the interface would still work but each call through it might involve copies.\n\n## Quick Demo\n\n```go\ntype Counter struct{ n int }\n\nfunc (c Counter) IncVal()  { c.n++ }   // BUG: no effect\nfunc (c *Counter) IncPtr() { c.n++ }   // works\n\nfunc main() {\n    c := Counter{}\n    c.IncVal(); c.IncVal()\n    fmt.Println(c.n) // 0  ❌\n\n    c.IncPtr(); c.IncPtr()\n    fmt.Println(c.n) // 2  ✅\n}\n```\n\n## Rule of Thumb\n\n> Use a **value receiver** when the type is small, immutable, and behaves like a value (e.g., `time.Time`, `image.Point`).\n>\n> Use a **pointer receiver** when the method **mutates state**, the struct is **large**, or the type represents an **identity with lifecycle** (e.g., a counter, a connection, a buffer).\n\n`Counter.Inc()` hits the first criterion outright — it must be a pointer receiver.",
+        "cost_usd": 0.038474999999999995,
+        "rubric": [
+          {
+            "name": "recommends pointer receiver",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "Pointer Receiver",
+            "why": "mutation requires pointer receiver to be visible to caller"
+          },
+          {
+            "name": "mentions consistency across methods on the type",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Consisten",
+            "why": "mixing value/pointer receivers breaks the method set in subtle ways"
+          },
+          {
+            "name": "explains why (mutation visibility)",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Mutat",
+            "why": "should explain that value receivers operate on a copy"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# Pointer Receiver: `(c *Counter)`\n\nYou should use a **pointer receiver**. Here's why:\n\n## The Core Reason: Mutation\n\nIn Go, value receivers operate on a **copy** of the struct. Any modifications made inside the method affect only that local copy and are discarded when the method returns.\n\n```go\ntype Counter struct {\n    n int\n}\n\n// ❌ Wrong: modifies a copy, original is unchanged\nfunc (c Counter) Inc() {\n    c.n++ // mutates local copy only\n}\n\n// ✅ Correct: modifies the original via pointer\nfunc (c *Counter) Inc() {\n    c.n++ // mutates the actual Counter\n}\n```\n\nIf you used a value receiver, calling `counter.Inc()` would do nothing observable — the increment would be lost.\n\n## Demonstration\n\n```go\nc := Counter{}\nc.Inc()\nc.Inc()\nfmt.Println(c.n) // With value receiver: 0  | With pointer receiver: 2\n```\n\n## Supporting Reasons\n\n1. **Consistency**: Go's style guide recommends that if *any* method on a type uses a pointer receiver, *all* methods should — to keep the method set consistent. Since `Inc()` must use a pointer, other methods on `Counter` should too.\n\n2. **Interface satisfaction**: Only `*Counter` will satisfy an interface like `interface{ Inc() }` when the method has a pointer receiver. This is usually what you want for mutable types.\n\n3. **Avoiding bugs**: Value receivers on types meant to be mutated are a classic Go footgun — the code compiles and runs silently while doing the wrong thing.\n\n4. **Concurrency safety hints**: Pointer receivers signal to readers that the type has identity and shouldn't be casually copied (relevant if you later add a `sync.Mutex`, which *must* not be copied).\n\n## Rule of Thumb\n\n> **If a method needs to modify the receiver, use a pointer receiver. Period.**\n\nValue receivers are appropriate for small, immutable, value-like types (e.g., `time.Time`, small structs used as map keys, or pure \"getter\"-style methods on tiny structs).",
+        "cost_usd": 0.034277,
+        "rubric": [
+          {
+            "name": "recommends pointer receiver",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "Pointer Receiver",
+            "why": "mutation requires pointer receiver to be visible to caller"
+          },
+          {
+            "name": "mentions consistency across methods on the type",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Consisten",
+            "why": "mixing value/pointer receivers breaks the method set in subtle ways"
+          },
+          {
+            "name": "explains why (mutation visibility)",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Mutat",
+            "why": "should explain that value receivers operate on a copy"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are excellent and cover all three rubric criteria: recommending a pointer receiver, explaining mutation visibility, and emphasizing consistency across methods. The differences are minor stylistic choices—Answer A mentions interface satisfaction more prominently while Answer B emphasizes the 'identity vs value' conceptual distinction and the sync.Mutex vet warning. Neither answer is meaningfully better than the other on the rubric criteria.",
+        "per_criterion": [
+          {
+            "name": "recommends pointer receiver",
+            "better": "tie"
+          },
+          {
+            "name": "mentions consistency across methods on the type",
+            "better": "tie"
+          },
+          {
+            "name": "explains why (mutation visibility)",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "interface-placement",
+      "prompt": "In Go, when my function takes a parameter that is \"anything that has a\nRead method\", where should I declare that interface — in the package\nthat defines the concrete reader, or in the package that consumes it?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# Where to Declare Interfaces in Go\n\n**Declare it in the consuming package**, not the package that defines the concrete reader.\n\nThis is one of Go's most important idioms, often summarized as:\n\n> \"Accept interfaces, return structs.\"\n> \"The bigger the interface, the weaker the abstraction.\"\n> — Rob Pike\n\n## Why the consumer side?\n\n1. **The consumer knows what it needs.** Only the function calling `Read` knows it needs *just* a `Read` method. The producer of a concrete type (say, a `*os.File`) shouldn't have to anticipate every possible subset of its behavior.\n\n2. **Avoids unnecessary coupling.** If interfaces lived with the concrete type, every consumer would have to import that package just to name the interface — defeating the point of decoupling.\n\n3. **Structural typing makes it free.** Go interfaces are satisfied implicitly. The concrete type doesn't need to know the interface exists; it just needs to have the right methods. So there's no benefit to co-locating them.\n\n4. **Keeps interfaces small and focused.** Consumer-defined interfaces tend to be tiny (often one method), which is exactly what Go encourages. The standard library's `io.Reader` is the canonical example — a single-method interface defined where it's *used*, not where readers live.\n\n## A practical pattern\n\n```go\n// package mypkg (the consumer)\n\ntype reader interface {\n    Read(p []byte) (n int, err error)\n}\n\nfunc Process(r reader) error {\n    // ...\n}\n```\n\nNote it's often lowercase (unexported) — you only need to export it if callers need to name the type themselves.\n\n## When to break the rule\n\n- **Reuse an existing interface if one fits.** Don't redeclare `Read(p []byte) (n int, err error)` — just use `io.Reader`. That's why `io` exists: to host shared, fundamental interfaces consumed widely.\n- **Plugin/strategy patterns** where the producing package defines the contract and many implementations plug in (e.g., `database/sql/driver.Driver`) are a legitimate exception.\n\n## TL;DR\n\nFor your \"anything with a `Read` method\" case: **just use `io.Reader`**. If it were a more domain-specific method, declare the interface in the package that calls it.",
+        "cost_usd": 0.03487975,
+        "rubric": [
+          {
+            "name": "says consumer / caller package",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "consumer",
+            "why": "core Go convention: interfaces declared by consumers, not producers"
+          },
+          {
+            "name": "mentions accept interfaces, return concrete",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Accept interfaces",
+            "why": "paired idiom from the Go proverbs / Code Review Comments"
+          },
+          {
+            "name": "small interface guidance",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "one method",
+            "why": "idiomatic Go interfaces are tiny (often one method)"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# Go Interface Declaration: Define at the Consumer\n\nIn Go, the idiomatic answer is: **declare the interface in the package that consumes it**, not the package that provides the concrete implementation.\n\nThis is often summarized as:\n\n> \"Accept interfaces, return structs.\"\n> — and define those interfaces where they're used.\n\n## Why?\n\n### 1. Interfaces describe what the consumer needs\nThe consumer knows exactly which methods it depends on. A producer can't know in advance every possible way its type might be used, so any interface it declares is just a guess.\n\n### 2. Avoids unnecessary coupling\nIf `package a` defines `Reader` and `package b` consumes it, then `package c` (which also has a `Read` method) would have to import `package a` just to \"implement\" the interface — even though Go interfaces are structurally satisfied. Declaring the interface in the consumer means no one needs to import anyone extra.\n\n### 3. Keeps interfaces small\nConsumer-defined interfaces tend to be tiny (often one method), which matches Go's preference: \"The bigger the interface, the weaker the abstraction.\"\n\n### 4. Makes testing trivial\nYour tests can supply any type with a `Read` method — no need to import or mock the concrete producer.\n\n## Example\n\n```go\n// package store -- the producer\npackage store\n\ntype FileReader struct { /* ... */ }\n\nfunc (f *FileReader) Read(p []byte) (int, error) { /* ... */ }\n// Note: no interface declared here.\n```\n\n```go\n// package report -- the consumer\npackage report\n\ntype reader interface {\n    Read(p []byte) (int, error)\n}\n\nfunc Summarize(r reader) (string, error) {\n    // ...\n}\n```\n\nNow `report` doesn't import `store`, and `store` doesn't import `report`. Any type with a `Read` method works.\n\n## The standard library exception\n\n`io.Reader` lives in `io` because it's a *universal* abstraction used everywhere. If — and only if — your interface is genuinely shared by many unrelated consumers, it can make sense to put it in a neutral package (often a small `…/iface` or shared package). Otherwise, default to the consumer.\n\n## Rule of thumb\n\n- **Defining a type with a `Read` method?** Just export the struct. Don't ship an interface alongside it.\n- **Writing a function that needs \"something that can Read\"?** Declare the minimal interface right there in your package — and if `io.Reader` already fits, just use that.",
+        "cost_usd": 0.03607975,
+        "rubric": [
+          {
+            "name": "says consumer / caller package",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Consumer",
+            "why": "core Go convention: interfaces declared by consumers, not producers"
+          },
+          {
+            "name": "mentions accept interfaces, return concrete",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "Accept interfaces",
+            "why": "paired idiom from the Go proverbs / Code Review Comments"
+          },
+          {
+            "name": "small interface guidance",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "one method",
+            "why": "idiomatic Go interfaces are tiny (often one method)"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers correctly identify the consumer package as the right place to declare interfaces, cite the 'accept interfaces, return concrete types' rule, and emphasize small interfaces. Answer A adds useful nuance about exported vs unexported interfaces and the plugin pattern exception, while Answer B provides a cleaner code example showing both producer and consumer packages side by side and explicitly mentions testability. Neither answer is clearly superior overall.",
+        "per_criterion": [
+          {
+            "name": "says consumer / caller package",
+            "better": "tie"
+          },
+          {
+            "name": "mentions accept interfaces, return concrete",
+            "better": "tie"
+          },
+          {
+            "name": "small interface guidance",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "slog-structured",
+      "prompt": "What's the modern, idiomatic way in Go to log an error with structured\nfields (e.g. user_id, request_id) so it's machine-readable in\nproduction?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# Structured Logging in Go (2026)\n\nThe modern, idiomatic way is to use **`log/slog`** from the standard library (added in Go 1.21, now the default choice).\n\n## Basic usage\n\n```go\nimport (\n    \"log/slog\"\n    \"os\"\n)\n\nlogger := slog.New(slog.NewJSONHandler(os.Stdout, nil))\n\nlogger.Error(\"failed to process payment\",\n    slog.String(\"user_id\", userID),\n    slog.String(\"request_id\", reqID),\n    slog.Any(\"err\", err),\n)\n```\n\nThis produces machine-readable JSON like:\n\n```json\n{\"time\":\"2026-05-05T10:14:22Z\",\"level\":\"ERROR\",\"msg\":\"failed to process payment\",\"user_id\":\"u_123\",\"request_id\":\"req_abc\",\"err\":\"connection refused\"}\n```\n\n## Idiomatic patterns\n\n### 1. Set a global default once at startup\n\n```go\nfunc main() {\n    h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{\n        Level:     slog.LevelInfo,\n        AddSource: true, // includes file:line\n    })\n    slog.SetDefault(slog.New(h))\n}\n```\n\nThen anywhere:\n```go\nslog.Error(\"db query failed\", \"user_id\", uid, \"err\", err)\n```\n\n### 2. Carry context with `With` (request-scoped loggers)\n\nAttach common fields once per request rather than repeating them:\n\n```go\nreqLogger := slog.Default().With(\n    \"request_id\", reqID,\n    \"user_id\", userID,\n)\n\nreqLogger.Info(\"starting handler\")\n// ... later ...\nreqLogger.Error(\"validation failed\", \"field\", \"email\", \"err\", err)\n```\n\n### 3. Pass the logger via `context.Context`\n\nUse `slog.InfoContext` / `slog.ErrorContext` so handlers (e.g. tracing handlers) can pull trace IDs out of the context automatically:\n\n```go\nslog.ErrorContext(ctx, \"operation failed\",\n    \"request_id\", reqID,\n    \"err\", err,\n)\n```\n\nA common pattern is to stash a request logger in context:\n\n```go\ntype ctxKey struct{}\n\nfunc WithLogger(ctx context.Context, l *slog.Logger) context.Context {\n    return context.WithValue(ctx, ctxKey{}, l)\n}\n\nfunc FromContext(ctx context.Context) *slog.Logger {\n    if l, ok := ctx.Value(ctxKey{}).(*slog.Logger); ok {\n        return l\n    }\n    return slog.Default()\n}\n```\n\n### 4. Group related fields\n\n```go\nlogger.Error(\"payment failed\",\n    slog.Group(\"user\",\n        slog.String(\"id\", userID),\n        slog.String(\"tier\", \"pro\"),\n    ),\n    slog.String(\"request_id\", reqID),\n    slog.Any(\"err\", err),\n)\n```\n\n### 5. Make your own types loggable with `LogValuer`\n\nAvoid leaking PII or formatting in every call site:\n\n```go\ntype User struct {\n    ID    string\n    Email string\n}\n\nfunc (u User) LogValue() slog.Value {\n    return slog.GroupValue(\n        slog.String(\"id\", u.ID),\n        // intentionally omit email\n    )\n}\n\nlogger.Info(\"user signed in\", \"user\", user)\n```\n\n## A few practical tips\n\n- **Prefer typed attrs** (`slog.String`, `slog.Int`, `slog.Any`) in hot paths — they avoid the reflection cost of the loose `key, value` form.\n- **Use stable, snake_case keys** (`user_id`, `request_id`, `trace_id`) so log aggregators (Loki, Datadog, Cloud Logging, etc.) can index reliably.\n- **Use `\"err\"` (or `\"error\"`) consistently** for error values — pick one and stick to it across the codebase.\n- **JSON handler in prod, Text handler in dev** — switch via env var.\n- **Don't reach for `zap` or `zerolog` by default anymore.** They're still faster, but `slog` is the standard, integrates with the ecosystem (including pluggable handlers that wrap zap/zerolog), and is fast enough for the vast majority of services.\n\n## TL;DR\n\n```go\nslog.ErrorContext(ctx, \"checkout failed\",\n    \"user_id\", userID,\n    \"request_id\", reqID,\n    \"err\", err,\n)\n```\n\nThat single line — using `log/slog` with a JSON handler set as the default — is the canonical 2026 answer.",
+        "cost_usd": 0.053864499999999996,
+        "rubric": [
+          {
+            "name": "uses log/slog",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "slog",
+            "why": "log/slog is the stdlib structured logger (Go 1.21+)"
+          },
+          {
+            "name": "shows a slog call with structured fields",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "slog.Error(",
+            "why": "concrete slog API usage, not just the package name"
+          },
+          {
+            "name": "avoids recommending log.Printf for structured logging",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "log.Printf is unstructured; advising it here would be wrong"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# Structured Logging in Go (Modern, Idiomatic Approach)\n\nThe modern, idiomatic way is to use **`log/slog`**, which was added to the standard library in **Go 1.21** (August 2023). Before `slog`, the community relied on third-party libraries like `zap` or `zerolog`, but `slog` is now the standard choice for new code.\n\n## Basic Usage\n\n```go\npackage main\n\nimport (\n    \"log/slog\"\n    \"os\"\n)\n\nfunc main() {\n    // JSON handler for production (machine-readable)\n    logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{\n        Level: slog.LevelInfo,\n    }))\n    slog.SetDefault(logger)\n\n    err := doWork()\n    if err != nil {\n        slog.Error(\"failed to process request\",\n            slog.String(\"user_id\", \"u-123\"),\n            slog.String(\"request_id\", \"req-abc\"),\n            slog.Any(\"error\", err),\n        )\n    }\n}\n```\n\nThis produces a JSON line like:\n\n```json\n{\"time\":\"2026-05-05T10:00:00Z\",\"level\":\"ERROR\",\"msg\":\"failed to process request\",\"user_id\":\"u-123\",\"request_id\":\"req-abc\",\"error\":\"db timeout\"}\n```\n\n## Idiomatic Tips\n\n### 1. Use typed attribute helpers (faster, allocation-free)\n\nPrefer `slog.String`, `slog.Int`, `slog.Duration`, etc. over the loose key-value form, as they avoid reflection:\n\n```go\nslog.Error(\"payment failed\",\n    slog.String(\"user_id\", userID),\n    slog.String(\"request_id\", reqID),\n    slog.Int(\"amount_cents\", amount),\n    slog.Any(\"error\", err),\n)\n```\n\n### 2. Carry context with `logger.With(...)`\n\nBind common fields once per request rather than repeating them:\n\n```go\nreqLogger := slog.Default().With(\n    slog.String(\"request_id\", reqID),\n    slog.String(\"user_id\", userID),\n)\n\nreqLogger.Error(\"checkout failed\", slog.Any(\"error\", err))\n```\n\n### 3. Use the context-aware variants\n\n`slog.ErrorContext(ctx, ...)` lets handlers pull values (like trace IDs) out of `context.Context`:\n\n```go\nslog.ErrorContext(ctx, \"db query failed\",\n    slog.String(\"query\", \"SELECT ...\"),\n    slog.Any(\"error\", err),\n)\n```\n\n### 4. Group related fields\n\n```go\nslog.Error(\"request failed\",\n    slog.Group(\"http\",\n        slog.String(\"method\", \"POST\"),\n        slog.String(\"path\", \"/checkout\"),\n        slog.Int(\"status\", 500),\n    ),\n    slog.Any(\"error\", err),\n)\n```\n\n### 5. Make custom types log nicely\n\nImplement `slog.LogValuer` to control how a type is logged (e.g., redact secrets):\n\n```go\ntype User struct {\n    ID    string\n    Email string\n}\n\nfunc (u User) LogValue() slog.Value {\n    return slog.GroupValue(\n        slog.String(\"id\", u.ID),\n        // omit email\n    )\n}\n```\n\n## Production vs. Development\n\nA common pattern is to switch handlers based on environment:\n\n```go\nvar handler slog.Handler\nif os.Getenv(\"ENV\") == \"production\" {\n    handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})\n} else {\n    handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})\n}\nslog.SetDefault(slog.New(handler))\n```\n\n## When to Reach for Third-Party Libraries\n\n- **`zap`** (Uber) or **`zerolog`** — still excellent if you need maximum throughput or you're already on them. Both can be used as `slog.Handler` backends now (e.g., `go.uber.org/zap/exp/zapslog`), so you can write `slog`-style code and keep `zap`'s performance.\n- **`slog-multi`**, **`samber/slog-*`** — useful for fan-out, sampling, or sending to platforms like Datadog/Sentry.\n\n## TL;DR\n\nUse `log/slog` with a `JSONHandler` in production, attach request-scoped fields via `logger.With(...)`, and prefer the typed `slog.String`/`slog.Int`/`slog.Any` helpers for both performance and clarity.",
+        "cost_usd": 0.05417949999999999,
+        "rubric": [
+          {
+            "name": "uses log/slog",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "slog",
+            "why": "log/slog is the stdlib structured logger (Go 1.21+)"
+          },
+          {
+            "name": "shows a slog call with structured fields",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "slog.Error(",
+            "why": "concrete slog API usage, not just the package name"
+          },
+          {
+            "name": "avoids recommending log.Printf for structured logging",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "log.Printf is unstructured; advising it here would be wrong"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are nearly identical in quality, correctly recommending log/slog with structured fields and typed attribute helpers, avoiding log.Printf, and covering the same idiomatic patterns (With, context variants, groups, LogValuer). Answer A is slightly more opinionated against third-party libraries, while Answer B provides a more balanced view on when zap/zerolog might still be appropriate. Neither has a meaningful advantage over the other for the stated focus area.",
+        "per_criterion": [
+          {
+            "name": "uses log/slog",
+            "better": "tie"
+          },
+          {
+            "name": "shows a slog call with structured fields",
+            "better": "tie"
+          },
+          {
+            "name": "avoids recommending log.Printf for structured logging",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "generic-min",
+      "prompt": "Write me a Go `Min` function that returns the smaller of two values\nand works for any numeric type (int, int64, float64, etc).\n",
+      "expectation": "skill_wins",
+      "expectation_met": true,
+      "baseline": {
+        "text": "Here's a generic `Min` function in Go that works with any numeric type using type parameters (generics, available since Go 1.18):\n\n```go\npackage main\n\nimport \"fmt\"\n\n// Number is a constraint that permits any integer or floating-point type.\ntype Number interface {\n\t~int | ~int8 | ~int16 | ~int32 | ~int64 |\n\t\t~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |\n\t\t~float32 | ~float64\n}\n\n// Min returns the smaller of a and b.\nfunc Min[T Number](a, b T) T {\n\tif a < b {\n\t\treturn a\n\t}\n\treturn b\n}\n\nfunc main() {\n\tfmt.Println(Min(3, 7))            // 3\n\tfmt.Println(Min(int64(10), 4))    // 4\n\tfmt.Println(Min(2.5, 1.75))       // 1.75\n\tfmt.Println(Min[float32](9, 12))  // 9\n}\n```\n\n### Notes\n\n- **`~` in the constraint** allows named types whose underlying type is one of the listed types (e.g., `type Celsius float64` will still work).\n- **`constraints.Ordered`**: If you don't mind pulling in `golang.org/x/exp/constraints`, you can replace the `Number` interface with `constraints.Ordered`, which also includes `string`. Use that if you'd like to compare strings as well:\n\n  ```go\n  import \"golang.org/x/exp/constraints\"\n\n  func Min[T constraints.Ordered](a, b T) T {\n      if a < b {\n          return a\n      }\n      return b\n  }\n  ```\n\n- **Standard library**: Since Go 1.21, the standard library actually provides `min` (and `max`) as built-ins that work on any ordered type, so unless you're on an older version or need custom behavior, you can just write `min(a, b)` directly.",
+        "cost_usd": 0.0330155,
+        "rubric": [
+          {
+            "name": "uses generics syntax with type parameter",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "[T ",
+            "why": "should reach for generics, not interface{} or codegen"
+          },
+          {
+            "name": "uses an Ordered or numeric union constraint",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "constraints.Ordered",
+            "why": "comparison needs an ordered constraint (cmp.Ordered in 1.21+)"
+          },
+          {
+            "name": "avoids interface{} + reflect",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "pre-generics workaround that this skill should steer away from"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "Here's a generic `Min` function in Go that works for any numeric type:\n\n```go\npackage main\n\nimport \"fmt\"\n\n// Number is a constraint that permits any numeric type.\ntype Number interface {\n\t~int | ~int8 | ~int16 | ~int32 | ~int64 |\n\t\t~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |\n\t\t~float32 | ~float64\n}\n\n// Min returns the smaller of a and b.\nfunc Min[T Number](a, b T) T {\n\tif a < b {\n\t\treturn a\n\t}\n\treturn b\n}\n\nfunc main() {\n\tfmt.Println(Min(3, 7))           // 3\n\tfmt.Println(Min(int64(10), 4))   // 4\n\tfmt.Println(Min(2.71, 3.14))     // 2.71\n\tfmt.Println(Min[uint](5, 9))     // 5\n}\n```\n\n### How it works\n- **`Number` constraint**: A type set listing all of Go's built-in numeric types. The `~` prefix means \"any type whose underlying type is this,\" so it also accepts named types like `type Celsius float64`.\n- **`Min[T Number](a, b T) T`**: A generic function parameterized by `T`, which must satisfy the `Number` constraint. Both arguments and the return value share the same type.\n- **`<` works** because every type in the constraint supports the ordering operator.\n\n### Alternative: use the standard library\nSince Go 1.21, the standard library provides this for you via the built-in `min` function:\n\n```go\nfmt.Println(min(3, 7))      // 3\nfmt.Println(min(2.71, 3.14)) // 2.71\n```\n\nAnd for ordered types more broadly, `cmp.Ordered` (in the `cmp` package) is the canonical constraint:\n\n```go\nimport \"cmp\"\n\nfunc Min[T cmp.Ordered](a, b T) T {\n\tif a < b {\n\t\treturn a\n\t}\n\treturn b\n}\n```\n\nNote that `cmp.Ordered` also includes `string`, so use the custom `Number` constraint above if you want to restrict to numeric types only.",
+        "cost_usd": 0.021719000000000002,
+        "rubric": [
+          {
+            "name": "uses generics syntax with type parameter",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "[T ",
+            "why": "should reach for generics, not interface{} or codegen"
+          },
+          {
+            "name": "uses an Ordered or numeric union constraint",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "cmp.Ordered",
+            "why": "comparison needs an ordered constraint (cmp.Ordered in 1.21+)"
+          },
+          {
+            "name": "avoids interface{} + reflect",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "pre-generics workaround that this skill should steer away from"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "skill",
+        "reasoning": "Both answers are nearly identical in quality, using the same generic syntax, the same Number constraint with tilde-prefixed types, and the same implementation. Answer A is slightly better because it mentions the standard library's `cmp.Ordered` constraint (available since Go 1.21 in the stdlib, not just golang.org/x/exp) with a concrete code example, which is more accurate and up-to-date than Answer B's reference to the experimental `golang.org/x/exp/constraints` package.",
+        "per_criterion": [
+          {
+            "name": "uses generics syntax with type parameter",
+            "better": "tie"
+          },
+          {
+            "name": "uses an Ordered or numeric union constraint",
+            "better": "skill"
+          },
+          {
+            "name": "avoids interface{} + reflect",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "simplest-error",
+      "prompt": "Just give me the simplest, fewest-character way to return an\nerror in Go that says \"user not found\". One line if possible.\n",
+      "expectation": "skill_wins_strict",
+      "expectation_met": false,
+      "baseline": {
+        "text": "```go\nreturn errors.New(\"user not found\")\n```",
+        "cost_usd": 0.014625,
+        "rubric": [
+          {
+            "name": "uses sentinel error or %w wrapping",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "the safer pattern callers can match on"
+          },
+          {
+            "name": "explains why bare string errors are limiting",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "must teach the caller-side trade-off"
+          }
+        ],
+        "rubric_pass_rate": 0.0
+      },
+      "skill": {
+        "text": "```go\nreturn errors.New(\"user not found\")\n```",
+        "cost_usd": 0.015231000000000001,
+        "rubric": [
+          {
+            "name": "uses sentinel error or %w wrapping",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "the safer pattern callers can match on"
+          },
+          {
+            "name": "explains why bare string errors are limiting",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "must teach the caller-side trade-off"
+          }
+        ],
+        "rubric_pass_rate": 0.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are identical, providing the bare `errors.New(\"user not found\")` approach without using sentinel errors or %w wrapping, and neither explains why bare string errors are limiting. Neither answer meets the rubric criteria for best practices in Go error handling.",
+        "per_criterion": [
+          {
+            "name": "uses sentinel error or %w wrapping",
+            "better": "tie"
+          },
+          {
+            "name": "explains why bare string errors are limiting",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "offtopic-css-grid",
+      "prompt": "What's the simplest CSS Grid setup to create a 3-column layout\nwith equal widths and a small gap between columns?\n",
+      "expectation": "tie",
+      "expectation_met": true,
+      "baseline": {
+        "text": "The simplest CSS Grid setup for a 3-column layout with equal widths and a small gap:\n\n```css\n.container {\n  display: grid;\n  grid-template-columns: repeat(3, 1fr);\n  gap: 1rem;\n}\n```\n\n```html\n<div class=\"container\">\n  <div>Column 1</div>\n  <div>Column 2</div>\n  <div>Column 3</div>\n</div>\n```\n\n**Breakdown:**\n- `display: grid` — turns the container into a grid.\n- `grid-template-columns: repeat(3, 1fr)` — creates 3 columns that each take an equal fraction (`1fr`) of the available space.\n- `gap: 1rem` — adds spacing between columns (and rows, if there are any). Adjust to `0.5rem`, `8px`, etc., to taste.\n\nThat's it — three lines of CSS for a clean, equal-width 3-column layout.",
+        "cost_usd": 0.0233705,
+        "rubric": [],
+        "rubric_pass_rate": 0.0
+      },
+      "skill": {
+        "text": "The simplest CSS Grid setup for a 3-column layout with equal widths and a small gap:\n\n```css\n.container {\n  display: grid;\n  grid-template-columns: repeat(3, 1fr);\n  gap: 1rem;\n}\n```\n\n**Breakdown:**\n\n- `display: grid` — Turns the element into a grid container.\n- `grid-template-columns: repeat(3, 1fr)` — Creates 3 columns, each taking an equal fraction (`1fr`) of the available space.\n- `gap: 1rem` — Adds a small space between columns (and rows, if any). Adjust to taste (`8px`, `0.5rem`, etc.).\n\n**HTML:**\n\n```html\n<div class=\"container\">\n  <div>Column 1</div>\n  <div>Column 2</div>\n  <div>Column 3</div>\n</div>\n```\n\nThat's it — no media queries or extra wrappers needed for the basic case. If you want it to gracefully collapse on small screens, you can swap in:\n\n```css\ngrid-template-columns: repeat(auto-fit, minmax(200px, 1fr));\n```",
+        "cost_usd": 0.0255155,
+        "rubric": [],
+        "rubric_pass_rate": 0.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers provide essentially identical CSS solutions with the same three properties and equivalent explanations. Answer B adds a minor bonus tip about responsive behavior with auto-fit/minmax, but this is a small addition that doesn't materially change the quality of the core answer.",
+        "per_criterion": []
+      }
+    }
+  ]
+}

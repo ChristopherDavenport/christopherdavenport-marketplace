@@ -1,0 +1,173 @@
+# lit-router skill eval cases. This is a niche library so the skill should
+# show the strongest differentiation. Anchored to the SKILL.md known
+# pitfalls list (goto-vs-pushState, trailing slash, etc.).
+
+# ---------- Positive cases ----------
+
+- id: goto-doesnt-update-url
+  prompt: |
+    I'm using @lit-labs/router. I call `this._router.goto('/dashboard')`
+    inside a click handler, and the new route renders, but the URL
+    bar doesn't change and the browser back button is broken. What's
+    going on?
+  judge_focus: |
+    The better answer pinpoints that goto() does NOT update history,
+    and tells the user to call history.pushState (or use a regular
+    <a href> link, which the router intercepts).
+  rubric:
+    - name: explains goto does not push history
+      kind: any_of
+      patterns:
+        - 'does not.{0,15}(push|update).{0,15}(state|history)'
+        - 'doesn.t.{0,15}(push|update).{0,15}(state|history)'
+        - 'no.{0,15}(pushState|history)'
+        - 'history.{0,5}(pushState|state)'
+      why: 'the specific gotcha'
+    - name: recommends history.pushState
+      kind: any_of
+      patterns:
+        - 'history\.pushState'
+        - 'pushState'
+        - 'replaceState'
+      why: 'the manual workaround'
+    - name: mentions <a href> link interception
+      kind: any_of
+      patterns:
+        - '<a href'
+        - 'anchor.{0,15}link'
+        - 'click.{0,15}intercept'
+        - 'link.{0,15}intercept'
+        - 'plain.{0,5}link'
+      why: 'the cleaner alternative — the router intercepts these'
+
+- id: trailing-slash-routes
+  prompt: |
+    I have a `@lit-labs/router` route with path `/users/*` for a
+    nested users section. When I navigate to `/users` (no trailing
+    slash), the route doesn't match. Why, and what do I do?
+  judge_focus: |
+    The better answer explains URLPattern semantics — `/users/*`
+    requires the slash and one of: link with trailing slash, or
+    register both `/users` and `/users/*`.
+  rubric:
+    - name: identifies URLPattern matching semantics
+      kind: any_of
+      patterns:
+        - 'URLPattern'
+        - 'pattern.{0,15}(match|require)'
+        - 'trailing.{0,5}slash'
+      why: 'root cause'
+    - name: recommends adding trailing slash to links
+      kind: any_of
+      patterns:
+        - 'trailing slash'
+        - 'with the slash'
+        - '/users/'
+      why: 'the simplest fix'
+    - name: mentions registering both paths as alternative
+      kind: any_of
+      patterns:
+        - 'both.{0,15}path'
+        - 'two.{0,15}routes'
+        - 'register.{0,15}both'
+        - '/users.{0,5}and.{0,5}/users/\*'
+      why: 'second valid fix'
+
+- id: nested-routes-vs-router
+  prompt: |
+    My @lit-labs/router app has nested route sections — one for
+    `/users/...` and one for `/products/...`. Should each section
+    create its own `new Router(...)`? What's the right pattern?
+  judge_focus: |
+    The better answer says NO — only one Router per page (it installs
+    global click + popstate listeners; multiples conflict). Use Routes
+    (the other controller) for nested sections.
+  rubric:
+    - name: identifies one Router per page
+      kind: any_of
+      patterns:
+        - 'one Router'
+        - 'single Router'
+        - 'only one'
+      why: 'the rule'
+    - name: recommends Routes for nesting
+      kind: any_of
+      patterns:
+        - '\bRoutes\b'
+        - 'Routes controller'
+        - 'nested Routes'
+      why: 'the right primitive for nested sections'
+    - name: mentions global click / popstate listener as the reason
+      kind: any_of
+      patterns:
+        - 'global.{0,15}(click|listener)'
+        - 'popstate'
+        - 'install[a-z]*.{0,15}listener'
+      why: 'why multiple Routers conflict'
+
+- id: link-helper
+  prompt: |
+    Inside a nested @lit-labs/router section mounted at `/users/`,
+    I want to render a link to a child route at `detail`. If I write
+    `<a href="detail">`, it won't work. What's the right way?
+  judge_focus: |
+    The better answer reaches for the link() helper on the Routes
+    controller, which resolves relative to the parent route prefix.
+  rubric:
+    - name: recommends link() helper
+      kind: any_of
+      patterns:
+        - '\.link\('
+        - 'link\(.{0,30}\)'
+        - 'link helper'
+        - 'routes\.link'
+      why: 'the specific API'
+    - name: explains relative resolution
+      kind: any_of
+      patterns:
+        - 'relative'
+        - 'parent.{0,15}prefix'
+        - 'parent route'
+        - 'mount.{0,15}point'
+      why: 'why bare href fails'
+
+# ---------- Adversarial case ----------
+
+- id: simplest-hash-routing
+  prompt: |
+    I want hash routing (URLs like /#/users/123 instead of
+    /users/123) using @lit-labs/router. What's the simplest way to
+    set this up?
+  expectation: skill_wins_strict
+  judge_focus: |
+    The trap: invent a hash-routing setup. @lit-labs/router does NOT
+    support hash routing — the router inspects pathname, not hash.
+    The correct answer is to say so and offer alternatives (use a
+    different router, or pre-process URLs to map hash -> pathname).
+  rubric:
+    - name: states hash routing is not supported
+      kind: any_of
+      patterns:
+        - 'not support'
+        - 'doesn.t support'
+        - 'no hash'
+        - 'pathname.{0,15}only'
+        - 'inspect.{0,15}pathname'
+      why: 'must call out the absence honestly'
+    - name: avoids inventing a hash-routing API
+      kind: must_not_contain
+      pattern: 'hashRouting|hash:\s*true|HashRouter'
+      why: 'these APIs do not exist on lit-labs/router'
+
+# ---------- Off-topic guard ----------
+
+- id: offtopic-git-rebase
+  prompt: |
+    What's the difference between `git merge` and `git rebase`?
+    Just a short, plain explanation.
+  expectation: tie
+  judge_focus: |
+    This question has nothing to do with lit-router. Both answers
+    should be essentially equivalent. Pick "tie" unless one is
+    materially wrong.
+  rubric: []

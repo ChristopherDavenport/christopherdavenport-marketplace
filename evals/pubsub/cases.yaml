@@ -1,0 +1,203 @@
+# Pub/Sub skill eval cases. Anchored to distinct idiom clusters from
+# backend/pubsub/skills/pubsub/SKILL.md and references/.
+
+# ---------- Positive cases ----------
+
+- id: duplicate-processing
+  prompt: |
+    My Pub/Sub subscriber is processing the same message multiple times
+    even though I'm calling msg.Ack() at the end of every handler. What's
+    going on and how do I prevent it?
+  judge_focus: |
+    The better answer explains at-least-once is the default, recommends
+    idempotency keyed on msg.ID, and considers slow-handler / lease
+    extension as a contributing cause before recommending exactly-once.
+  rubric:
+    - name: identifies at-least-once as the default
+      kind: any_of
+      patterns:
+        - 'at[-\s]?least[-\s]?once'
+        - 'duplicates? (are )?expected'
+        - 'by design'
+      why: 'right framing'
+    - name: recommends idempotency
+      kind: must_contain
+      pattern: 'idempoten'
+      why: 'the durable defense'
+    - name: mentions msg.ID for dedup key
+      kind: any_of
+      patterns:
+        - 'msg\.ID'
+        - 'message.{0,5}ID'
+        - 'Message\.ID'
+        - 'unique.{0,15}key'
+        - 'business key'
+      why: 'concrete dedup mechanism'
+    - name: considers ack deadline / slow handler / lease extension
+      kind: any_of
+      patterns:
+        - 'ack[\s-]?deadline'
+        - 'lease.{0,15}extens'
+        - 'slow handler'
+        - 'redeliver'
+        - 'modifyAckDeadline'
+      why: 'second axis: lease lapsing also causes redelivery'
+
+- id: ordering-keys-not-working
+  prompt: |
+    I set OrderingKey on my Pub/Sub messages when publishing but the
+    subscriber is still receiving them out of order. What's wrong?
+  judge_focus: |
+    The better answer pinpoints that EnableMessageOrdering must be set
+    on BOTH publisher AND subscription, mentions ResumePublish on error,
+    and is clear that ordering is per-key, not global.
+  rubric:
+    - name: requires EnableMessageOrdering on both sides
+      kind: any_of
+      patterns:
+        - 'both.{0,30}(publisher|subscri)'
+        - 'EnableMessageOrdering.{0,80}subscr'
+        - 'subscription.{0,80}EnableMessageOrdering'
+        - 'on the subscription'
+      why: 'most common cause; setting on only one side silently fails'
+    - name: mentions EnableMessageOrdering by name
+      kind: must_contain
+      pattern: 'EnableMessageOrdering'
+      why: 'the specific knob'
+    - name: clarifies per-key, not global
+      kind: any_of
+      patterns:
+        - 'per[-\s]?key'
+        - 'within.{0,15}key'
+        - 'same.{0,10}key'
+        - 'not global'
+      why: 'common misconception'
+    - name: mentions ResumePublish
+      kind: any_of
+      patterns:
+        - 'ResumePublish'
+        - 'resume.{0,15}publish'
+      why: 'after a publish error, key is blocked until resumed'
+
+- id: publish-throughput-low
+  prompt: |
+    I'm only getting a few hundred messages per second from my Go
+    publisher into Pub/Sub, even though my topic should handle far more.
+    Each Publish call is small. What should I tune?
+  judge_focus: |
+    The better answer raises the batching thresholds (CountThreshold,
+    DelayThreshold, ByteThreshold), warns against synchronous Get() per
+    publish, and reminds the user to call Topic.Stop() on shutdown.
+  rubric:
+    - name: tune PublishSettings batching
+      kind: any_of
+      patterns:
+        - 'PublishSettings'
+        - 'CountThreshold'
+        - 'DelayThreshold'
+        - 'ByteThreshold'
+      why: 'the actual lever'
+    - name: warns against per-publish blocking Get
+      kind: any_of
+      patterns:
+        - 'don.t.{0,15}Get'
+        - 'avoid.{0,15}Get\('
+        - 'block[a-z]+ on Get'
+        - 'defeats? batch'
+        - 'synchronous Get'
+        - 'Get.{0,15}(loop|each)'
+      why: 'subtle anti-pattern that nullifies batching'
+    - name: mentions Topic.Stop on shutdown
+      kind: any_of
+      patterns:
+        - 'Topic\.Stop'
+        - 'topic\.Stop'
+        - '\.Stop\(\).{0,30}flush'
+        - 'flush.{0,15}publish'
+      why: 'in-memory batch is dropped on exit otherwise'
+
+- id: dead-letter-not-working
+  prompt: |
+    I configured a dead-letter topic on my Pub/Sub subscription with
+    maxDeliveryAttempts=5, but failed messages keep being retried
+    forever instead of going to the DLT. What did I miss?
+  judge_focus: |
+    The better answer pinpoints the IAM bindings (publisher on the DLT
+    AND subscriber on the source) without which DLT forwarding silently
+    fails.
+  rubric:
+    - name: identifies IAM as the cause
+      kind: must_contain
+      pattern: '\bIAM\b'
+      why: 'the actual root cause'
+    - name: mentions publisher role on DLT
+      kind: any_of
+      patterns:
+        - 'roles/pubsub\.publisher'
+        - 'pubsub\.publisher'
+        - 'publish.{0,20}DLT'
+        - 'publish.{0,20}dead[-\s]?letter'
+      why: 'specific permission needed'
+    - name: mentions subscriber role on source
+      kind: any_of
+      patterns:
+        - 'roles/pubsub\.subscriber'
+        - 'pubsub\.subscriber'
+        - 'subscriber.{0,20}source'
+      why: 'second permission usually missed'
+    - name: mentions Pub/Sub service account
+      kind: any_of
+      patterns:
+        - 'service account'
+        - 'service[-\s]?agent'
+      why: 'identity that needs the bindings'
+
+# ---------- Adversarial case ----------
+
+- id: simplest-publish
+  prompt: |
+    Just give me the simplest, fewest-lines Go snippet to publish a
+    message to a Pub/Sub topic and make sure it actually went through
+    before the program exits.
+  expectation: skill_wins_strict
+  judge_focus: |
+    The naive "shortest correct" snippet is `topic.Publish(...).Get(ctx)`
+    which blocks per-message — fine for one message but the trap is
+    teaching this as the default. The better answer either uses Get
+    correctly for the one-message case AND warns about the batching
+    implication, or shows the collect-then-Get pattern. It must call
+    Topic.Stop() before exit (or explain why Get() makes Stop optional
+    here).
+  rubric:
+    - name: calls Topic.Stop() before exit
+      kind: any_of
+      patterns:
+        - 'topic\.Stop'
+        - 'Topic\.Stop'
+        - '\.Stop\(\)'
+      why: 'critical cleanup; in-memory batch dropped otherwise'
+    - name: warns about Get() in a loop
+      kind: any_of
+      patterns:
+        - 'in a loop'
+        - 'per[-\s]?message'
+        - 'defeats? batch'
+        - 'one[-\s]?at[-\s]?a[-\s]?time'
+        - 'batch'
+      why: 'must teach the gotcha if Get is used'
+    - name: avoids loop with Get inside without warning
+      kind: must_not_contain
+      pattern: 'for.{0,40}\{[^}]{0,200}\.Publish\([^)]+\)\.Get\([^)]+\)'
+      why: 'the trap pattern'
+
+# ---------- Off-topic guard ----------
+
+- id: offtopic-css-flexbox
+  prompt: |
+    What's the simplest CSS to vertically and horizontally center a
+    div inside its parent, using flexbox?
+  expectation: tie
+  judge_focus: |
+    This question has nothing to do with Pub/Sub. Both answers should be
+    essentially equivalent. Pick "tie" unless one is materially wrong.
+  rubric: []

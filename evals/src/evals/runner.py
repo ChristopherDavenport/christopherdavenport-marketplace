@@ -23,6 +23,25 @@ from . import cli_runner, judge, report, rubric
 EVALS_DIR = Path(__file__).resolve().parents[2]
 RESULTS_DIR = EVALS_DIR / "results"
 
+VALID_EXPECTATIONS = {"skill_wins", "tie", "skill_wins_strict"}
+
+
+def _expectation_met(
+    expectation: str,
+    judge_winner: str,
+    skill_checks: list[rubric.CheckResult],
+) -> bool:
+    if expectation == "skill_wins":
+        return judge_winner == "skill"
+    if expectation == "tie":
+        return judge_winner == "tie"
+    if expectation == "skill_wins_strict":
+        all_must_not_pass = all(
+            c.passed for c in skill_checks if c.kind == "must_not_contain"
+        )
+        return judge_winner == "skill" and all_must_not_pass
+    raise ValueError(f"unknown expectation: {expectation!r}")
+
 
 def _load_plugin(plugin: str) -> tuple[Path, list[dict[str, Any]]]:
     plugin_root = EVALS_DIR / plugin
@@ -42,6 +61,14 @@ def _load_plugin(plugin: str) -> tuple[Path, list[dict[str, Any]]]:
     cases = yaml.safe_load(cases_file.read_text())
     if not isinstance(cases, list) or not cases:
         raise SystemExit(f"{cases_file} must be a non-empty YAML list")
+
+    for c in cases:
+        exp = c.setdefault("expectation", "skill_wins")
+        if exp not in VALID_EXPECTATIONS:
+            raise SystemExit(
+                f"case {c.get('id')!r}: bad expectation {exp!r} "
+                f"(must be one of {sorted(VALID_EXPECTATIONS)})"
+            )
 
     return plugin_dir, cases
 
@@ -67,6 +94,7 @@ def _run_one(
 ) -> dict[str, Any]:
     prompt = case["prompt"]
     rubric_spec = case.get("rubric", [])
+    expectation = case["expectation"]
     criterion_names = [c["name"] for c in rubric_spec]
 
     baseline = cli_runner.run(prompt, plugin_dir=None)
@@ -84,9 +112,13 @@ def _run_one(
         rng_seed=rng_seed,
     )
 
+    met = _expectation_met(expectation, verdict.winner, skill_checks)
+
     return {
         "id": case["id"],
         "prompt": prompt,
+        "expectation": expectation,
+        "expectation_met": met,
         "baseline": {
             "text": baseline.text,
             "cost_usd": baseline.cost_usd,
@@ -163,9 +195,24 @@ def run_plugin(
     report.write_json(json_path, payload)
     report.write_markdown(md_path, payload)
 
+    # Canonical, committed-friendly copy alongside cases.yaml. Overwritten on
+    # every full run; reviewers can diff to see how a skill change moved the
+    # numbers. The timestamped scratch above is gitignored.
+    if not case_ids:
+        canonical_md = EVALS_DIR / plugin / "result.md"
+        canonical_json = EVALS_DIR / plugin / "result.json"
+        report.write_json(canonical_json, payload)
+        report.write_markdown(canonical_md, payload)
+        console.print(f"  canonical md:   [cyan]{canonical_md}[/cyan]")
+
     s = payload["summary"]
     console.rule(f"[bold]Results: {plugin}")
     if s:
+        met_color = "green" if s["expectations_met"] == s["n_cases"] else "yellow"
+        console.print(
+            f"Expectations met: "
+            f"[{met_color}]{s['expectations_met']}/{s['n_cases']}[/{met_color}]"
+        )
         console.print(
             f"Judge: skill [green]{s['judge_wins_for_skill']}[/green] · "
             f"baseline [red]{s['judge_wins_for_baseline']}[/red] · "

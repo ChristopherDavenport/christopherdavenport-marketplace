@@ -1,0 +1,490 @@
+{
+  "plugin": "sqlite",
+  "summary": {
+    "n_cases": 6,
+    "expectations_met": 3,
+    "by_expectation": {
+      "skill_wins": {
+        "total": 4,
+        "met": 2
+      },
+      "skill_wins_strict": {
+        "total": 1,
+        "met": 0
+      },
+      "tie": {
+        "total": 1,
+        "met": 1
+      }
+    },
+    "judge_wins_for_skill": 2,
+    "judge_wins_for_baseline": 0,
+    "judge_ties": 4,
+    "n_scored": 5,
+    "baseline_rubric_pass_rate": 0.7,
+    "skill_rubric_pass_rate": 0.75,
+    "rubric_delta": 0.05,
+    "total_cli_cost_usd": 0.469
+  },
+  "cases": [
+    {
+      "id": "busy-storms",
+      "prompt": "Our Go service uses SQLite and we're getting SQLITE_BUSY errors all over\nthe place under modest load — maybe a couple writes per second on a\nsingle-machine deployment. What's wrong and how do I fix it?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# SQLite under load in Go — fixing `SQLITE_BUSY`\n\nThis is one of the most common pitfalls with SQLite in Go. The good news: a couple writes per second is well within SQLite's capabilities. The bad news: the defaults of `database/sql` + `mattn/go-sqlite3` (or `modernc.org/sqlite`) are actively hostile to concurrent access. Here's what's going wrong and how to fix it.\n\n## The root cause\n\nSQLite allows **one writer at a time, period**. When a second connection tries to write while another is writing, it gets `SQLITE_BUSY`. Two things conspire to make this much worse than it should be in Go:\n\n1. **`database/sql` opens a pool of connections.** Each connection is essentially an independent SQLite \"session.\" So your single process behaves like multiple concurrent clients fighting over the database file.\n2. **The default journal mode is `DELETE` (rollback journal)**, which means readers block writers and writers block readers. Mixed read/write workloads serialize badly.\n\n## The fix, in order of importance\n\n### 1. Enable WAL mode\n\nThis is the single biggest change. WAL lets readers and writers proceed concurrently (still one writer, but readers don't block):\n\n```sql\nPRAGMA journal_mode=WAL;\nPRAGMA synchronous=NORMAL;   -- safe with WAL, much faster than FULL\n```\n\nRun these once at startup (they persist for `journal_mode`, but `synchronous` is per-connection — set it in your DSN).\n\n### 2. Set a busy timeout\n\nBy default SQLite returns `SQLITE_BUSY` immediately. Tell it to wait and retry instead:\n\n```sql\nPRAGMA busy_timeout=5000;   -- milliseconds\n```\n\nThis alone eliminates the vast majority of `SQLITE_BUSY` errors you're seeing.\n\n### 3. Use separate pools for reads and writes\n\nThis is the trick most people miss. Open the database **twice**:\n\n```go\n// Writer: exactly one connection\nwriteDB, _ := sql.Open(\"sqlite3\",\n    \"file:app.db?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_txlock=immediate\")\nwriteDB.SetMaxOpenConns(1)\n\n// Reader: many connections OK\nreadDB, _ := sql.Open(\"sqlite3\",\n    \"file:app.db?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&mode=ro\")\nreadDB.SetMaxOpenConns(max(4, runtime.NumCPU()))\n```\n\nWhy `MaxOpenConns(1)` for the writer? Because there is only ever one writer in SQLite anyway. Forcing serialization in Go avoids deadlock scenarios where two pool connections each hold a read lock and both try to upgrade to write at the same time — a situation `busy_timeout` cannot resolve and which produces `SQLITE_BUSY` immediately, regardless of timeout.\n\n### 4. Use `BEGIN IMMEDIATE` for write transactions\n\nThe default `BEGIN` is \"deferred\" — the connection starts as a reader and tries to upgrade when it hits the first `INSERT`/`UPDATE`. If another connection has upgraded first, you deadlock and get `SQLITE_BUSY` immediately (the busy handler is not invoked for upgrade conflicts).\n\n`_txlock=immediate` in the DSN above makes Go's `db.Begin()` issue `BEGIN IMMEDIATE`, which acquires the write lock up front and lets `busy_timeout` actually do its job.\n\n### 5. Don't hold transactions open\n\nA long-running write transaction starves every other writer. Keep transactions short and don't do network I/O or user-facing waits inside them.\n\n## Putting it together\n\nA reasonable DSN for the writer:\n\n```\nfile:app.db?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_txlock=immediate&_foreign_keys=on&cache=shared\n```\n\nWith `MaxOpenConns(1)` on the writer pool, a separate read-only pool, and WAL enabled, a couple of writes per second should be utterly trivial — SQLite can do thousands per second on a laptop SSD with this setup.\n\n## Quick sanity checks\n\n- Are you running multiple OS processes against the same DB file? WAL works across processes but the single-writer rule still applies — and `MaxOpenConns(1)` only helps within one process. If you have multiple processes, you need to either consolidate or accept some retry logic.\n- Is the DB file on a network filesystem (NFS, SMB)? Don't. SQLite's locking is unreliable there.\n- Are you using `modernc.org/sqlite`? The PRAGMA query string parameter names are slightly different (no underscore prefix); check its docs.\n\nFix WAL + busy_timeout + separate read/write pools + `BEGIN IMMEDIATE`, in that order, and the errors should disappear.",
+        "cost_usd": 0.059553999999999996,
+        "rubric": [
+          {
+            "name": "recommends WAL journal mode",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "journal_mode=WAL",
+            "why": "WAL is the prerequisite — DELETE journal blocks reads on writes"
+          },
+          {
+            "name": "mentions busy_timeout",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "busy_timeout",
+            "why": "standard busy handler that retries instead of failing immediately"
+          },
+          {
+            "name": "recommends BEGIN IMMEDIATE for writers",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "BEGIN IMMEDIATE",
+            "why": "avoids mid-transaction SQLITE_BUSY from DEFERRED upgrade"
+          },
+          {
+            "name": "mentions two-pool / single writer pattern",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "two pool",
+            "why": "serialize writers application-side to eliminate writer-vs-writer"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# SQLite Under Load in Go: Why You're Getting SQLITE_BUSY\n\nA couple of writes per second is *trivial* for SQLite — it can do thousands. So the problem isn't load, it's almost certainly **how the Go `database/sql` connection pool interacts with SQLite's locking model**.\n\n## The root cause\n\nSQLite allows only **one writer at a time** for the entire database. When you open a connection in Go via `database/sql`, the pool will happily open many connections and hand them out to concurrent goroutines. The moment two of those connections try to write simultaneously, one gets `SQLITE_BUSY`.\n\nThere are usually three compounding issues:\n\n1. **Default journal mode (DELETE)** — readers block writers and vice versa.\n2. **No busy timeout** — the second writer gives up *immediately* instead of waiting.\n3. **Multiple writer connections in the pool** — Go opens N connections, all racing for the write lock.\n\n## The fix (in order of importance)\n\n### 1. Enable WAL mode\n\nSwitch to Write-Ahead Logging. This is the single biggest improvement:\n\n```sql\nPRAGMA journal_mode = WAL;\n```\n\nIn WAL mode, readers don't block the writer and the writer doesn't block readers. You only contend on writer-vs-writer.\n\n### 2. Set a busy timeout\n\nTell SQLite to wait (and retry internally) instead of returning BUSY immediately:\n\n```sql\nPRAGMA busy_timeout = 5000;  -- milliseconds\n```\n\nMost modern SQLite drivers let you set this in the DSN.\n\n### 3. Use *two* connection pools\n\nThis is the trick most Go + SQLite projects converge on:\n\n```go\n// One writer connection — serializes all writes\nwriteDB, _ := sql.Open(\"sqlite\", dsn)\nwriteDB.SetMaxOpenConns(1)\n\n// Many reader connections — concurrent in WAL mode\nreadDB, _ := sql.Open(\"sqlite\", dsn)\nreadDB.SetMaxOpenConns(max(4, runtime.NumCPU()))\n```\n\nRoute writes (INSERT/UPDATE/DELETE and write-transactions) to `writeDB`, reads to `readDB`. With `MaxOpenConns(1)` on the writer, Go itself serializes writers, so they never collide and never see BUSY from each other.\n\n### 4. Use the right DSN options\n\nFor `mattn/go-sqlite3`:\n\n```\nfile:app.db?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_txlock=immediate\n```\n\nFor `modernc.org/sqlite`:\n\n```\nfile:app.db?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)\n```\n\nNotes on the options:\n- `_synchronous=NORMAL` is safe under WAL and much faster than FULL.\n- `_txlock=immediate` makes `BEGIN` immediately acquire the write lock instead of upgrading a read transaction to a write one mid-flight — that upgrade path is the classic source of `SQLITE_BUSY` on `COMMIT`.\n\n### 5. Avoid long-running read transactions\n\nIn WAL mode, a long-running read holds the WAL open and prevents checkpointing, which can balloon the `-wal` file and indirectly cause stalls. Keep transactions short, and don't `SELECT` rows then sit on them.\n\n## Quick checklist\n\n- [ ] `PRAGMA journal_mode=WAL`\n- [ ] `PRAGMA busy_timeout=5000`\n- [ ] `PRAGMA synchronous=NORMAL`\n- [ ] Separate write pool with `SetMaxOpenConns(1)`\n- [ ] Use `BEGIN IMMEDIATE` (or `_txlock=immediate`) for write transactions\n- [ ] Keep transactions short\n\nDo those and `SQLITE_BUSY` should essentially vanish at your load level — and SQLite will comfortably handle 10–100x more than what you're throwing at it now.\n\nIf you want, share your current DSN and pool setup (and which driver you're on — `mattn/go-sqlite3`, `modernc.org/sqlite`, or `crawshaw.io/sqlite`) and I can give you exact code.",
+        "cost_usd": 0.040626999999999996,
+        "rubric": [
+          {
+            "name": "recommends WAL journal mode",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "journal_mode = WAL",
+            "why": "WAL is the prerequisite — DELETE journal blocks reads on writes"
+          },
+          {
+            "name": "mentions busy_timeout",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "busy_timeout",
+            "why": "standard busy handler that retries instead of failing immediately"
+          },
+          {
+            "name": "recommends BEGIN IMMEDIATE for writers",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "BEGIN IMMEDIATE",
+            "why": "avoids mid-transaction SQLITE_BUSY from DEFERRED upgrade"
+          },
+          {
+            "name": "mentions two-pool / single writer pattern",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "SetMaxOpenConns(1)",
+            "why": "serialize writers application-side to eliminate writer-vs-writer"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are excellent and cover all four rubric criteria thoroughly. Answer A is slightly more structured with a clean checklist and mentions the WAL checkpoint issue with long-running reads. Answer B provides a slightly better explanation of why BEGIN DEFERRED causes unresolvable deadlocks (the busy handler isn't invoked for upgrade conflicts) and includes useful sanity checks about multi-process and network filesystem scenarios. Overall they are essentially equivalent in quality and completeness.",
+        "per_criterion": [
+          {
+            "name": "recommends WAL journal mode",
+            "better": "tie"
+          },
+          {
+            "name": "mentions busy_timeout",
+            "better": "tie"
+          },
+          {
+            "name": "recommends BEGIN IMMEDIATE for writers",
+            "better": "baseline"
+          },
+          {
+            "name": "mentions two-pool / single writer pattern",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "pragmas-on-open",
+      "prompt": "I'm using `database/sql` with the SQLite driver in Go. I run\n`db.Exec(\"PRAGMA foreign_keys=ON\")` right after `sql.Open`, but my\nforeign key constraints still don't seem to be enforced. What gives?\n",
+      "expectation": "skill_wins",
+      "expectation_met": false,
+      "baseline": {
+        "text": "# The Problem: Connection Pooling\n\n`database/sql` is a **connection pool**, not a single connection. When you call `db.Exec(\"PRAGMA foreign_keys=ON\")`, that PRAGMA is applied to whichever single connection happens to handle that one statement. As soon as that connection goes back to the pool (or a different one is checked out for your next query), you're back to the SQLite default — foreign keys **off**.\n\nIn SQLite, `foreign_keys` is a *per-connection* setting, not a per-database one. So you need every connection in the pool to have it enabled.\n\n## Fix 1 (recommended): Enable it in the DSN\n\nBoth popular SQLite drivers support setting PRAGMAs via the connection string, which means every new connection the pool opens will have the setting applied:\n\n**`mattn/go-sqlite3`:**\n```go\ndb, err := sql.Open(\"sqlite3\", \"file:app.db?_foreign_keys=on\")\n```\n\n**`modernc.org/sqlite`:**\n```go\ndb, err := sql.Open(\"sqlite\", \"file:app.db?_pragma=foreign_keys(1)\")\n```\n\nWhile you're at it, you almost certainly also want:\n```\n?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000\n```\n\n## Fix 2: Use a `Connector` with an init hook\n\nIf you can't use the DSN approach, register a driver that runs the PRAGMA on every new connection. With `mattn/go-sqlite3`:\n\n```go\nsql.Register(\"sqlite3_fk\", &sqlite3.SQLiteDriver{\n    ConnectHook: func(c *sqlite3.SQLiteConn) error {\n        _, err := c.Exec(\"PRAGMA foreign_keys=ON;\", nil)\n        return err\n    },\n})\ndb, _ := sql.Open(\"sqlite3_fk\", \"app.db\")\n```\n\n## Fix 3 (band-aid): Pin to one connection\n\n```go\ndb.SetMaxOpenConns(1)\ndb.Exec(\"PRAGMA foreign_keys=ON\")\n```\n\nThis works but throws away concurrency, so it's really only suitable for tiny tools or tests.\n\n## Quick verification\n\nOnce you think you've fixed it, confirm from a fresh connection:\n\n```go\nvar on int\ndb.QueryRow(\"PRAGMA foreign_keys\").Scan(&on)\nfmt.Println(\"FK enforcement:\", on == 1)\n```\n\nIf that prints `true` consistently across many calls (try it in a loop), you're good. The DSN-based approach is the one I'd reach for by default.",
+        "cost_usd": 0.040364,
+        "rubric": [
+          {
+            "name": "identifies pragma is per-connection",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "per-connection",
+            "why": "foreign_keys does not persist across connections like journal_mode"
+          },
+          {
+            "name": "recommends DSN-based pragma",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "DSN",
+            "why": "DSN pragmas apply to every connection the pool opens"
+          },
+          {
+            "name": "mentions database/sql opening lazily / multiple connections",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "new connection",
+            "why": "explains *why* one Exec is not enough"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "skill": {
+        "text": "# The Problem: Connection Pooling\n\n`database/sql` is not a single connection — it's a **pool** of connections. When you call `db.Exec(\"PRAGMA foreign_keys=ON\")`, that PRAGMA is applied to **only one** connection in the pool (whichever one happened to serve that `Exec` call). Every other connection — and any new connections the pool opens later — will have foreign keys **off** (the SQLite default).\n\nSo your next query likely runs on a different connection where FKs are still disabled, and the constraint silently isn't enforced.\n\nThis is also why `PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout`, `PRAGMA synchronous`, etc. are notorious sources of the same bug.\n\n# Fixes (pick one)\n\n## 1. Use a DSN parameter (cleanest)\n\nMost SQLite drivers accept PRAGMAs in the connection string, so they're applied every time a new connection is opened.\n\n**`mattn/go-sqlite3`:**\n```go\ndb, err := sql.Open(\"sqlite3\", \"file:app.db?_foreign_keys=on\")\n```\n\n**`modernc.org/sqlite`:**\n```go\ndb, err := sql.Open(\"sqlite\", \"file:app.db?_pragma=foreign_keys(1)\")\n```\n\n**`ncruces/go-sqlite3`:**\n```go\ndb, err := sql.Open(\"sqlite3\", \"file:app.db?_pragma=foreign_keys(on)\")\n```\n\n## 2. Register a `ConnectHook` (mattn driver)\n\n```go\nsql.Register(\"sqlite3_fk\",\n    &sqlite3.SQLiteDriver{\n        ConnectHook: func(conn *sqlite3.SQLiteConn) error {\n            _, err := conn.Exec(\"PRAGMA foreign_keys=ON;\", nil)\n            return err\n        },\n    })\n\ndb, err := sql.Open(\"sqlite3_fk\", \"app.db\")\n```\n\nThis guarantees every new connection in the pool has FKs enabled.\n\n## 3. Force a single connection (workaround)\n\n```go\ndb.SetMaxOpenConns(1)\n```\n\nThis works but throws away concurrency, so it's only really suitable for tiny CLIs or tests.\n\n## 4. Use `db.Conn()` and stick to it\n\nIf you only need it for a particular section of code:\n\n```go\nconn, _ := db.Conn(ctx)\ndefer conn.Close()\nconn.ExecContext(ctx, \"PRAGMA foreign_keys=ON\")\n// use conn for subsequent queries...\n```\n\nNot what you want app-wide, but useful in narrow cases.\n\n# How to verify\n\nAfter whichever fix you choose, run:\n\n```go\nvar v int\ndb.QueryRow(\"PRAGMA foreign_keys\").Scan(&v)\nfmt.Println(\"FK:\", v) // should print 1\n```\n\nRun it in a loop a few times — if any iteration prints `0`, the pool is still serving you raw connections.\n\n# Recommendation\n\nUse **option 1** (DSN parameter) if your driver supports it — it's a one-line change and applies to every connection automatically. Fall back to **option 2** (ConnectHook) if you need to set multiple PRAGMAs or do other per-connection setup.",
+        "cost_usd": 0.045939,
+        "rubric": [
+          {
+            "name": "identifies pragma is per-connection",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "per-connection",
+            "why": "foreign_keys does not persist across connections like journal_mode"
+          },
+          {
+            "name": "recommends DSN-based pragma",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "DSN",
+            "why": "DSN pragmas apply to every connection the pool opens"
+          },
+          {
+            "name": "mentions database/sql opening lazily / multiple connections",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "new connection",
+            "why": "explains *why* one Exec is not enough"
+          }
+        ],
+        "rubric_pass_rate": 1.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are excellent and cover all three rubric criteria: they identify that foreign_keys is per-connection, explain that database/sql opens connections lazily via a pool, and recommend the DSN-based pragma approach. Answer B adds a fourth fix (db.Conn()) and covers a third driver (ncruces), while Answer A is slightly more concise. Neither has a meaningful advantage over the other on the rubric criteria.",
+        "per_criterion": [
+          {
+            "name": "identifies pragma is per-connection",
+            "better": "tie"
+          },
+          {
+            "name": "recommends DSN-based pragma",
+            "better": "tie"
+          },
+          {
+            "name": "mentions database/sql opening lazily / multiple connections",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "strict-tables",
+      "prompt": "I have a table with an INTEGER column that somehow ended up storing the\nstring 'banana'. SQLite never complained on insert. How is this even\nlegal, and how do I prevent it going forward?\n",
+      "expectation": "skill_wins",
+      "expectation_met": true,
+      "baseline": {
+        "text": "# SQLite Type Affinity: Why 'banana' Fits in an INTEGER Column\n\n## Why this is \"legal\"\n\nSQLite uses **type affinity** rather than strict typing (its historical \"manifest typing\" model). The column type you declare is treated as a *hint*, not a constraint. Each value carries its own storage class (NULL, INTEGER, REAL, TEXT, BLOB), and SQLite tries to coerce values into the column's affinity on insert — but if the value can't be coerced (like `'banana'` into INTEGER), SQLite happily stores it as TEXT anyway.\n\nThe only column that enforces its declared type is `INTEGER PRIMARY KEY` (the rowid alias), and even that has quirks.\n\n## How to prevent it going forward\n\nYou have three good options, in increasing order of strictness:\n\n### 1. STRICT tables (SQLite 3.37+, released Nov 2021) — **recommended**\n\n```sql\nCREATE TABLE fruit_inventory (\n    id     INTEGER PRIMARY KEY,\n    count  INTEGER NOT NULL,\n    name   TEXT NOT NULL\n) STRICT;\n```\n\nWith `STRICT`, inserting `'banana'` into `count` raises:\n```\nError: cannot store TEXT value in INTEGER column\n```\n\nAllowed types in STRICT tables: `INT`, `INTEGER`, `REAL`, `TEXT`, `BLOB`, `ANY`.\n\n### 2. CHECK constraints (works on any SQLite version)\n\n```sql\nCREATE TABLE fruit_inventory (\n    id     INTEGER PRIMARY KEY,\n    count  INTEGER NOT NULL CHECK (typeof(count) = 'integer'),\n    name   TEXT    NOT NULL CHECK (typeof(name)  = 'text')\n);\n```\n\n`typeof()` inspects the actual storage class of the stored value, so this catches the coercion failure cleanly.\n\n### 3. Migrate existing data first\n\nBefore adding either guard, find the offenders:\n\n```sql\nSELECT rowid, count FROM fruit_inventory WHERE typeof(count) != 'integer';\n```\n\nThen fix or delete them, since `STRICT` and `CHECK` won't let you rebuild the table while bad rows exist.\n\n## Quick recommendation\n\nIf you're on SQLite ≥ 3.37 (almost certainly true in 2026), just use **`STRICT` tables**. It's the closest SQLite gets to the type enforcement you'd expect from Postgres or MySQL, and it eliminates an entire category of silent data corruption bugs — including any sneaking into your `sqlite/` directory from eval runs.",
+        "cost_usd": 0.03850925,
+        "rubric": [
+          {
+            "name": "explains type affinity",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "Type Affinit",
+            "why": "the actual reason — column types are advisory by default"
+          },
+          {
+            "name": "recommends STRICT tables",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "strict",
+            "why": "the prevention"
+          },
+          {
+            "name": "mentions migration path for existing tables",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "STRICT cannot be added in place; user needs to know the recipe"
+          }
+        ],
+        "rubric_pass_rate": 0.6666666666666666
+      },
+      "skill": {
+        "text": "# SQLite's \"Type Affinity\" — A Feature, Not a Bug 🍌\n\nWhat you've encountered is SQLite's **type affinity** system, which is fundamentally different from every other major SQL database.\n\n## Why this is \"legal\"\n\nIn SQLite, column types are **suggestions, not constraints**. When you declare a column as `INTEGER`, SQLite gives it INTEGER *affinity* — meaning it will *try* to convert values to integers when possible, but if it can't, it just stores whatever you gave it. The string `'banana'` can't be coerced to an integer, so SQLite shrugs and stores the text.\n\nThis behavior comes from SQLite's design philosophy of \"manifest typing\" — types belong to *values*, not *columns*. The only exception historically was `INTEGER PRIMARY KEY`, which is strictly enforced as a rowid alias.\n\n## How to prevent it going forward\n\nYou have two good options, depending on your SQLite version:\n\n### Option 1: STRICT tables (SQLite 3.37.0+, released Nov 2021)\n\nThis is the modern, recommended fix. Just append `STRICT` to your `CREATE TABLE`:\n\n```sql\nCREATE TABLE measurements (\n    id    INTEGER PRIMARY KEY,\n    count INTEGER NOT NULL,\n    label TEXT\n) STRICT;\n```\n\nNow `INSERT INTO measurements (count) VALUES ('banana')` will fail with:\n```\nError: cannot store TEXT value in INTEGER column measurements.count\n```\n\nIn STRICT mode, only these types are allowed: `INT`, `INTEGER`, `REAL`, `TEXT`, `BLOB`, `ANY`.\n\n### Option 2: CHECK constraints (works on any version)\n\nIf you can't use STRICT (older SQLite, or you want finer control):\n\n```sql\nCREATE TABLE measurements (\n    id    INTEGER PRIMARY KEY,\n    count INTEGER NOT NULL CHECK (typeof(count) IN ('integer', 'null'))\n);\n```\n\nThe `typeof()` function returns the actual storage class of the value, so this rejects any non-integer write.\n\n## Fixing the existing data\n\nBefore converting to STRICT, you'll need to clean up the offending rows:\n\n```sql\n-- Find them\nSELECT rowid, count FROM measurements WHERE typeof(count) != 'integer';\n\n-- Fix or delete them, then:\nALTER TABLE measurements RENAME TO measurements_old;\nCREATE TABLE measurements (...) STRICT;\nINSERT INTO measurements SELECT * FROM measurements_old;\nDROP TABLE measurements_old;\n```\n\n## My recommendation\n\n**Use `STRICT` on all new tables.** It brings SQLite's type behavior in line with what every developer coming from PostgreSQL/MySQL expects, and avoids exactly the kind of silent data corruption you just hit. Add `WITHOUT ROWID` too if you have a natural primary key and want the storage savings.",
+        "cost_usd": 0.041104249999999995,
+        "rubric": [
+          {
+            "name": "explains type affinity",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "Type Affinit",
+            "why": "the actual reason — column types are advisory by default"
+          },
+          {
+            "name": "recommends STRICT tables",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "STRICT",
+            "why": "the prevention"
+          },
+          {
+            "name": "mentions migration path for existing tables",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "STRICT cannot be added in place; user needs to know the recipe"
+          }
+        ],
+        "rubric_pass_rate": 0.6666666666666666
+      },
+      "judge": {
+        "winner": "skill",
+        "reasoning": "Both answers are nearly identical in quality, covering type affinity, STRICT tables, and migration. Answer A provides a slightly more complete and clearly structured migration recipe (the recreate-and-copy pattern with explicit SQL steps), which directly addresses the rubric's requirement about migration path for existing tables. Answer B mentions finding offenders but doesn't show the full recreate-and-copy recipe as explicitly. Both are excellent, but A edges out on the migration criterion.",
+        "per_criterion": [
+          {
+            "name": "explains type affinity",
+            "better": "tie"
+          },
+          {
+            "name": "recommends STRICT tables",
+            "better": "tie"
+          },
+          {
+            "name": "mentions migration path for existing tables",
+            "better": "skill"
+          }
+        ]
+      }
+    },
+    {
+      "id": "json-index",
+      "prompt": "I added a JSON column called `data` and created an index:\n`CREATE INDEX events_user ON events(json_extract(data, '$.user_id'))`.\nBut my queries `WHERE data->>'user_id' = ?` are still doing full table\nscans. What's wrong?\n",
+      "expectation": "skill_wins",
+      "expectation_met": true,
+      "baseline": {
+        "text": "# The Problem: Expression Mismatch\n\nSQLite's expression indexes are only used when the expression in your `WHERE` clause **textually/structurally matches** the indexed expression. Your index uses `json_extract(data, '$.user_id')` but your query uses `data->>'user_id'`. The planner doesn't treat these as equivalent — even though they look similar, they're not the same expression and they don't even return the same type:\n\n- `json_extract(data, '$.user_id')` → returns the underlying JSON type (INTEGER, REAL, TEXT, etc.)\n- `data->>'user_id'` → always returns SQL TEXT (or NULL)\n\nSo the index can't satisfy the query.\n\n# Fix: Pick One and Be Consistent\n\n**Option A — change the query to match the index:**\n```sql\nWHERE json_extract(data, '$.user_id') = ?\n```\n\n**Option B — change the index to match the query (usually what you want):**\n```sql\nDROP INDEX events_user;\nCREATE INDEX events_user ON events(data->>'user_id');\n```\nThen `WHERE data->>'user_id' = ?` will use it.\n\n# Verify with EXPLAIN QUERY PLAN\n\n```sql\nEXPLAIN QUERY PLAN\nSELECT * FROM events WHERE data->>'user_id' = ?;\n```\nYou should see `SEARCH events USING INDEX events_user (...)` instead of `SCAN events`.\n\n# A Few Other Gotchas to Check\n\n1. **Type affinity / parameter type.** If `user_id` is numeric in JSON and you indexed via `->>` (TEXT), make sure you bind the parameter as a string — otherwise SQLite may not match the index due to affinity differences. Using `json_extract` avoids this since it preserves the JSON type.\n2. **`ANALYZE`.** Run `ANALYZE;` after creating the index so the planner has stats. Without it, on small tables it may still prefer a scan.\n3. **NULLs / missing keys.** Rows where `data` is NULL or `user_id` is missing are still in the index (as NULL), but `= ?` won't match NULL — that's fine for equality lookups, just be aware.\n4. **Determinism.** Expression indexes require deterministic expressions. Both `json_extract` and `->>` are deterministic, so you're good.\n5. **SQLite version.** The `->>` operator requires SQLite 3.38.0+ (Feb 2022). On older versions it would parse as something else entirely. Check `SELECT sqlite_version();`.\n\nIn short: **make the expression in the `WHERE` clause identical to the expression in the `CREATE INDEX`**, and you'll get the index seek.",
+        "cost_usd": 0.055986,
+        "rubric": [
+          {
+            "name": "explains the expression mismatch",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "same expression",
+            "why": "the planner matches expressions textually, not semantically"
+          },
+          {
+            "name": "recommends generated column",
+            "kind": "must_contain",
+            "passed": false,
+            "evidence": null,
+            "why": "the cleanest fix is a STORED generated column with an index on it"
+          },
+          {
+            "name": "mentions STORED keyword",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "STORED (vs VIRTUAL) is what enables indexing the column"
+          },
+          {
+            "name": "suggests EXPLAIN QUERY PLAN",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "EXPLAIN QUERY PLAN",
+            "why": "verifying the index is actually used"
+          }
+        ],
+        "rubric_pass_rate": 0.5
+      },
+      "skill": {
+        "text": "# The Problem: Expression Mismatch\n\nSQLite's expression indexes only get used when the expression in your `WHERE` clause **textually matches** the expression used to build the index. You indexed `json_extract(data, '$.user_id')` but you're querying with `data->>'user_id'`. Even though they return the same value, SQLite's query planner doesn't see them as equivalent.\n\nThere's also a subtle semantic difference between the two:\n\n- `json_extract(data, '$.user_id')` returns the value with its native JSON type (so a JSON string comes back as a SQL TEXT, a number as INTEGER/REAL, `null` as SQL NULL).\n- `data->>'user_id'` (the `->>` operator) **always coerces to SQL TEXT** (or NULL). It's roughly `CAST(json_extract(...) AS TEXT)` with some nuances.\n\nSo even if SQLite *did* match them, the comparison semantics could differ.\n\n# Fixes\n\nPick one of these — whichever matches how you want to query.\n\n### Option 1: Make the index match the query\n\n```sql\nDROP INDEX events_user;\nCREATE INDEX events_user ON events(data->>'user_id');\n```\n\nNow `WHERE data->>'user_id' = ?` will use it.\n\n### Option 2: Make the query match the index\n\nKeep the existing index and write:\n\n```sql\nWHERE json_extract(data, '$.user_id') = ?\n```\n\n### Option 3: Use a generated column (often the cleanest)\n\n```sql\nALTER TABLE events\n  ADD COLUMN user_id TEXT\n  GENERATED ALWAYS AS (data->>'user_id');\n\nCREATE INDEX events_user ON events(user_id);\n```\n\nThen queries like `WHERE user_id = ?` are obvious, indexable, and you don't have to remember the exact expression form.\n\n# How to Verify\n\nAlways confirm with `EXPLAIN QUERY PLAN`:\n\n```sql\nEXPLAIN QUERY PLAN\nSELECT * FROM events WHERE data->>'user_id' = '42';\n```\n\nYou want to see something like `SEARCH events USING INDEX events_user (...)` rather than `SCAN events`.\n\n# Other Gotchas to Check\n\n1. **Parameter type mismatch.** If you bind an integer (`?` = `42`) but the indexed expression returns text (because `->>` coerces to TEXT), SQLite may not use the index efficiently due to type affinity rules. Bind the parameter as the same type the expression produces.\n2. **`ANALYZE` not run.** After creating the index, run `ANALYZE;` so the planner has stats. Without it, the planner sometimes picks a scan for small or newly-built tables.\n3. **SQLite version.** The `->` and `->>` operators require SQLite 3.38.0+ (Feb 2022). On older versions `->>` may parse but behave unexpectedly, or your build may not have JSON1 enabled at all (check with `SELECT sqlite_version();` and `PRAGMA compile_options;`).\n4. **`NULL`s and missing keys.** Expression indexes don't index rows where the expression evaluates to NULL in a way that helps `IS NULL` lookups — but for `=` comparisons that's fine.\n\nIn your case, Option 1 or Option 3 is almost certainly what you want.",
+        "cost_usd": 0.045596,
+        "rubric": [
+          {
+            "name": "explains the expression mismatch",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "the planner matches expressions textually, not semantically"
+          },
+          {
+            "name": "recommends generated column",
+            "kind": "must_contain",
+            "passed": true,
+            "evidence": "generated column",
+            "why": "the cleanest fix is a STORED generated column with an index on it"
+          },
+          {
+            "name": "mentions STORED keyword",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "GENERATED ALWAYS",
+            "why": "STORED (vs VIRTUAL) is what enables indexing the column"
+          },
+          {
+            "name": "suggests EXPLAIN QUERY PLAN",
+            "kind": "any_of",
+            "passed": true,
+            "evidence": "EXPLAIN QUERY PLAN",
+            "why": "verifying the index is actually used"
+          }
+        ],
+        "rubric_pass_rate": 0.75
+      },
+      "judge": {
+        "winner": "skill",
+        "reasoning": "Answer B explicitly recommends a generated column as a fix (Option 3) with the GENERATED ALWAYS AS syntax, which directly addresses the rubric's focus on recommending a STORED generated column. While neither answer mentions the STORED keyword explicitly, Answer B at least includes the generated column recommendation with proper syntax, whereas Answer A omits the generated column approach entirely. Both answers explain the expression mismatch and suggest EXPLAIN QUERY PLAN, but B is more complete per the rubric criteria.",
+        "per_criterion": [
+          {
+            "name": "explains the expression mismatch",
+            "better": "tie"
+          },
+          {
+            "name": "recommends generated column",
+            "better": "skill"
+          },
+          {
+            "name": "mentions STORED keyword",
+            "better": "tie"
+          },
+          {
+            "name": "suggests EXPLAIN QUERY PLAN",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "simplest-write-tx",
+      "prompt": "Just give me the simplest, fewest-lines way to write a row inside a\ntransaction in Go using `database/sql` with SQLite. I don't need\nbells and whistles, just the shortest correct snippet.\n",
+      "expectation": "skill_wins_strict",
+      "expectation_met": false,
+      "baseline": {
+        "text": "```go\ntx, _ := db.Begin()\ntx.Exec(\"INSERT INTO t(col) VALUES(?)\", val)\ntx.Commit()\n```\n\nIf you want it actually correct (handling errors and rollback on failure):\n\n```go\ntx, err := db.Begin()\nif err != nil {\n    return err\n}\nif _, err := tx.Exec(\"INSERT INTO t(col) VALUES(?)\", val); err != nil {\n    tx.Rollback()\n    return err\n}\nreturn tx.Commit()\n```",
+        "cost_usd": 0.0192955,
+        "rubric": [
+          {
+            "name": "shows BEGIN IMMEDIATE for the write tx",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "the right primitive for writer transactions in SQLite"
+          },
+          {
+            "name": "avoids recommending plain BeginTx without warning",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "naive BeginTx with no warning is the trap"
+          },
+          {
+            "name": "warns about SQLITE_BUSY / contention / DEFERRED",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "explains *why* the simple version is wrong"
+          }
+        ],
+        "rubric_pass_rate": 0.3333333333333333
+      },
+      "skill": {
+        "text": "```go\ntx, err := db.Begin()\nif err != nil {\n    return err\n}\nif _, err := tx.Exec(\"INSERT INTO t(col) VALUES(?)\", val); err != nil {\n    tx.Rollback()\n    return err\n}\nreturn tx.Commit()\n```",
+        "cost_usd": 0.016287500000000003,
+        "rubric": [
+          {
+            "name": "shows BEGIN IMMEDIATE for the write tx",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "the right primitive for writer transactions in SQLite"
+          },
+          {
+            "name": "avoids recommending plain BeginTx without warning",
+            "kind": "must_not_contain",
+            "passed": true,
+            "evidence": null,
+            "why": "naive BeginTx with no warning is the trap"
+          },
+          {
+            "name": "warns about SQLITE_BUSY / contention / DEFERRED",
+            "kind": "any_of",
+            "passed": false,
+            "evidence": null,
+            "why": "explains *why* the simple version is wrong"
+          }
+        ],
+        "rubric_pass_rate": 0.3333333333333333
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Neither answer addresses the core focus area: both use db.Begin() which generates BEGIN DEFERRED, neither uses BEGIN IMMEDIATE, and neither warns about SQLITE_BUSY or contention issues. Answer A at least acknowledges there's a 'simplest' version vs a 'correct' version, but neither answer meets the rubric criteria at all.",
+        "per_criterion": [
+          {
+            "name": "shows BEGIN IMMEDIATE for the write tx",
+            "better": "tie"
+          },
+          {
+            "name": "avoids recommending plain BeginTx without warning",
+            "better": "tie"
+          },
+          {
+            "name": "warns about SQLITE_BUSY / contention / DEFERRED",
+            "better": "tie"
+          }
+        ]
+      }
+    },
+    {
+      "id": "offtopic-python-comprehension",
+      "prompt": "What's the most idiomatic way to filter and transform a list in\nPython using a single comprehension? Show me an example.\n",
+      "expectation": "tie",
+      "expectation_met": true,
+      "baseline": {
+        "text": "The most idiomatic way is to combine filtering (`if`) and transformation in a single list comprehension:\n\n```python\n[expression for item in iterable if condition]\n```\n\n### Example\n\nSay you have a list of numbers and you want the **squares of only the even numbers**:\n\n```python\nnumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\n\nsquared_evens = [n ** 2 for n in numbers if n % 2 == 0]\n\nprint(squared_evens)\n# [4, 16, 36, 64, 100]\n```\n\n### How to read it\n\n- `n ** 2` → the **transformation** (what each element becomes)\n- `for n in numbers` → the **iteration**\n- `if n % 2 == 0` → the **filter** (only keep evens)\n\n### A slightly richer example\n\nExtracting and uppercasing the names of users who are active:\n\n```python\nusers = [\n    {\"name\": \"alice\", \"active\": True},\n    {\"name\": \"bob\", \"active\": False},\n    {\"name\": \"carol\", \"active\": True},\n]\n\nactive_names = [u[\"name\"].upper() for u in users if u[\"active\"]]\n\nprint(active_names)\n# ['ALICE', 'CAROL']\n```\n\n### When to reach for something else\n\n- If the logic gets complex (multiple conditions, nested transformations), prefer a regular `for` loop or a generator function for readability.\n- If you don't need the full list in memory, use a **generator expression** instead — same syntax, just swap `[]` for `()`:\n\n  ```python\n  total = sum(n ** 2 for n in numbers if n % 2 == 0)\n  ```\n\n- For conditional *transformation* (not filtering), put the `if/else` **before** the `for`:\n\n  ```python\n  [n ** 2 if n % 2 == 0 else n for n in numbers]\n  ```\n\nThe rule of thumb: **filter `if` goes at the end, ternary `if/else` goes at the front.**",
+        "cost_usd": 0.031533,
+        "rubric": [],
+        "rubric_pass_rate": 0.0
+      },
+      "skill": {
+        "text": "The most idiomatic way to filter and transform a list in Python in a single pass is to use a **list comprehension** with an `if` clause for filtering and an expression at the front for transformation.\n\n## Syntax\n\n```python\n[expression for item in iterable if condition]\n```\n\n- **`expression`** — what each kept item is transformed into\n- **`condition`** — the filter predicate (only items where this is `True` are included)\n\n## Example\n\nSay you have a list of numbers and you want the **squares of only the even numbers**:\n\n```python\nnumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\n\nsquared_evens = [n ** 2 for n in numbers if n % 2 == 0]\n\nprint(squared_evens)\n# [4, 16, 36, 64, 100]\n```\n\n## Why this is preferred over `map` + `filter`\n\nYou *could* write the same thing with `map` and `filter`:\n\n```python\nsquared_evens = list(map(lambda n: n ** 2, filter(lambda n: n % 2 == 0, numbers)))\n```\n\n…but the comprehension is generally considered more Pythonic because it:\n\n1. Reads top-to-bottom, left-to-right closer to plain English (\"squares of n for each n in numbers if n is even\").\n2. Avoids the overhead and noise of `lambda`.\n3. Keeps the transformation and the filter visually together.\n\n## Bonus: conditional *expression* vs. filter\n\nDon't confuse the trailing `if` (filter) with a ternary `if/else` in the expression position (which transforms but keeps every element):\n\n```python\n# Filters out odd numbers — result has fewer elements\n[n ** 2 for n in numbers if n % 2 == 0]\n\n# Keeps every element, but transforms differently — same length as input\n[n ** 2 if n % 2 == 0 else n for n in numbers]\n```\n\n## When to reach for a generator expression instead\n\nIf you're going to immediately consume the result (e.g., feed it to `sum`, `any`, `max`), drop the brackets to avoid building an intermediate list:\n\n```python\ntotal = sum(n ** 2 for n in numbers if n % 2 == 0)  # 220\n```\n\nSame syntax, lazier evaluation — also very idiomatic.",
+        "cost_usd": 0.034193,
+        "rubric": [],
+        "rubric_pass_rate": 0.0
+      },
+      "judge": {
+        "winner": "tie",
+        "reasoning": "Both answers are essentially equivalent in correctness, idiomaticity, and usefulness. They cover the same core concept with the same primary example, and both include the generator expression tip and the ternary vs. filter distinction. Answer A adds a map/filter comparison while Answer B adds a richer dict-based example, but neither addition is materially superior.",
+        "per_criterion": []
+      }
+    }
+  ]
+}
