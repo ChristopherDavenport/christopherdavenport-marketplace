@@ -1,2 +1,7 @@
 **/.claude/settings.local.json
 .DS_Store
+evals/results/*
+!evals/results/.gitkeep
+**/__pycache__/
+evals/.venv/
+evals/*.egg-info/

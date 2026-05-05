@@ -1,0 +1,183 @@
+# Go skill eval cases. Each case targets a distinct cluster of idioms from
+# backend/go/skills/go/SKILL.md and its references/. Rubric criteria are
+# regexes matched case-insensitively against the assistant's full reply.
+
+- id: error-wrapping
+  prompt: |
+    I have a Go function that opens a config file and just does
+    `return os.Open(path)`. Callers get errors like
+    "open /etc/foo.yml: no such file or directory" with no hint of which
+    subsystem hit it. What's the right way to fix this?
+  judge_focus: |
+    The better answer teaches error wrapping that preserves errors.Is / errors.As
+    traversal (i.e. uses %w), not string concatenation or %v which break the chain.
+  rubric:
+    - name: uses %w directive
+      kind: must_contain
+      pattern: '%w'
+      why: 'fmt.Errorf("...: %w", err) preserves the errors.Is/As chain'
+    - name: mentions errors.Is or errors.As
+      kind: any_of
+      patterns:
+        - 'errors\.Is'
+        - 'errors\.As'
+      why: 'sentinels and typed errors should be matched via these, not =='
+    - name: uses fmt.Errorf for context
+      kind: must_contain
+      pattern: 'fmt\.Errorf'
+      why: 'canonical wrapping API'
+    - name: avoids %v wrapping anti-pattern
+      kind: must_not_contain
+      pattern: 'fmt\.Errorf\([^)]*%v[^)]*err\b'
+      why: '%v drops the error chain so errors.Is/As stop working'
+
+- id: goroutine-lifetime
+  prompt: |
+    Show me the basic Go pattern for running a periodic background task
+    (something that ticks every few seconds and does some work).
+  judge_focus: |
+    The better answer gives the goroutine a deterministic exit condition tied
+    to a context, rather than spawning an unbounded `go func()` with no way to stop.
+  rubric:
+    - name: uses context.Context
+      kind: must_contain
+      pattern: 'context\.Context'
+      why: 'cancellation contract for the goroutine'
+    - name: selects on ctx.Done
+      kind: must_contain
+      pattern: 'ctx\.Done\(\)'
+      why: 'canonical cancellation idiom inside the loop'
+    - name: uses time.NewTicker (preferred over time.Tick)
+      kind: any_of
+      patterns:
+        - 'time\.NewTicker'
+        - 'time\.Ticker'
+      why: 'NewTicker is stoppable; time.Tick leaks because you cannot stop it'
+    - name: avoids time.Tick (which leaks)
+      kind: must_not_contain
+      pattern: 'time\.Tick\s*\('
+      why: 'time.Tick has no Stop and is therefore a leak in long-running code'
+
+- id: receiver-consistency
+  prompt: |
+    I have a struct `Counter` with a method `Inc()` that increments an
+    internal field. Should the receiver be a value `(c Counter)` or a
+    pointer `(c *Counter)`? Why?
+  judge_focus: |
+    The better answer explains that mutation requires a pointer receiver AND
+    that receiver kind should be consistent across all methods on the type.
+  rubric:
+    - name: recommends pointer receiver
+      kind: must_contain
+      pattern: 'pointer receiver'
+      why: 'mutation requires pointer receiver to be visible to caller'
+    - name: mentions consistency across methods on the type
+      kind: any_of
+      patterns:
+        - 'consisten'
+        - 'mix(ed|ing)? receivers'
+        - 'all methods'
+        - 'same receiver'
+      why: 'mixing value/pointer receivers breaks the method set in subtle ways'
+    - name: explains why (mutation visibility)
+      kind: any_of
+      patterns:
+        - 'mutat'
+        - 'modif(y|ies|ying)'
+        - 'change'
+        - 'increment'
+      why: 'should explain that value receivers operate on a copy'
+
+- id: interface-placement
+  prompt: |
+    In Go, when my function takes a parameter that is "anything that has a
+    Read method", where should I declare that interface — in the package
+    that defines the concrete reader, or in the package that consumes it?
+  judge_focus: |
+    The better answer says interfaces belong in the consumer package and
+    should be small, citing the "accept interfaces, return concrete types" rule.
+  rubric:
+    - name: says consumer / caller package
+      kind: any_of
+      patterns:
+        - '\bconsumer\b'
+        - '\bcaller'
+        - 'using package'
+        - 'package that uses'
+        - 'where it.{0,15}used'
+      why: 'core Go convention: interfaces declared by consumers, not producers'
+    - name: mentions accept interfaces, return concrete
+      kind: any_of
+      patterns:
+        - 'accept interfaces'
+        - 'return (concrete|struct)'
+        - 'small interfaces'
+      why: 'paired idiom from the Go proverbs / Code Review Comments'
+    - name: small interface guidance
+      kind: any_of
+      patterns:
+        - 'small interface'
+        - 'one method'
+        - 'single method'
+        - '1[\s\-–]+3 methods'
+        - 'io\.Reader'
+      why: 'idiomatic Go interfaces are tiny (often one method)'
+
+- id: slog-structured
+  prompt: |
+    What's the modern, idiomatic way in Go to log an error with structured
+    fields (e.g. user_id, request_id) so it's machine-readable in
+    production?
+  judge_focus: |
+    The better answer recommends log/slog with key-value attributes (or
+    typed slog.Int / slog.String builders), not log.Printf with a format
+    string, and isn't a third-party library when stdlib suffices.
+  rubric:
+    - name: uses log/slog
+      kind: must_contain
+      pattern: '\bslog\b'
+      why: 'log/slog is the stdlib structured logger (Go 1.21+)'
+    - name: shows a slog call with structured fields
+      kind: any_of
+      patterns:
+        - 'slog\.Error\s*\('
+        - 'slog\.Info\s*\('
+        - 'slog\.Warn\s*\('
+        - 'logger\.Error\s*\('
+        - 'logger\.Info\s*\('
+        - '\.With\s*\('
+      why: 'concrete slog API usage, not just the package name'
+    - name: avoids recommending log.Printf for structured logging
+      kind: must_not_contain
+      pattern: '\brecommend[a-z]*\b[^.]*\blog\.Printf'
+      why: 'log.Printf is unstructured; advising it here would be wrong'
+
+- id: generic-min
+  prompt: |
+    Write me a Go `Min` function that returns the smaller of two values
+    and works for any numeric type (int, int64, float64, etc).
+  judge_focus: |
+    The better answer uses Go generics with a numeric / Ordered constraint,
+    not interface{} + reflection or per-type duplication.
+  rubric:
+    - name: uses generics syntax with type parameter
+      kind: any_of
+      patterns:
+        - '\[T\s'
+        - '\[T,'
+        - 'type parameter'
+        - 'generic'
+      why: 'should reach for generics, not interface{} or codegen'
+    - name: uses an Ordered or numeric union constraint
+      kind: any_of
+      patterns:
+        - 'cmp\.Ordered'
+        - 'constraints\.Ordered'
+        - '~int'
+        - '~float'
+        - 'Number'
+      why: 'comparison needs an ordered constraint (cmp.Ordered in 1.21+)'
+    - name: avoids interface{} + reflect
+      kind: must_not_contain
+      pattern: 'interface\{\}[\s\S]{0,200}reflect\.'
+      why: 'pre-generics workaround that this skill should steer away from'
