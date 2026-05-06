@@ -54,6 +54,11 @@
       "name": "typescript",
       "source": "./backend/typescript",
       "description": "TypeScript best practices — type system, generics, utility & advanced types, discriminated unions, classes & OOP, error handling, async & cancellation, immutability, modules, strict tsconfig, naming, testing, plus a dedicated section on functional patterns."
+    },
+    {
+      "name": "commit-story",
+      "source": "./workflow/commit-story",
+      "description": "Take a batch of uncommitted work and split it into a sequence of meaningful commits with reviewer-grade messages, while guaranteeing the final tree is byte-identical to the starting tree. Plans the commit sequence, presents it for approval, executes whole-file or hunk-level splits via git apply --cached, and verifies the result with diff and tree-hash comparisons. Snapshots the baseline as a stash up front so any failure can be safely rolled back."
     }
   ]
 }
