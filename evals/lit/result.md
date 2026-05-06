@@ -1,17 +1,17 @@
 # Eval report: `lit`
 
 - Backend: **SDK direct (sonnet/haiku at temperature=0; opus uncontrolled)**
-- Cases: **6**
+- Cases: **9**
 - Models: **sonnet, haiku, opus**
-- Total cost: **$1.44** (judge cost not counted)
+- Total cost: **$2.35** (judge cost not counted)
 
 ## Per-model summary
 
 | Model | Expectations met | Judge (skill / baseline / tie) | Rubric: baseline → skill (Δ) |
 | --- | --- | --- | --- |
-| `sonnet` | 4/6 | 3 / 0 / 3 | 100% → 100% (+0%) |
-| `haiku` | 5/6 | 4 / 1 / 1 | 100% → 100% (+0%) |
-| `opus` ¹ | 5/6 | 4 / 0 / 2 | 100% → 100% (+0%) |
+| `sonnet` | 6/9 | 5 / 1 / 3 | 100% → 100% (+0%) |
+| `haiku` | 8/9 | 7 / 1 / 1 | 92% → 96% (+4%) |
+| `opus` ¹ | 6/9 | 5 / 1 / 3 | 92% → 96% (+4%) |
 
 ¹ Opus 4.7 does not accept the `temperature` parameter; its numbers are indicators, not measurements (re-runs may flip individual verdicts).
 
@@ -19,19 +19,22 @@
 
 | Expectation kind | Total | sonnet met | haiku met | opus met |
 | --- | --- | --- | --- | --- |
-| `skill_wins` | 4 | 2/4 | 4/4 | 3/4 |
-| `skill_wins_strict` | 1 | 1/1 | 0/1 | 1/1 |
+| `skill_wins` | 7 | 4/7 | 7/7 | 5/7 |
+| `skill_wins_strict` | 1 | 1/1 | 0/1 | 0/1 |
 | `tie` | 1 | 1/1 | 1/1 | 1/1 |
 
 ## Cases
 
 | Case | Expected | sonnet | haiku | opus |
 | --- | --- | --- | --- | --- |
-| `array-mutation-no-rerender` | skill_wins | ✗ = tie | ✓ ✓ skill | ✗ = tie |
+| `array-mutation-no-rerender` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
 | `typed-event-cross-shadow` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
 | `lifecycle-which-callback` | skill_wins | ✗ = tie | ✓ ✓ skill | ✓ ✓ skill |
-| `state-vs-property` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
-| `simplest-render-html` | skill_wins_strict | ✓ ✓ skill | ✗ ✗ baseline | ✓ ✓ skill |
+| `state-vs-property` | skill_wins | ✗ = tie | ✓ ✓ skill | ✓ ✓ skill |
+| `custom-directive-vs-helper` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✗ = tie |
+| `reactive-controller-vs-task` | skill_wins | ✗ ✗ baseline | ✓ ✓ skill | ✓ ✓ skill |
+| `context-subscribe-true` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✗ ✗ baseline |
+| `simplest-render-html` | skill_wins_strict | ✓ ✓ skill | ✗ ✗ baseline | ✗ = tie |
 | `offtopic-sql-join` | tie | ✓ = tie | ✓ = tie | ✓ = tie |
 
 ## Per-case detail
@@ -53,21 +56,21 @@ change detection, recommends creating a new array
 
 #### `sonnet`
 
-**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly explain reference equality, recommend creating a new array with spread syntax, and mention requestUpdate as an escape hatch. Answer A goes deeper with additional examples (other mutation methods, objects, repeat directive) while Answer B is more concise and includes a helpful summary table with multiple new-array alternatives like concat. Both are high quality and cover all rubric criteria equally well.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers cover the three rubric criteria well, but Answer A provides a more thorough and accurate explanation of reference equality, correctly notes that requestUpdate requires passing the property name explicitly (which is an important technical detail), and covers a broader range of immutable update patterns. Answer B adds a useful hasChanged approach not in the rubric, but its requestUpdate call omits the old value argument which may matter in some cases, and the table adds clarity. Overall Answer A is more technically precise and comprehensive.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
-| explains reference equality / strict equality | tie |
+| explains reference equality / strict equality | skill |
 | recommends creating a new array | tie |
-| mentions requestUpdate as escape hatch | tie |
+| mentions requestUpdate as escape hatch | skill |
 
 **Baseline rubric**
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| explains reference equality / strict equality | ✓ | `reference equal` |
+| explains reference equality / strict equality | ✓ | `!==` |
 | recommends creating a new array | ✓ | `[...this.items` |
 | mentions requestUpdate as escape hatch | ✓ | `requestUpdate` |
 
@@ -83,80 +86,64 @@ change detection, recommends creating a new array
 
 ## The Problem
 
-Lit tracks property changes by **reference equality** (`===`). When you use `push()`, you're mutating the **same array reference**, so Lit doesn't detect any change and skips re-rendering.
+Lit uses **shallow equality checks** to detect property changes. When you `push()` to an array, the **reference stays the same**, so Lit sees no change and skips re-rendering.
 
 ```javascript
-// ❌ Mutating the array - Lit sees the same reference, no re-render
+// ❌ Lit sees the same array reference - no re-render
 this.items.push(newItem);
 ```
 
 ---
 
-## The Fix
+## Solutions
 
-You need to create a **new array reference** so Lit detects the change:
+### 1. Create a New Array (Recommended)
 
 ```javascript
-// ✅ Option 1: Spread into a new array (most common)
+// ✅ New reference = Lit detects the change
 this.items = [...this.items, newItem];
 
-// ✅ Option 2: concat (returns a new array)
-this.items = this.items.concat(newItem);
-
-// ✅ Option 3: Array.from
-this.items = Array.from(this.items).concat(newItem);
+// Also works for other mutations:
+this.items = this.items.filter(item => item.id !== id);  // remove
+this.items = this.items.map(item => ({ ...item, updated: true })); // update
 ```
 
----
+### 2. Mutate, Then Notify Manually
 
-## If You *Must* Mutate
-
-If you have a specific reason to mutate the array directly, you can notify Lit manually using `requestUpdate()`:
+If you **must** mutate in place, use `requestUpdate()`:
 
 ```javascript
 this.items.push(newItem);
-this.requestUpdate('items', previousValue); // manually trigger re-render
+this.requestUpdate('items'); // tell Lit the property changed
 ```
 
-> ⚠️ This is generally discouraged — prefer immutable updates.
+### 3. Use a Custom Property Hasher
 
----
-
-## Full Example
+Tell Lit to do a deep check instead of a reference check:
 
 ```javascript
-import { LitElement, html } from 'lit';
+import { deepEqual } from 'some-deep-equal-lib';
 
-class MyList extends LitElement {
-  @property({ type: Array }) items = [];
-
-  addItem(newItem) {
-    this.items = [...this.items, newItem]; // ✅ new reference = re-render
-  }
-
-  render() {
-    return html`
-      <ul>
-        ${this.items.map(item => html`<li>${item}</li>`)}
-      </ul>
-      <button @click=${() => this.addItem('New Item')}>Add</button>
-    `;
-  }
-}
+@property({
+  type: Array,
+  hasChanged: (newVal, oldVal) => !deepEqual(newVal, oldVal)
+})
+items = [];
 ```
+
+> ⚠️ This can hurt performance on large arrays since it compares every element.
 
 ---
 
-## Summary
+## Best Practice
 
-| Approach | Creates New Reference | Re-renders |
-|---|---|---|
-| `push()` | ❌ | ❌ |
-| `[...items, newItem]` | ✅ | ✅ |
-| `concat()` | ✅ | ✅ |
-| `push()` + `requestUpdate()` | ❌ | ✅ |
+| Approach | Re-renders | Mutates Original | Performance |
+|---|---|---|---|
+| Spread `[...arr]` | ✅ | ❌ | ✅ Good |
+| `requestUpdate()` | ✅ | ✅ | ✅ Good |
+| `hasChanged` deep check | ✅ | ✅ | ⚠️ Costly |
 
-The **spread operator** (`[...this.items, newItem]`) is the cleanest and most idiomatic solution.
+**The spread approach is the most idiomatic** — it's immutable, predictable, and works cleanly with Lit's reactive system.
 
 </details>
 
@@ -164,42 +151,40 @@ The **spread operator** (`[...this.items, newItem]`) is the cleanest and most id
 
 Lit uses **reference equality** (`!==`) to detect changes. When you call `this.items.push(newItem)`, the array reference stays the same, so Lit sees no change and skips the re-render.
 
-## The Fix: Replace the Reference
+## The Fix: Always Replace the Reference
 
-Instead of mutating the array, assign a new one:
+Instead of mutating the array, create a new one:
 
 ```typescript
 // ❌ Mutates in place — Lit sees no change
 this.items.push(newItem);
 
-// ✅ New reference — Lit detects the change and re-renders
+// ✅ New reference — Lit schedules a re-render
 this.items = [...this.items, newItem];
 ```
 
-The same rule applies to all common array mutations:
+The same rule applies to all common array operations:
 
 ```typescript
-// ❌ All of these mutate in place
+// ❌ Mutations Lit won't detect
 this.items.push(newItem);
 this.items.pop();
 this.items.splice(index, 1);
-this.items.sort();
 this.items[0] = newItem;
 
 // ✅ Immutable equivalents
 this.items = [...this.items, newItem];           // push
 this.items = this.items.slice(0, -1);            // pop
 this.items = this.items.filter((_, i) => i !== index); // splice/remove
-this.items = [...this.items].sort();             // sort
-this.items = this.items.map((item, i) =>         // index update
+this.items = this.items.map((item, i) =>         // update by index
   i === 0 ? newItem : item
 );
 ```
 
-The same principle applies to **objects** — spread instead of mutating:
+The same applies to **objects** — spread to replace, don't mutate:
 
 ```typescript
-// ❌ Mutates in place
+// ❌ Lit won't detect this
 this.user.name = 'Alice';
 
 // ✅ New reference
@@ -212,14 +197,14 @@ If you genuinely need to mutate in place (e.g., working with a third-party API t
 
 ```typescript
 this.items.push(newItem);
-this.requestUpdate('items', previousItems); // pass the old reference
+this.requestUpdate('items', this.items); // force re-render
 ```
 
-This works, but the immutable pattern is strongly preferred — it's clearer, easier to test, and avoids subtle bugs.
+This works, but it's fragile — Lit's `hasChanged` check will still see identical references, so you must pass the property name explicitly. Prefer immutable updates.
 
-## Rendering Lists Efficiently
+## Rendering the List
 
-Once your array updates correctly, use the `repeat()` directive so Lit can reconcile by key instead of re-rendering the whole list:
+Pair your immutable updates with the `repeat()` directive for efficient DOM reuse when items reorder:
 
 ```typescript
 import { repeat } from 'lit/directives/repeat.js';
@@ -229,26 +214,26 @@ render() {
     <ul>
       ${repeat(
         this.items,
-        (item) => item.id,           // stable key
+        (item) => item.id,          // stable key — minimises DOM churn
         (item) => html`<li>${item.name}</li>`
       )}
     </ul>
-    <button @click=${this.addItem}>Add</button>
+    <button @click=${this._addItem}>Add</button>
   `;
 }
 
-private addItem() {
+private _addItem() {
   this.items = [...this.items, { id: crypto.randomUUID(), name: 'New' }];
 }
 ```
 
-`repeat()` with a key minimises DOM churn on reorders and insertions — without it, Lit patches nodes in place by position, which can cause issues with stateful elements like inputs.
+Use a plain `map()` instead of `repeat()` when the list is short and items don't reorder — `repeat()` pays off when you need to preserve DOM state (focus, animations) across reorders.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers cover all three rubric criteria, but Answer B is more precise and idiomatic. It correctly uses '!==' (reference inequality) terminology rather than 'shallow equality checks', frames requestUpdate as an escape hatch to avoid rather than a primary solution, and provides cleaner code examples with explicit ❌/✅ markers. Answer A calls it 'shallow equality checks' which is slightly imprecise, and presents requestUpdate more neutrally rather than as a last resort.
+**Met:** ✓  ·  **Judge:** **skill** — Answer B is more accurate and idiomatic. It correctly explains reference equality using `!==` notation, provides a clear immutable assignment recommendation, and properly frames `requestUpdate()` as an escape hatch to avoid rather than a primary solution. Answer A contains a misleading section about 'reactive controllers/signals' that doesn't accurately represent Lit's API and could confuse readers.
 
 **Per-criterion verdict (judge)**
 
@@ -262,7 +247,7 @@ private addItem() {
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| explains reference equality / strict equality | ✓ | `!==` |
+| explains reference equality / strict equality | ✓ | `same array reference` |
 | recommends creating a new array | ✓ | `[...this.items` |
 | mentions requestUpdate as escape hatch | ✓ | `requestUpdate` |
 
@@ -299,45 +284,45 @@ this.items.push(newItem);
 this.requestUpdate();
 ```
 
-### 3. **Use a reactive controller or state management**
-For complex state, consider using a library like `lit-state` or `@lit/reactive-element`.
+### 3. **Use a reactive controller or signal** (Modern approach)
+For more complex state management:
+
+```javascript
+import { reactive } from '@lit/reactive-element';
+
+items = reactive([]);
+
+addItem(newItem) {
+  this.items.push(newItem);
+  // Reactive automatically detects changes
+}
+```
 
 ## Why This Happens
 
 Lit uses **shallow equality checks** by default. It compares the old and new property values:
 
 ```javascript
-oldValue === newValue  // false only if reference changes
+oldValue === newValue  // true for mutations!
 ```
 
-When you mutate an array:
-```javascript
-const arr = [1, 2];
-arr.push(3);
-arr === arr  // still true! Same reference
-```
+Since `push()` returns the same array reference, Lit thinks nothing changed.
 
 ## Best Practice
 
-Always treat arrays as immutable in Lit:
+Always reassign arrays/objects when updating them:
 
 ```javascript
-addItem(newItem) {
-  this.items = [...this.items, newItem];
-}
+// ✅ Good
+this.items = [...this.items, newItem];
+this.data = { ...this.data, key: value };
 
-removeItem(index) {
-  this.items = this.items.filter((_, i) => i !== index);
-}
-
-updateItem(index, updated) {
-  this.items = this.items.map((item, i) => 
-    i === index ? updated : item
-  );
-}
+// ❌ Bad
+this.items.push(newItem);
+this.data.key = value;
 ```
 
-This ensures Lit detects the change and re-renders properly.
+This is a common pattern in reactive frameworks (React, Vue, etc.) and makes change detection predictable.
 
 </details>
 
@@ -407,13 +392,13 @@ However, **avoid this pattern** — immutable updates are clearer and play bette
 ## See Also
 
 - [Reactive Properties](references/reactive-properties.md) — full mutation rules and change detection details
-- [Templates & Directives](references/templates-and-directives.md) — `repeat()` directive for efficient list rendering
+- [Code Examples](references/code-examples.md) — list rendering patterns with `repeat()`
 
 </details>
 
 #### `opus`
 
-**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers are excellent and cover all three rubric criteria clearly. Answer A provides more comprehensive examples (remove, update, clear, objects) and explains why Lit uses reference equality, while Answer B adds a useful nuance about requestUpdate('items') and changedProperties behavior. Neither is clearly superior overall.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers cover all three rubric criteria well, but Answer A provides more comprehensive examples of immutable updates for various mutation patterns (splice, index assignment, object updates), making it more practically useful. Answer B adds a bonus `hasChanged` tip that's helpful but slightly off-focus, while Answer A's broader mutation examples and clearer TL;DR make it marginally more complete and idiomatic. The `requestUpdate` coverage is roughly equivalent, though B's mention of passing the old value for lifecycle hooks is a nice touch.
 
 **Per-criterion verdict (judge)**
 
@@ -427,7 +412,7 @@ However, **avoid this pattern** — immutable updates are clearer and play bette
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| explains reference equality / strict equality | ✓ | `same reference` |
+| explains reference equality / strict equality | ✗ | |
 | recommends creating a new array | ✓ | `[...this.items` |
 | mentions requestUpdate as escape hatch | ✓ | `requestUpdate` |
 
@@ -443,7 +428,7 @@ However, **avoid this pattern** — immutable updates are clearer and play bette
 
 # The Problem
 
-Lit uses **referential equality** (`===`) by default to detect property changes. When you call `this.items.push(newItem)`, you're mutating the existing array — the reference stays the same, so Lit doesn't see a change and doesn't trigger a re-render.
+Lit's reactivity system detects property changes by **reference comparison** (similar to `===`). When you call `this.items.push(newItem)`, you're mutating the existing array — the reference stays the same, so Lit doesn't know anything changed and won't trigger a re-render.
 
 # The Fix
 
@@ -457,54 +442,51 @@ this.items.push(newItem);
 this.items = [...this.items, newItem];
 ```
 
-The same applies to other mutating methods like `pop()`, `splice()`, `sort()`, etc., and to objects (`this.obj.foo = 'bar'` won't trigger an update either).
+The same applies to other mutating methods (`pop`, `splice`, `sort`, `unshift`, etc.) and to objects (`this.obj.foo = 'bar'` won't trigger updates either).
 
-# Alternative: Manual Request
+# Alternatives
 
-If you have a good reason to mutate in place (e.g., very large arrays where copying is expensive), you can manually tell Lit to re-render:
+**1. Manually request an update** if you really need to mutate (e.g., for performance with very large arrays):
 
 ```js
 this.items.push(newItem);
 this.requestUpdate();
 ```
 
-Or, if you want Lit to only check a specific property:
+You can also pass the old value so `updated()` lifecycle hooks work properly:
 
 ```js
-this.items.push(newItem);
-this.requestUpdate('items');
+this.requestUpdate('items', this.items);
 ```
 
-Note that with `requestUpdate('items')`, the `changedProperties` map passed to `updated()` / `willUpdate()` will reflect the old value as the same reference, which can break logic that compares old vs. new.
+**2. Use a custom `hasChanged` function** if you want Lit to compare differently:
 
-# Recommendation
+```js
+@property({
+  type: Array,
+  hasChanged: () => true, // always consider changed
+})
+items = [];
+```
 
-Prefer the immutable approach (`this.items = [...this.items, newItem]`). It plays nicely with Lit's change detection, makes `changedProperties` meaningful, and aligns with how reactive frameworks generally expect state to be updated.
+# Recommended Approach
+
+Stick with immutable updates (`[...this.items, newItem]`). It plays nicely with Lit's change detection, makes your code easier to reason about, and works well if you later integrate state management libraries.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-# Why Your Component Isn't Re-rendering
+# Why your component isn't re-rendering
 
-This is one of the most common Lit pitfalls. The issue is **how Lit detects property changes**, not anything specific to arrays.
+This is the **#1 most common Lit gotcha**. Lit's change detection uses **strict reference equality (`!==`)** to decide whether to re-render. When you call `this.items.push(newItem)`, you're mutating the *same array* — the reference doesn't change, so Lit thinks nothing happened.
 
-## The Cause
-
-Lit uses **reference equality** (`!==`) to detect property changes. When you call `this.items.push(newItem)`, you're mutating the existing array in place — the reference stays the same, so Lit thinks nothing changed and skips the re-render.
+## The fix: create a new array reference
 
 ```ts
-// ❌ Mutates in place — same reference, no re-render
+// ❌ Mutates in place — no re-render
 this.items.push(newItem);
 
-// Lit's check: this.items !== this.items → false → no update
-```
-
-## The Fix
-
-Always assign a **new** array (or object) reference:
-
-```ts
 // ✅ New array reference — triggers re-render
 this.items = [...this.items, newItem];
 ```
@@ -512,47 +494,37 @@ this.items = [...this.items, newItem];
 The same rule applies to all array/object mutations:
 
 ```ts
-// Add
-this.items = [...this.items, newItem];
+// ❌ All of these mutate in place
+this.items.push(item);
+this.items.splice(0, 1);
+this.items[0] = newValue;
+this.user.name = 'Alice';
 
-// Remove
-this.items = this.items.filter(item => item.id !== id);
-
-// Update one
-this.items = this.items.map(item =>
-  item.id === id ? { ...item, done: true } : item
-);
-
-// Clear
-this.items = [];
+// ✅ Create new references instead
+this.items = [...this.items, item];                    // append
+this.items = this.items.filter((_, i) => i !== 0);     // remove
+this.items = this.items.map((v, i) => i === 0 ? newValue : v);  // update
+this.user = { ...this.user, name: 'Alice' };           // object update
 ```
 
-And for objects:
+## Why Lit works this way
 
-```ts
-// ❌ this.user.name = 'Alice';
-// ✅
-this.user = { ...this.user, name: 'Alice' };
-```
+Lit checks `oldValue !== newValue` in the property setter. This is fast (one comparison) and predictable. Deep equality checking would be expensive and ambiguous. Immutable updates also play nicely with `repeat()` directives, signals, and any future tooling that relies on reference identity.
 
-## Escape Hatch (Use Sparingly)
+## Escape hatch (rarely needed)
 
-If you have a genuine reason to mutate in place (e.g., a very large array where copying is too expensive), you can manually tell Lit to re-render:
+If you absolutely must mutate in place — say, for a huge array where copying is a real perf problem — manually request an update:
 
 ```ts
 this.items.push(newItem);
-this.requestUpdate('items', this.items); // force update
+this.requestUpdate('items');  // tell Lit to re-render
 ```
 
-But in 99% of cases, the immutable update pattern is cleaner and has no meaningful performance cost.
+But prefer immutable updates as the default. They're easier to reason about and they're what every other part of the Lit ecosystem expects.
 
-## Why Lit Works This Way
+## TL;DR
 
-Reference equality is **fast** (a single `!==` check) and **predictable**. Deep equality would be expensive on every property set, and there's no reliable way to detect mutations to nested objects without proxies. The immutable update pattern also plays nicely with `Task` arguments, `repeat()` keys, and any future migration to signals.
-
----
-
-**TL;DR:** Replace `this.items.push(x)` with `this.items = [...this.items, x]`.
+> **Never mutate `@property` or `@state` values in place.** Always assign a new reference. If you can't, call `this.requestUpdate(propName)` manually.
 
 </details>
 
@@ -574,7 +546,7 @@ Event subclasses with static readonly type.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify composed:true and bubbles:true as required to cross Shadow DOM boundaries, but Answer B goes further by providing the bonus content about typed Event subclasses with static readonly type, TypeScript integration with HTMLElementEventMap, and a practical debugging checklist. Answer B is more comprehensive and production-ready while still covering all the core criteria.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify composed:true and bubbles:true as required to cross Shadow DOM boundaries, but Answer B goes further by including the bonus content about typed Event subclasses with static readonly type, HTMLElementEventMap declarations, and a practical checklist of additional failure modes. Answer B is more comprehensive and production-ready while still being clear and accurate on the core issue.
 
 **Per-criterion verdict (judge)**
 
@@ -598,7 +570,7 @@ Event subclasses with static readonly type.
 | --- | --- | --- |
 | identifies composed:true is required | ✓ | `composed: true` |
 | mentions bubbles:true | ✓ | `bubbles: true` |
-| mentions Shadow DOM boundary | ✓ | `Shadow DOM` |
+| mentions Shadow DOM boundary | ✓ | `Shadow DOM boundary` |
 
 <details><summary>sonnet: baseline answer</summary>
 
@@ -617,14 +589,14 @@ You need to set **both** `bubbles: true` and `composed: true` when dispatching t
 this.dispatchEvent(new CustomEvent('my-event', {
   detail: { message: 'hello' },
   bubbles: true,        // bubbles up through shadow DOM nodes only
-  // composed: false    // default - does NOT cross shadow boundary
+  // composed is false by default!
 }));
 
-// ✅ Correct - event escapes the shadow root
+// ✅ Correct - event crosses the shadow DOM boundary
 this.dispatchEvent(new CustomEvent('my-event', {
   detail: { message: 'hello' },
-  bubbles: true,   // bubbles up through the DOM
-  composed: true   // crosses the shadow DOM boundary ✅
+  bubbles: true,   // allows the event to bubble up
+  composed: true,  // allows the event to cross shadow DOM boundaries
 }));
 ```
 
@@ -636,23 +608,25 @@ this.dispatchEvent(new CustomEvent('my-event', {
 |---|---|
 | `bubbles: false` | Event stays on the dispatching element only |
 | `bubbles: true` | Event bubbles up through the DOM tree |
-| `composed: false` | Event is **blocked** at the shadow root (default) |
+| `composed: false` | Event is **stopped** at the shadow root (default) |
 | `composed: true` | Event **crosses** shadow DOM boundaries into the light DOM |
+
+You need **both** together to reach a parent outside the host element.
 
 ---
 
 ## Full Lit Example
 
 ```javascript
-// child-component.js
 import { LitElement, html } from 'lit';
 
-class ChildComponent extends LitElement {
+// Child component
+class MyChild extends LitElement {
   _handleClick() {
     this.dispatchEvent(new CustomEvent('child-clicked', {
       detail: { value: 42 },
       bubbles: true,
-      composed: true  // 👈 key option
+      composed: true, // 👈 this is the key
     }));
   }
 
@@ -660,92 +634,87 @@ class ChildComponent extends LitElement {
     return html`<button @click=${this._handleClick}>Click me</button>`;
   }
 }
-customElements.define('child-component', ChildComponent);
-```
+customElements.define('my-child', MyChild);
 
-```javascript
-// parent-component.js
-import { LitElement, html } from 'lit';
 
-class ParentComponent extends LitElement {
-  _onChildClicked(e) {
-    console.log('Received event:', e.detail.value); // 42 ✅
-  }
-
+// Parent component
+class MyParent extends LitElement {
   render() {
     return html`
-      <child-component
-        @child-clicked=${this._onChildClicked}>
-      </child-component>
+      <my-child @child-clicked=${this._onChildClicked}></my-child>
     `;
   }
+
+  _onChildClicked(e) {
+    console.log('Received event with value:', e.detail.value); // ✅ works
+  }
 }
-customElements.define('parent-component', ParentComponent);
+customElements.define('my-parent', MyParent);
 ```
 
 ---
 
-## Important Caveat: `e.target` Will Be Retargeted
-
-When `composed: true` is used, the browser **retargets** `e.target` to the host element (`<child-component>`) as the event crosses the boundary — the internal element that originally fired it is hidden. This is expected Shadow DOM behavior.
+## A Note on `composed` Without `bubbles`
 
 ```javascript
-_onChildClicked(e) {
-  console.log(e.target); // <child-component> not the internal <button>
-}
+// ⚠️ composed: true alone - crosses boundary but only visible
+// on the host element itself, doesn't bubble further up
+this.dispatchEvent(new CustomEvent('my-event', {
+  composed: true,
+  bubbles: false,
+}));
 ```
 
----
-
-## Quick Rule of Thumb
-
-> If you want a parent **outside** your Lit component to hear your event, always use `bubbles: true, composed: true`.
+In most cases you want **both flags set to `true`** to ensure the event bubbles up through the full DOM tree across shadow boundaries.
 
 </details>
 
 <details><summary>sonnet: skill-loaded answer</summary>
 
-## The Problem: Shadow DOM Event Retargeting
+The most common cause is that the event isn't configured to cross the Shadow DOM boundary. Here's what's happening and how to fix it.
 
-Custom events don't cross Shadow DOM boundaries by default. When you dispatch an event inside a shadow root, it stops there — the parent component never sees it.
+## Why Events Get Trapped
 
-The fix requires **two flags** in the event constructor:
+Shadow DOM creates an encapsulation boundary. A `CustomEvent` with default options stops at the shadow root — it never reaches the light DOM where your parent is listening.
 
-```typescript
-// ❌ Stays trapped inside the shadow root
-this.dispatchEvent(new CustomEvent('user-selected', { detail: { id: 42 } }));
+Two options control this:
 
-// ✅ Crosses shadow boundaries and bubbles up the DOM tree
-this.dispatchEvent(new CustomEvent('user-selected', {
-  detail: { id: 42 },
-  bubbles: true,   // travels up the DOM tree
-  composed: true,  // crosses shadow root boundaries
+| Option | Default | What it does |
+|--------|---------|--------------|
+| `bubbles` | `false` | Event travels up the DOM tree |
+| `composed` | `false` | Event crosses shadow root boundaries |
+
+**Both must be `true`** for an event dispatched inside a shadow root to reach a parent in the light DOM.
+
+## The Fix
+
+```ts
+// ❌ Trapped inside the shadow root
+this.dispatchEvent(new CustomEvent('value-changed', {
+  detail: { value: this.value },
+}));
+
+// ✅ Escapes the shadow root and bubbles up
+this.dispatchEvent(new CustomEvent('value-changed', {
+  detail: { value: this.value },
+  bubbles: true,
+  composed: true,
 }));
 ```
 
-Both flags are required together:
+## The Better Pattern: Typed Event Classes
 
-| Flag | What it does | Without it |
-|------|-------------|------------|
-| `bubbles` | Travels up the DOM tree | Event stays on the dispatching element |
-| `composed` | Crosses shadow root boundaries | Event stops at the shadow root edge |
+Raw `CustomEvent` strings are error-prone. A typed event class gives you autocomplete, compile-time safety, and a single place to set `bubbles`/`composed` correctly — so you can't forget them.
 
----
+**`events/value-changed-event.ts`**
+```ts
+export class ValueChangedEvent extends Event {
+  static readonly type = 'value-changed';
 
-## The Recommended Pattern: Typed Event Classes
-
-Rather than raw `CustomEvent`, define a concrete event class. This gives you type safety on both the dispatching and listening sides, and makes the `bubbles`/`composed` defaults impossible to forget.
-
-**`events/user-selected-event.ts`** — define once, import everywhere:
-
-```typescript
-export class UserSelectedEvent extends Event {
-  static readonly type = 'user-selected';
-
-  constructor(public readonly userId: number) {
-    super(UserSelectedEvent.type, {
-      bubbles: true,
-      composed: true,
+  constructor(public readonly value: string) {
+    super(ValueChangedEvent.type, {
+      bubbles: true,   // travels up the DOM tree
+      composed: true,  // crosses shadow root boundaries
     });
   }
 }
@@ -753,75 +722,53 @@ export class UserSelectedEvent extends Event {
 // Teach TypeScript about the event on the element's interface
 declare global {
   interface HTMLElementEventMap {
-    'user-selected': UserSelectedEvent;
+    'value-changed': ValueChangedEvent;
   }
 }
 ```
 
-**Dispatching component** — dispatch after `updateComplete` so listeners see the rendered state:
+**Inside your component:**
+```ts
+import { ValueChangedEvent } from './events/value-changed-event.js';
 
-```typescript
-import { LitElement, html } from 'lit';
-import { customElement } from 'lit/decorators.js';
-import { UserSelectedEvent } from './events/user-selected-event.js';
-
-@customElement('user-list')
-export class UserList extends LitElement {
-  private async _handleClick(userId: number) {
-    // Do any async work first, then dispatch after render is settled
-    await this.updateComplete;
-    this.dispatchEvent(new UserSelectedEvent(userId));
-  }
-
-  render() {
-    return html`
-      <button @click=${() => this._handleClick(42)}>Select user</button>
-    `;
-  }
-}
+// Dispatch after the DOM has updated so listeners see current state
+await this.updateComplete;
+this.dispatchEvent(new ValueChangedEvent(this.value));
 ```
 
-**Listening component** — the event type is fully inferred from `HTMLElementEventMap`:
-
-```typescript
-import { LitElement, html } from 'lit';
-import { customElement } from 'lit/decorators.js';
-import { UserSelectedEvent } from './events/user-selected-event.js';
-
-@customElement('app-shell')
-export class AppShell extends LitElement {
-  render() {
-    return html`
-      <user-list
-        @user-selected=${this._onUserSelected}
-      ></user-list>
-    `;
-  }
-
-  // userId is typed as number — no casting needed
-  private _onUserSelected(e: UserSelectedEvent) {
-    console.log(e.userId);
-  }
-}
+**In the parent (Lit template):**
+```ts
+// Fully typed — `e.value` is `string`, not `unknown`
+html`<my-input @value-changed=${(e: ValueChangedEvent) => {
+  console.log(e.value);
+}}></my-input>`
 ```
 
----
+**In the parent (vanilla JS/HTML):**
+```ts
+document.querySelector('my-input')
+  .addEventListener('value-changed', (e: ValueChangedEvent) => {
+    console.log(e.value); // typed, not e.detail.value
+  });
+```
 
-## Quick Checklist
+## Checklist
 
-If the event still isn't arriving, run through these:
+If it's still not working after adding `bubbles: true, composed: true`, check these:
 
-- [ ] **Both `bubbles: true` and `composed: true` are set** — one alone isn't enough
-- [ ] **The listener is on the host element or an ancestor**, not inside the shadow root of the dispatching component
-- [ ] **`e.stopPropagation()` isn't called** somewhere between the dispatch point and the listener
-- [ ] **The event name matches exactly** — `'user-selected'` vs `'userSelected'` are different strings
-- [ ] **The listener is attached before the event fires** — especially relevant with `firstUpdated` timing
+1. **`stopPropagation()` called somewhere upstream** — any ancestor calling this will swallow the event before it reaches the parent.
+
+2. **Listener is on the wrong element** — the parent must listen on the host element (`<my-component>`) or an ancestor, not inside its own shadow root.
+
+3. **Event dispatched before the element is connected** — events dispatched in the constructor won't bubble anywhere useful. Use `firstUpdated()` or a user interaction handler instead.
+
+4. **`composed: false` on a built-in event** — some native events (like `change` on an `<input>` inside a shadow root) are not composed by default. Re-dispatch them as a new composed event if you need them to escape.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify composed:true and bubbles:true as required to cross Shadow DOM boundaries, but Answer A goes further by including the bonus content about typed Event subclasses with static readonly type, which is explicitly mentioned in the focus area. Answer A also provides a comparison table, updateComplete timing guidance, and more comprehensive TypeScript examples, making it more complete and useful overall.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify composed:true and bubbles:true as required to cross Shadow DOM boundaries. Answer A goes further by providing the bonus content of typed Event subclasses with static readonly type, HTMLElementEventMap augmentation, and a complete type-safe pattern, making it more comprehensive and idiomatic for TypeScript/Lit development.
 
 **Per-criterion verdict (judge)**
 
@@ -858,13 +805,16 @@ The issue is likely that your CustomEvent is **not crossing the Shadow DOM bound
 When dispatching the event, add the `composed` option:
 
 ```javascript
-// ❌ Won't reach parent (default)
-this.dispatchEvent(new CustomEvent('my-event'));
-
-// ✅ Will reach parent
+// ❌ Won't reach parent (stops at Shadow DOM boundary)
 this.dispatchEvent(new CustomEvent('my-event', {
-  bubbles: true,
-  composed: true
+  detail: { message: 'hello' }
+}));
+
+// ✅ Will reach parent (crosses Shadow DOM boundary)
+this.dispatchEvent(new CustomEvent('my-event', {
+  detail: { message: 'hello' },
+  composed: true,  // <-- Add this
+  bubbles: true    // <-- Also add this for safety
 }));
 ```
 
@@ -875,16 +825,16 @@ this.dispatchEvent(new CustomEvent('my-event', {
 import { LitElement, html } from 'lit';
 
 export class MyChild extends LitElement {
-  handleClick() {
-    this.dispatchEvent(new CustomEvent('child-event', {
-      detail: { message: 'Hello from child' },
-      bubbles: true,
-      composed: true  // ← This is the key!
-    }));
-  }
-
   render() {
     return html`<button @click=${this.handleClick}>Click me</button>`;
+  }
+
+  handleClick() {
+    this.dispatchEvent(new CustomEvent('child-event', {
+      detail: { message: 'Event from child' },
+      composed: true,
+      bubbles: true
+    }));
   }
 }
 ```
@@ -892,14 +842,14 @@ export class MyChild extends LitElement {
 **Parent Component:**
 ```javascript
 export class MyParent extends LitElement {
-  handleChildEvent(e) {
-    console.log('Received:', e.detail.message);
-  }
-
   render() {
     return html`
       <my-child @child-event=${this.handleChildEvent}></my-child>
     `;
+  }
+
+  handleChildEvent(event) {
+    console.log(event.detail.message); // Works! ✅
   }
 }
 ```
@@ -908,133 +858,110 @@ export class MyParent extends LitElement {
 
 | Option | Purpose |
 |--------|---------|
-| `bubbles: true` | Allows event to bubble up the DOM tree |
-| `composed: true` | **Allows event to cross Shadow DOM boundary** |
-| `detail` | Optional data to pass with the event |
+| `composed: true` | **Required** - allows event to cross Shadow DOM boundary |
+| `bubbles: true` | Allows event to bubble up through parent elements |
+| `detail` | Passes data with the event |
 
-Both `bubbles` and `composed` are typically needed for events to reach parents outside the Shadow DOM.
+Without `composed: true`, the event stops at the Shadow DOM boundary and never reaches the parent.
 
 </details>
 
 <details><summary>haiku: skill-loaded answer</summary>
 
-# CustomEvent Not Crossing Shadow DOM Boundary
+# Custom Event Not Crossing Shadow DOM Boundary
 
 The issue is that your event isn't configured to bubble through the Shadow DOM. By default, events created with `new CustomEvent()` have `bubbles: false` and `composed: false`, which means they stop at the Shadow DOM boundary.
 
-## Solution
+## The Fix
 
-When dispatching a custom event from a Lit component, **always set `bubbles: true` and `composed: true`**:
+When you create and dispatch the event, set both `bubbles: true` and `composed: true`:
 
 ```typescript
-import { LitElement, html } from 'lit';
-import { customElement } from 'lit/decorators.js';
+// ❌ Wrong — stops at Shadow DOM boundary
+this.dispatchEvent(new CustomEvent('my-event'));
 
-@customElement('my-button')
-export class MyButton extends LitElement {
-  private handleClick() {
-    // ✅ Correct: event crosses Shadow DOM
-    this.dispatchEvent(
-      new CustomEvent('my-event', {
-        detail: { message: 'Hello from shadow!' },
-        bubbles: true,
-        composed: true,
-      })
-    );
-  }
-
-  render() {
-    return html`<button @click=${this.handleClick}>Click me</button>`;
-  }
-}
+// ✅ Correct — crosses Shadow DOM
+this.dispatchEvent(
+  new CustomEvent('my-event', {
+    bubbles: true,
+    composed: true,
+  })
+);
 ```
 
-Parent listening outside the component:
+## Best Practice: Typed Event Class
+
+Define a concrete event class in your component module so consumers can import it for type-safe listening:
 
 ```typescript
-const button = document.querySelector('my-button');
-button.addEventListener('my-event', (e: Event) => {
-  const event = e as CustomEvent;
-  console.log(event.detail.message); // "Hello from shadow!"
-});
-```
-
-## Why This Matters
-
-| Property | Effect |
-|----------|--------|
-| `bubbles: true` | Event propagates up the DOM tree (parent, grandparent, etc.) |
-| `composed: true` | Event crosses the Shadow DOM boundary; without this, it stops at the host element |
-| `bubbles: false` (default) | Event only fires on the exact target; doesn't propagate |
-| `composed: false` (default) | Event cannot cross Shadow DOM; invisible to light DOM listeners |
-
-## Best Practice: Typed Event Classes
-
-For type safety and reusability, define a concrete event class:
-
-```typescript
-// events.ts
+// my-component.ts
 export class MyEventDetail {
-  constructor(public message: string) {}
+  constructor(public value: string) {}
 }
 
 export class MyEvent extends Event {
   static readonly type = 'my-event';
 
   constructor(public detail: MyEventDetail) {
-    super(MyEvent.type, { bubbles: true, composed: true });
+    super(MyEvent.type, {
+      bubbles: true,
+      composed: true,
+    });
   }
 }
 
-// my-button.ts
-import { MyEvent, MyEventDetail } from './events.js';
-
-@customElement('my-button')
-export class MyButton extends LitElement {
-  private handleClick() {
-    this.dispatchEvent(new MyEvent(new MyEventDetail('Hello!')));
+@customElement('my-component')
+export class MyComponent extends LitElement {
+  private _handleClick() {
+    this.dispatchEvent(new MyEvent(new MyEventDetail('hello')));
   }
 
   render() {
-    return html`<button @click=${this.handleClick}>Click me</button>`;
+    return html`<button @click=${this._handleClick}>Click me</button>`;
   }
 }
 
-// parent.ts
-import { MyEvent } from './events.js';
-
-const button = document.querySelector('my-button')!;
-button.addEventListener(MyEvent.type, (e: Event) => {
-  const event = e as MyEvent;
-  console.log(event.detail.message); // Fully typed!
-});
-```
-
-## Dispatch After `updateComplete`
-
-For events that reflect the rendered state, dispatch after the DOM has updated:
-
-```typescript
-private async handleChange() {
-  this.value = 'new value';
-  await this.updateComplete; // Wait for render
-  this.dispatchEvent(
-    new CustomEvent('value-changed', {
-      detail: { value: this.value },
-      bubbles: true,
-      composed: true,
-    })
-  );
+declare global {
+  interface HTMLElementEventMap {
+    'my-event': MyEvent;
+  }
 }
 ```
 
-See [reactive-properties.md](references/reactive-properties.md) for the full typed event pattern and [lifecycle.md](references/lifecycle.md) for `updateComplete` timing.
+## Parent Listening (Type-Safe)
+
+```typescript
+// parent-component.ts
+import { MyEvent } from './my-component.js';
+
+@customElement('parent-component')
+export class ParentComponent extends LitElement {
+  render() {
+    return html`
+      <my-component @my-event=${this._onMyEvent}></my-component>
+    `;
+  }
+
+  private _onMyEvent(event: MyEvent) {
+    console.log('Received:', event.detail.value); // "hello"
+  }
+}
+```
+
+## Key Points
+
+- **`bubbles: true`** — event propagates up the DOM tree
+- **`composed: true`** — event crosses the Shadow DOM boundary (critical!)
+- **`static readonly type`** — standardizes the event name and enables `HTMLElementEventMap` typing
+- **Dispatch after `await this.updateComplete`** — listeners see the fully rendered state
+
+See [reactive-properties.md](references/reactive-properties.md) for the full typed event pattern and more examples.
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify composed:true, bubbles:true, and Shadow DOM boundaries as the core issue. However, Answer B goes further by including the bonus criterion of typed Event subclasses with static readonly type, complete TypeScript examples, HTMLElementEventMap augmentation, and practical debugging tips. Answer A is solid but lacks the typed event class pattern that the rubric specifically rewards.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify composed:true and bubbles:true as required to cross Shadow DOM boundaries, but Answer B goes further by including the bonus criterion of typed Event subclasses with a static readonly type property, which is explicitly mentioned in the focus area. Answer B also provides a practical checklist and dispatch timing advice, making it more comprehensive and useful overall.
 
 **Per-criterion verdict (judge)**
 
@@ -1062,80 +989,69 @@ See [reactive-properties.md](references/reactive-properties.md) for the full typ
 
 <details><summary>opus: baseline answer</summary>
 
-# The Issue: Event Propagation Across Shadow DOM
+# The Issue: CustomEvents Don't Bubble Through Shadow DOM by Default
 
-By default, `CustomEvent`s **don't cross shadow DOM boundaries**. Since Lit components use shadow DOM, an event dispatched from inside your component will be trapped unless you configure it properly.
+By default, `CustomEvent` instances have two properties that prevent them from reaching listeners outside your Lit component's shadow DOM:
+
+1. **`bubbles: false`** – the event won't bubble up the DOM tree
+2. **`composed: false`** – the event won't cross the shadow DOM boundary
+
+Even if you set `bubbles: true`, the event will bubble *within* the shadow root but stop at the shadow boundary. To escape the shadow DOM, you need **both** `bubbles` and `composed` set to `true`.
 
 ## The Fix
-
-You need to set both `bubbles: true` and `composed: true`:
 
 ```js
 this.dispatchEvent(new CustomEvent('my-event', {
   detail: { someData: 123 },
   bubbles: true,
-  composed: true  // 👈 This is the key — allows the event to escape shadow DOM
+  composed: true,
 }));
 ```
 
-## What Each Option Does
+## Quick Reference
 
-| Option | Purpose |
-|--------|---------|
-| `bubbles: true` | Lets the event bubble up the DOM tree (instead of firing only on the target) |
-| `composed: true` | Lets the event cross shadow DOM boundaries into the light DOM |
+| `bubbles` | `composed` | Behavior |
+|-----------|------------|----------|
+| `false` | `false` | Only listeners on the dispatching element fire |
+| `true` | `false` | Bubbles inside shadow root, stops at boundary |
+| `false` | `true` | No bubbling, but can be caught at exact retarget point |
+| `true` | `true` | ✅ Bubbles all the way up through shadow DOM |
 
-Without `composed: true`, the event will bubble *within* your component's shadow root, but will stop at the shadow boundary and never reach the parent.
+## A Couple of Caveats
 
-## A Note on `event.target`
+- **Event retargeting**: When the event crosses the shadow boundary, `event.target` will be retargeted to your host element (the custom element itself), not the inner element that dispatched it. If you need the original target, use `event.composedPath()[0]`.
+- **Naming**: Prefer kebab-case event names (e.g., `'item-selected'`), and avoid names that collide with native DOM events.
+- **Lit convention**: Some teams reserve `composed: true` only for events that are genuinely meant to be public API of the component, since composed events can leak implementation details.
 
-Once the event crosses the shadow boundary, `event.target` will be **retargeted** to your custom element (the host), not the inner element that originally dispatched it. If you need access to the original target, use `event.composedPath()[0]`.
-
-## Bonus: Lit Convention
-
-Lit's docs recommend dispatching events from a method so consumers can override behavior, and naming events with a hyphen (e.g., `item-selected`):
-
-```js
-private _notify() {
-  this.dispatchEvent(new CustomEvent('item-selected', {
-    detail: { id: this.itemId },
-    bubbles: true,
-    composed: true,
-  }));
-}
-```
-
-That should get your parent listener firing correctly.
+If it still doesn't work after this change, double-check that the parent's listener is attached to an ancestor of the host element (or the host itself), and that it's listening for the exact same event name.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-Almost certainly your event isn't crossing the Shadow DOM boundary. By default, events dispatched from inside a shadow root are **retargeted** and don't bubble out unless you explicitly opt in.
+Short answer: your event almost certainly isn't crossing the Shadow DOM boundary. Events fired from inside a shadow root **do not** bubble out to ancestors unless you set `composed: true`. And to bubble at all, you also need `bubbles: true`.
 
 ## The fix
-
-Set both `bubbles: true` and `composed: true` on the event:
 
 ```ts
 this.dispatchEvent(new CustomEvent('my-event', {
   detail: { value: 42 },
   bubbles: true,
-  composed: true,  // <-- required to cross Shadow DOM
+  composed: true,
 }));
 ```
 
-- `bubbles: true` — event walks up the DOM tree
-- `composed: true` — event crosses Shadow DOM boundaries
+Both flags are required:
+- `bubbles: true` — lets the event bubble up the DOM
+- `composed: true` — lets it cross Shadow DOM boundaries
 
-Without `composed: true`, the event bubbles only within your component's shadow root and stops at the host. The parent never sees it.
+Without `composed`, the parent (which lives outside your component's shadow root) will never see it.
 
 ## Recommended pattern: typed event class
 
-For a more robust, type-safe approach, define a concrete event class and export it so consumers get autocomplete and type checking:
+Rather than ad-hoc `CustomEvent`s, define a concrete event class. This gives you type-safe `detail`, a stable event name, and consumers can import it for typed listeners:
 
 ```ts
-// my-component.ts
 export class ValueChangeEvent extends Event {
   static readonly type = 'value-change' as const;
   constructor(public readonly value: number) {
@@ -1143,41 +1059,29 @@ export class ValueChangeEvent extends Event {
   }
 }
 
-@customElement('my-component')
-export class MyComponent extends LitElement {
-  private async _onClick() {
-    this.value = 42;
-    await this.updateComplete;  // ensure DOM reflects state before listeners run
-    this.dispatchEvent(new ValueChangeEvent(this.value));
-  }
-  // ...
-}
-
-declare global {
-  interface HTMLElementEventMap {
-    'value-change': ValueChangeEvent;
-  }
-}
+// In your component:
+this.dispatchEvent(new ValueChangeEvent(42));
 ```
 
-Then in the parent:
+## One more gotcha: dispatch timing
+
+If the listener inspects DOM state when handling the event, dispatch *after* the update has flushed, otherwise the parent may read stale DOM:
 
 ```ts
-import { ValueChangeEvent } from './my-component.js';
-
-el.addEventListener(ValueChangeEvent.type, (e) => {
-  console.log(e.value);  // fully typed
-});
+this.value = 42;
+await this.updateComplete;
+this.dispatchEvent(new ValueChangeEvent(this.value));
 ```
 
-## Other things to check if it still doesn't work
+## Quick checklist
 
-1. **Listener attached too early?** If the parent attaches the listener before the child upgrades, that's fine — `addEventListener` doesn't care about element upgrade order. But if you're using inline `@event` bindings in a Lit template, make sure the parent itself has rendered.
-2. **Wrong event name** — check for typos; event names are case-sensitive.
-3. **`stopPropagation()` somewhere in between** — an intermediate component may be swallowing it.
-4. **Dispatching before render** — if you dispatch in `connectedCallback` before `firstUpdated`, the parent listener may not be wired up yet. Dispatch after `await this.updateComplete` to be safe.
+1. ✅ `bubbles: true`
+2. ✅ `composed: true`
+3. ✅ Listener attached to an actual ancestor (not a sibling)
+4. ✅ Event name matches exactly (case-sensitive, no typos)
+5. ✅ Dispatched *after* `await this.updateComplete` if the handler reads DOM
 
-The 90% answer is `composed: true`. Add it and the event will reach your parent.
+99% of the time, adding `composed: true` solves it. If it still doesn't work after that, double-check that the listener is on an ancestor element and the event name matches.
 
 </details>
 
@@ -1201,7 +1105,7 @@ parameter where relevant.
 
 #### `sonnet`
 
-**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly map all three tasks to willUpdate, firstUpdated, and updated, explain the changedProperties parameter with guards, and provide clear rationale. Answer A is slightly more concise and readable, while Answer B provides more detailed TypeScript examples, comparison tables for alternatives, and a useful note about @lit/task for data fetching. Both are essentially equivalent in correctness and coverage of all rubric criteria.
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly map all three tasks to willUpdate, firstUpdated, and updated, explain the ordering, and use the changedProperties parameter with guards. Answer A is slightly more concise and includes a helpful summary table, while Answer B provides more detailed TypeScript examples, a lifecycle flow diagram, and comparison tables for alternatives. Both are equally strong on all rubric criteria.
 
 **Per-criterion verdict (judge)**
 
@@ -1250,8 +1154,8 @@ willUpdate(changedProperties) {
 - Runs **before** `render()`, so the derived value is ready when the template is evaluated
 - Guaranteed to run on both client and server (SSR-safe)
 - `update()` would also work but `willUpdate` is the semantic fit — it exists specifically for pre-render derivation
-- Do **not** use `updated()` — that runs after render, causing a wasted paint cycle
-- Do **not** set reactive properties here (use plain class fields), otherwise you trigger another update cycle
+- Do **not** use `updated()` — that runs after render, causing a wasted paint with stale data
+- Do **not** set reactive properties here (use plain class fields) — setting a reactive property would trigger another update cycle
 
 ---
 
@@ -1273,11 +1177,18 @@ firstUpdated() {
 - The element is guaranteed to be in the DOM and measurable at this point
 - `connectedCallback` is too early — shadow DOM children may not be rendered yet
 - `updated()` would re-run on every change — wasteful and potentially incorrect for a "snapshot" measurement
-- If you need to wait for sub-element rendering, `await this.updateComplete` inside here is valid
+- If you need to wait for layout/paint (e.g., for accurate `getBoundingClientRect`), wrap in `await this.updateComplete` or `requestAnimationFrame`
+
+```javascript
+async firstUpdated() {
+  await this.updateComplete; // ensure children are also settled
+  const rect = this.shadowRoot.querySelector('.target').getBoundingClientRect();
+}
+```
 
 ---
 
-## (c) External API Call After Every Render That Changed an Input
+## (c) Call External API After Every Render That Changed an Input
 
 **→ `updated(changedProperties)`**
 
@@ -1285,30 +1196,28 @@ firstUpdated() {
 updated(changedProperties) {
   if (changedProperties.has('someInput')) {
     this.fetchData(this.someInput).then(result => {
-      this.result = result; // reactive property, triggers re-render
+      this.result = result; // reactive property triggers re-render
     });
   }
 }
 ```
 
 **Why:**
-- Runs **after every update**, with access to what actually changed via `changedProperties`
-- The guard `changedProperties.has('someInput')` prevents unnecessary API calls on unrelated re-renders
+- Runs **after** every update, with access to both current and previous values via `changedProperties`
+- The `changedProperties.has('someInput')` guard is **critical** — without it you get infinite loops (setting `this.result` triggers `updated` again)
 - Runs after DOM is committed, so any DOM side effects from the API response are safe
-- Do **not** do this in `willUpdate` — the DOM isn't ready and you'd be firing async work before the render it corresponds to is even painted
-- Be careful: setting a reactive property in `updated()` triggers another update cycle — that's intentional here but must be guarded to avoid infinite loops
+- Do **not** use `willUpdate` — the DOM isn't ready and you'd be calling the API before the render it corresponds to
+- Consider cancelling in-flight requests (AbortController) to handle rapid input changes
 
 ---
 
 ## Summary Table
 
-| Task | Method | Timing | Runs |
+| Task | Method | Timing | Key Reason |
 |---|---|---|---|
-| Derive from input | `willUpdate()` | Before render | Every relevant change |
-| Measure DOM once | `firstUpdated()` | After first render | Once |
-| Call API on input change | `updated()` | After every render | Every relevant change |
-
-The core principle: **before the DOM → `willUpdate`, after the DOM → `updated`/`firstUpdated`**, and always guard with `changedProperties.has()` to avoid unnecessary work.
+| Derive from input | `willUpdate` | Before render | Value ready when template runs |
+| One-time DOM measure | `firstUpdated` | After first render | DOM exists, runs only once |
+| API call on input change | `updated` | After every render | Post-DOM, guarded by `changedProperties` |
 
 </details>
 
@@ -1329,7 +1238,8 @@ export class MyComponent extends LitElement {
   protected formattedTotal = '';
 
   protected willUpdate(changed: PropertyValues<this>): void {
-    // Runs before render(), so the template sees fresh values immediately
+    // Runs before render(), so derived values are ready when render() reads them.
+    // Only recompute when the inputs actually changed — important for expensive derivations.
     if (changed.has('price') || changed.has('quantity')) {
       this.total = this.price * this.quantity;
       this.formattedTotal = new Intl.NumberFormat('en-US', {
@@ -1340,7 +1250,7 @@ export class MyComponent extends LitElement {
   }
 
   render() {
-    // formattedTotal is always current — no stale-value risk
+    // Reads already-computed values — render() stays pure
     return html`<p>Total: ${this.formattedTotal}</p>`;
   }
 }
@@ -1350,11 +1260,11 @@ export class MyComponent extends LitElement {
 
 | Alternative | Problem |
 |-------------|---------|
-| Inside `render()` | Makes `render()` impure — it should be a pure projection of state to DOM |
+| Inside `render()` | Makes render impure — side effects in render break the contract and make testing harder |
 | `@state()` field set in `updated()` | Triggers a *second* update cycle — wasteful and can cause loops |
-| Constructor / `connectedCallback` | Doesn't re-run when inputs change |
+| `updated()` | Runs *after* render, so the first paint shows stale derived values |
 
-`willUpdate()` is the one place guaranteed to run before every render, after properties are set, with access to `changedProperties` so you can guard the computation.
+`willUpdate()` is the one place guaranteed to run before render, after new property values are set, with access to `changedProperties` for conditional recomputation.
 
 ---
 
@@ -1368,7 +1278,8 @@ export class MyComponent extends LitElement {
   private _chart: Chart | null = null;
 
   protected firstUpdated(): void {
-    // Shadow DOM is fully rendered exactly once here
+    // Shadow DOM is fully rendered exactly once here.
+    // Safe to measure, query, or hand off to a third-party library.
     const { width, height } = this._canvas.getBoundingClientRect();
 
     this._chart = new Chart(this._canvas, {
@@ -1379,11 +1290,7 @@ export class MyComponent extends LitElement {
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
-    this._chart?.destroy(); // clean up the external resource
-  }
-
-  render() {
-    return html`<canvas></canvas>`;
+    this._chart?.destroy(); // Clean up what firstUpdated() set up
   }
 }
 ```
@@ -1392,15 +1299,13 @@ export class MyComponent extends LitElement {
 
 | Alternative | Problem |
 |-------------|---------|
-| `constructor` | Shadow DOM doesn't exist yet — `querySelector` returns `null` |
-| `connectedCallback` | Lit hasn't rendered yet at this point |
-| `updated()` | Runs after *every* update — you'd re-initialize the chart on every property change |
-
-`firstUpdated()` fires once, after the initial render, with the DOM present. It's the right place for "set up an external thing that owns a DOM node."
+| `constructor()` | Shadow DOM doesn't exist yet — `querySelector` returns null, `getBoundingClientRect()` returns zeros |
+| `connectedCallback()` | Runs before the first render — same problem as constructor for DOM queries |
+| `updated()` | Works, but fires on *every* update — you'd need a manual `_initialized` flag to guard it, which is exactly what `firstUpdated()` already does for you |
 
 ---
 
-### (c) External API call after relevant input changes — `updated()`
+### (c) External API call after every relevant render — `updated()`
 
 ```typescript
 @customElement('my-component')
@@ -1408,19 +1313,16 @@ export class MyComponent extends LitElement {
   @property() userId = '';
 
   protected updated(changed: PropertyValues<this>): void {
+    // Guard on the specific property — don't call the API for unrelated updates
     if (changed.has('userId') && this.userId) {
-      // Guard is critical — updated() runs after every update cycle
       this._syncToAnalytics(this.userId);
     }
   }
 
   private _syncToAnalytics(id: string): void {
-    // Fire-and-forget side effect; not data fetching (use Task for that)
-    navigator.sendBeacon('/api/analytics', JSON.stringify({ userId: id }));
-  }
-
-  render() {
-    return html`<p>Viewing user: ${this.userId}</p>`;
+    // DOM reflects the latest state here, so the external system
+    // sees what the user actually sees
+    externalAnalytics.track('user-viewed', { id });
   }
 }
 ```
@@ -1429,267 +1331,36 @@ export class MyComponent extends LitElement {
 
 | Alternative | Problem |
 |-------------|---------|
-| `willUpdate()` | DOM hasn't rendered yet — the "after render" guarantee is missing |
-| `render()` | Impure; may be called speculatively by Lit |
-| Unconditional `updated()` | Fires on *every* update, not just when `userId` changed — causes runaway calls |
+| `willUpdate()` | DOM hasn't updated yet — the external system would see stale rendered state |
+| `render()` | Impure; may run more than once per logical update in some scenarios |
+| Inline in a property setter | Fires before Lit's update cycle, so DOM is still stale; also bypasses `changedProperties` batching |
 
-The `changed.has('key')` guard is non-negotiable. Without it, every unrelated property change (a CSS class toggle, a loading flag) triggers the API call.
-
-> **Note:** If this were *fetching* data rather than pushing a side effect, use `@lit/task` instead — it handles cancellation, race conditions, and loading states that `updated()` doesn't.
+The `changed.has('userId')` guard is load-bearing — without it, every unrelated state change (a CSS class toggle, an internal `@state()` flip) would fire the API call.
 
 ---
 
 ### Summary
 
 ```
-Property change
-      │
-      ▼
- willUpdate()  ← (a) derive computed state from new inputs
-      │
-      ▼
-   render()    ← pure: reads this.* and returns html``
-      │
-      ▼
-  updated()    ← (c) side effects that react to specific changes
-      │
-      ▼  (first render only)
-firstUpdated() ← (b) one-time DOM measurement / external lib init
+Property values set
+        ↓
+  willUpdate()   ← (a) derive computed state from new inputs
+        ↓
+    render()     ← pure: read properties and derived fields, return template
+        ↓
+   DOM updated
+        ↓
+firstUpdated()   ← (b) one-time: measure, initialize third-party libs  [first render only]
+    updated()    ← (c) every relevant render: sync external systems, measure post-render DOM
 ```
 
-The underlying principle is the same in each case: **match the method to when the DOM and data are in the state your work requires**, and always guard `updated()` with `changed.has()` to avoid runaway effects.
+The common thread: **read `changedProperties` in both `willUpdate()` and `updated()`** to avoid doing work when the relevant inputs haven't changed. Unconditional work in `updated()` is a frequent source of unnecessary API calls and infinite update loops.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly map the three tasks to willUpdate, firstUpdated, and updated, and both mention the changedProperties parameter. Answer B is more thorough in its explanations, explicitly explaining why each alternative placement would be wrong, and adds the Task pattern as a modern best practice for async API calls. Answer A is solid but slightly less detailed in its reasoning and doesn't explain the pitfalls of alternative approaches as clearly.
-
-**Per-criterion verdict (judge)**
-
-| Criterion | Better |
-| --- | --- |
-| mentions willUpdate | tie |
-| mentions firstUpdated | tie |
-| mentions updated | tie |
-| mentions changedProperties parameter | tie |
-
-**Baseline rubric**
-
-| Criterion | Pass | Evidence |
-| --- | --- | --- |
-| mentions willUpdate | ✓ | `willUpdate` |
-| mentions firstUpdated | ✓ | `firstUpdated` |
-| mentions updated | ✓ | `updated(` |
-| mentions changedProperties parameter | ✓ | `changedProperties` |
-
-**Skill rubric**
-
-| Criterion | Pass | Evidence |
-| --- | --- | --- |
-| mentions willUpdate | ✓ | `willUpdate` |
-| mentions firstUpdated | ✓ | `firstUpdated` |
-| mentions updated | ✓ | `updated(` |
-| mentions changedProperties parameter | ✓ | `changedProperties` |
-
-<details><summary>haiku: baseline answer</summary>
-
-# Lit Lifecycle Methods by Use Case
-
-## (a) Compute derived property from `this.someInput` before render
-**→ Use a getter or `willUpdate()`**
-
-```typescript
-// Option 1: Simple getter (preferred for most cases)
-get derivedProperty() {
-  return this.someInput?.toUpperCase();
-}
-
-render() {
-  return html`<p>${this.derivedProperty}</p>`;
-}
-
-// Option 2: willUpdate() if computation is expensive
-willUpdate(changedProperties) {
-  if (changedProperties.has('someInput')) {
-    this.derivedProperty = expensiveComputation(this.someInput);
-  }
-}
-```
-
-**Why:** Getters are reactive and re-compute on every render. `willUpdate()` runs *before* render, so derived state is ready when `render()` executes. Avoids stale values.
-
----
-
-## (b) One-time DOM measurement of child element after first render
-**→ Use `firstUpdated()`**
-
-```typescript
-firstUpdated() {
-  const child = this.shadowRoot?.querySelector('.my-child');
-  this.childHeight = child?.offsetHeight;
-}
-
-render() {
-  return html`<div class="my-child"></div>`;
-}
-```
-
-**Why:** `firstUpdated()` runs once after the first render completes and DOM is painted. Perfect for measurements that require layout information. Using `updated()` would re-measure unnecessarily on every change.
-
----
-
-## (c) Call external API after every render that changed an input
-**→ Use `updated()`**
-
-```typescript
-updated(changedProperties) {
-  if (changedProperties.has('userId')) {
-    this.fetchUserData(this.userId);
-  }
-}
-
-async fetchUserData(id) {
-  const response = await fetch(`/api/users/${id}`);
-  this.userData = await response.json();
-}
-```
-
-**Why:** `updated()` runs *after* render completes and DOM is committed. You can check `changedProperties` to avoid unnecessary API calls. This is the right place for side effects that depend on rendered state.
-
----
-
-## Quick Reference Table
-
-| Task | Method | Timing | Why |
-|------|--------|--------|-----|
-| Derived properties | Getter or `willUpdate()` | Before render | Ensures values ready for template |
-| First-time DOM measurement | `firstUpdated()` | After first render | DOM is painted; runs once |
-| Side effects (API calls) | `updated()` | After every render | Can check what changed; DOM committed |
-
-</details>
-
-<details><summary>haiku: skill-loaded answer</summary>
-
-# Lifecycle Placement Guide
-
-## (a) Compute a derived property from `this.someInput` before render
-
-**Use `willUpdate(changedProperties)`**
-
-```typescript
-willUpdate(changedProperties: PropertyValues) {
-  if (changedProperties.has('someInput')) {
-    this.derivedValue = expensiveCompute(this.someInput);
-  }
-}
-
-render() {
-  return html`<div>${this.derivedValue}</div>`;
-}
-```
-
-**Why:**
-- Runs once per update cycle, *before* `render()` — so `render()` sees the computed value
-- `render()` must be pure (no side effects, no mutations); `willUpdate()` is the designated place for derived state
-- If you compute in `render()`, you recompute on every render call (wasteful) and risk impure side effects
-- If you compute in `updated()`, you've already rendered with stale data, forcing a second cycle
-
----
-
-## (b) One-time DOM measurement of a child element after first render
-
-**Use `firstUpdated(changedProperties)`**
-
-```typescript
-firstUpdated(changedProperties: PropertyValues) {
-  const child = this.shadowRoot!.querySelector('.my-child');
-  this.childHeight = child!.offsetHeight;
-  // or: this.childWidth = child!.getBoundingClientRect().width
-}
-
-render() {
-  return html`<div class="my-child">Content</div>`;
-}
-```
-
-**Why:**
-- Runs exactly once, after the first `render()` completes and the DOM is stable
-- DOM is guaranteed to exist and be laid out (no `offsetHeight` of 0)
-- Cleaner than `updated()` because you don't need to check `changedProperties` or guard against re-running
-- If you measure in `render()`, the DOM hasn't been painted yet (measurements are unreliable)
-- If you measure in `updated()` without a guard, you measure on every property change (wasteful and may trigger layout thrashing)
-
----
-
-## (c) Calling an external API after every render that changed an input
-
-**Use `updated(changedProperties)` with a guard, OR use `Task` (preferred)**
-
-### Option 1: `updated()` with a guard (simple case)
-
-```typescript
-updated(changedProperties: PropertyValues) {
-  if (changedProperties.has('userId')) {
-    this.fetchUserData(this.userId);
-  }
-}
-
-private async fetchUserData(id: string) {
-  const response = await fetch(`/api/users/${id}`);
-  this.userData = await response.json();
-}
-```
-
-**Why:**
-- Runs after every render, so you can check which properties changed
-- Guard with `changedProperties.has()` to avoid redundant API calls
-- Simple, one-off logic; no need for a full Task
-
-### Option 2: `Task` (recommended for most cases)
-
-```typescript
-private _userTask = new Task(this, {
-  task: async ([userId], { signal }) => {
-    const response = await fetch(`/api/users/${userId}`, { signal });
-    return response.json();
-  },
-  args: () => [this.userId],
-});
-
-render() {
-  return this._userTask.render({
-    pending: () => html`<p>Loading...</p>`,
-    complete: (data) => html`<p>${data.name}</p>`,
-    error: (e) => html`<p>Error: ${e.message}</p>`,
-  });
-}
-```
-
-**Why:**
-- Automatic cancellation if `userId` changes before the fetch completes (prevents race conditions)
-- Built-in status tracking (pending, complete, error) — no separate state variables
-- Cleaner than `updated()` + manual state management
-- Handles argument tracking automatically; re-runs only when `args()` changes
-- Use `Task` whenever the work is request/response (fetch, DB query, etc.)
-
----
-
-## Summary Table
-
-| Work | Method | Why |
-|------|--------|-----|
-| Derived state (compute before render) | `willUpdate()` | Runs before render; pure; computed once per cycle |
-| One-time DOM measurement | `firstUpdated()` | Runs once after first render; DOM is stable and laid out |
-| API call on input change | `Task` (preferred) or `updated()` with guard | Task: auto-cancellation, status tracking, race prevention. `updated()`: simpler for one-off logic |
-
-**Golden rule:** `render()` is pure (no side effects). Everything else goes in the lifecycle hooks that match the timing and frequency you need.
-
-</details>
-
-#### `opus`
-
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly map all three tasks to willUpdate, firstUpdated, and updated with good explanations. Answer A is more thorough in explaining the changedProperties parameter with concrete gating examples, adds important nuance about async data fetching with @lit/task, and provides richer 'why not' explanations for alternative approaches. Answer B is more concise but covers all the required criteria adequately. The depth and practical caveats in Answer A make it the stronger response overall.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly map the three tasks to willUpdate, firstUpdated, and updated, and both mention the changedProperties parameter. Answer B is more thorough in explaining *why* each lifecycle is chosen (e.g., explaining why computing in render() or updated() would be wrong for case (a)), and adds valuable extras like the Task controller for async work and race condition handling. Answer B also more explicitly discusses the ordering rationale and the 'pure render' principle, making it more educational and complete.
 
 **Per-criterion verdict (judge)**
 
@@ -1718,128 +1389,189 @@ render() {
 | mentions updated | ✓ | `updated(` |
 | mentions changedProperties parameter | ✓ | `changedProperties` |
 
-<details><summary>opus: baseline answer</summary>
+<details><summary>haiku: baseline answer</summary>
 
-# Lit Lifecycle Method Placement
+# Lit Lifecycle Placement Guide
 
 ## (a) Compute derived property from `this.someInput` before render
-**Use `willUpdate(changedProperties)`**
 
-```js
-willUpdate(changedProperties) {
-  if (changedProperties.has('someInput')) {
-    this.derived = expensiveCompute(this.someInput);
+**Use: `willUpdate()` or a getter**
+
+```typescript
+class MyElement extends LitElement {
+  @property() someInput: string = '';
+  derivedProperty: string = '';
+
+  willUpdate(changedProperties: PropertyValues) {
+    if (changedProperties.has('someInput')) {
+      this.derivedProperty = this.someInput.toUpperCase();
+    }
+  }
+
+  render() {
+    return html`${this.derivedProperty}`;
   }
 }
 ```
 
-**Why:** `willUpdate` runs *before* `render()` but after reactive properties have settled. Setting properties here is safe and won't trigger another update cycle. `render()` should stay pure — just return a template based on existing state — so derivation belongs in `willUpdate`.
-
-(Avoid `update()` for this unless you need to control whether the update proceeds; `willUpdate` is the idiomatic hook.)
-
-## (b) One-time DOM measurement after first render
-**Use `firstUpdated(changedProperties)`**
-
-```js
-firstUpdated() {
-  const rect = this.renderRoot
-    .querySelector('#child')
-    .getBoundingClientRect();
-  this.childWidth = rect.width;
-}
-```
-
-**Why:** `firstUpdated` fires exactly once, after the component's DOM has been rendered and is queryable via `this.renderRoot`. It's the canonical place for one-time DOM setup (measurements, third-party widget initialization, focus management on mount).
-
-## (c) Call external API after every render that changed an input
-**Use `updated(changedProperties)`**
-
-```js
-updated(changedProperties) {
-  if (changedProperties.has('someInput')) {
-    fetch(`/api/data?q=${this.someInput}`)
-      .then(r => r.json())
-      .then(data => { this.data = data; });
-  }
-}
-```
-
-**Why:** `updated` runs after every render (including the first), and `changedProperties` lets you gate side effects on what actually changed. Side effects like network calls, dispatching events, or imperatively poking other DOM belong here — never in `render()` (which must be pure) or `willUpdate` (which runs before DOM is committed).
+**Why:** `willUpdate()` runs after property changes are detected but *before* `render()`, ensuring derived data is ready. Alternatively, use a getter for simple transformations (it recalculates on every access, which is fine for render).
 
 ---
 
-### Quick mental model
-| Phase | Method | Purpose |
-|---|---|---|
-| Before render | `willUpdate` | Compute derived state |
-| Render | `render` | Pure template only |
-| After first render | `firstUpdated` | One-time DOM setup |
-| After every render | `updated` | Side effects, post-DOM work |
+## (b) One-time DOM measurement of child element after first render
+
+**Use: `firstUpdated()`**
+
+```typescript
+class MyElement extends LitElement {
+  @query('#child') childElement!: HTMLElement;
+
+  firstUpdated() {
+    const height = this.childElement.offsetHeight;
+    console.log('Child height:', height);
+  }
+
+  render() {
+    return html`<div id="child">Content</div>`;
+  }
+}
+```
+
+**Why:** `firstUpdated()` runs once after the initial render completes and the DOM is painted. The element is guaranteed to exist and be measurable. Using `@query` ensures the element reference is available.
+
+---
+
+## (c) Call external API after every render that changed an input
+
+**Use: `updated()`**
+
+```typescript
+class MyElement extends LitElement {
+  @property() userId: string = '';
+
+  updated(changedProperties: PropertyValues) {
+    if (changedProperties.has('userId')) {
+      this.fetchUserData(this.userId);
+    }
+  }
+
+  private async fetchUserData(id: string) {
+    const response = await fetch(`/api/users/${id}`);
+    // handle response
+  }
+
+  render() {
+    return html`<p>User: ${this.userId}</p>`;
+  }
+}
+```
+
+**Why:** `updated()` runs *after* render completes, so the DOM is stable. Checking `changedProperties` ensures you only fetch when relevant inputs change, avoiding unnecessary API calls.
+
+---
+
+## Quick Reference Table
+
+| Task | Method | Timing |
+|------|--------|--------|
+| Derive data from inputs | `willUpdate()` / getter | Before render |
+| One-time DOM setup | `firstUpdated()` | After first render |
+| Side effects on input change | `updated()` | After every render |
 
 </details>
 
-<details><summary>opus: skill-loaded answer</summary>
+<details><summary>haiku: skill-loaded answer</summary>
 
-Great question — Lit's lifecycle is designed so each of these has a clear, distinct home. Here's the mapping:
+# Lifecycle Placement Guide
 
-## (a) Compute a derived property from `this.someInput` before render → `willUpdate(changedProperties)`
+## (a) Compute a derived property from `this.someInput` before render
 
-```ts
-willUpdate(changed: PropertyValues<this>) {
-  if (changed.has('someInput')) {
-    this._derived = expensiveCompute(this.someInput);
+**Use `willUpdate(changedProperties)`**
+
+```typescript
+willUpdate(changedProperties: PropertyValues) {
+  if (changedProperties.has('someInput')) {
+    this.derivedValue = expensiveCompute(this.someInput);
   }
 }
-```
 
-**Why:**
-- Runs *before* `render()`, so `render()` can read `this._derived` and the DOM reflects it on the first paint.
-- Runs *once per update cycle*, even if multiple properties changed.
-- Setting properties here does **not** trigger another update (Lit batches it into the in-flight cycle).
-- `render()` must stay pure — no derivation logic there.
-- Doing this in `updated()` would cause a second render cycle (wasteful, can cause flicker).
-
-Gate the work on `changedProperties.has('someInput')` so it only recomputes when the relevant input actually changed.
-
-## (b) One-time DOM measurement of a child after first render → `firstUpdated(changedProperties)`
-
-```ts
-@query('#child') private _child!: HTMLElement;
-
-firstUpdated() {
-  const rect = this._child.getBoundingClientRect();
-  this._initialWidth = rect.width;
+render() {
+  return html`<div>${this.derivedValue}</div>`;
 }
 ```
 
 **Why:**
-- Called exactly once, after the first `render()` has produced real DOM.
-- The shadow DOM is guaranteed to exist, so `this.shadowRoot`, `@query`, and `getBoundingClientRect()` all work.
-- Doing it in `connectedCallback()` is too early — the element is in the tree but hasn't rendered yet.
-- Doing it in `constructor()` is way too early — no DOM at all.
-- Doing it in `updated()` would re-run on every change (wasteful for one-time setup).
+- Runs once per update cycle, *before* `render()` — so `render()` sees the computed value
+- `render()` must be pure (no side effects, no mutations); `willUpdate()` is the right place for derived state
+- If you compute in `render()`, you recompute on every call (wasteful) and risk impure side effects
+- If you compute in `updated()`, you've already rendered with stale data, forcing a second cycle
 
-If you need to *react* to size changes over time, that's a different job — use a `ResizeObserver` in a reactive controller, set up in `hostConnected()`.
+**Key detail:** Check `changedProperties.has('someInput')` to avoid recomputing when unrelated properties change.
 
-## (c) Call an external API after every render where an input changed → `updated(changedProperties)`
+---
 
-```ts
-updated(changed: PropertyValues<this>) {
-  if (changed.has('userId')) {
-    this._analytics.track('view', { userId: this.userId });
+## (b) One-time DOM measurement of a child element after first render
+
+**Use `firstUpdated(changedProperties)`**
+
+```typescript
+firstUpdated(changedProperties: PropertyValues) {
+  const child = this.shadowRoot!.querySelector('.my-child');
+  this.childHeight = child!.offsetHeight;
+  // Now you can use this.childHeight in subsequent renders
+}
+
+render() {
+  return html`
+    <div class="my-child" style="height: ${this.childHeight}px">...</div>
+  `;
+}
+```
+
+**Why:**
+- Runs exactly once, after the first `render()` completes and the DOM is stable
+- The element and its children are guaranteed to exist and be laid out
+- Perfect for one-time measurements, focus, or initialization that depends on the rendered DOM
+- Cheaper than `updated()` if you only need to run once
+
+**Key detail:** If you need to measure *every* time the DOM changes, use `updated()` instead. But if it's truly one-time (e.g., initial scroll position, initial focus), `firstUpdated()` is cleaner.
+
+---
+
+## (c) Call an external API after every render that changed an input
+
+**Use `updated(changedProperties)` with a guard**
+
+```typescript
+@state() private _apiResult: Data | null = null;
+
+updated(changedProperties: PropertyValues) {
+  if (changedProperties.has('userId')) {
+    this._fetchUser(this.userId);
   }
 }
+
+private async _fetchUser(userId: string) {
+  try {
+    this._apiResult = await fetch(`/api/users/${userId}`).then(r => r.json());
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+render() {
+  return html`<div>${this._apiResult?.name}</div>`;
+}
 ```
 
 **Why:**
-- Runs after the DOM is updated, so it's safe for side effects that shouldn't block rendering.
-- Receives `changedProperties`, so you can gate on the specific inputs that should trigger the call.
-- `render()` must be pure — no `fetch()` or analytics calls there.
-- `willUpdate()` runs *before* render, so side effects there happen before the user sees the new state — wrong order for "post-update notification."
+- Runs after `render()` completes, so the DOM is stable and listeners can see the rendered state
+- `changedProperties.has('userId')` ensures you only fetch when the input actually changed
+- Avoids the "stale render" problem: you don't block render waiting for the API; you render immediately, then fetch
 
-**Important caveat:** if "external API" means async data fetching (request/response), `updated()` is the wrong tool. Use `@lit/task` instead:
+**Better alternative: Use `Task` from `@lit/task`**
 
-```ts
+```typescript
 private _userTask = new Task(this, {
   task: async ([userId], { signal }) => {
     const res = await fetch(`/api/users/${userId}`, { signal });
@@ -1847,20 +1579,193 @@ private _userTask = new Task(this, {
   },
   args: () => [this.userId],
 });
+
+render() {
+  return this._userTask.render({
+    pending: () => html`<p>Loading...</p>`,
+    complete: (data) => html`<div>${data.name}</div>`,
+    error: (e) => html`<p>Error: ${e.message}</p>`,
+  });
+}
 ```
 
-Task handles cancellation, race conditions, and pending/error/complete states. Use raw `updated()` for fire-and-forget side effects (analytics, logging, imperative third-party library calls).
+**Why Task is better:**
+- Automatic cancellation if `userId` changes before the fetch completes (no race conditions)
+- Built-in status tracking (pending, complete, error) — no manual state management
+- Cleaner separation of async logic from render
+- Handles argument tracking for you
+
+See [task-controller.md](references/task-controller.md) for the full API.
+
+---
+
+## Summary Table
+
+| Work | Method | Runs | Why |
+|------|--------|------|-----|
+| Derive state from inputs | `willUpdate()` | Before render, once per cycle | Computed value ready for `render()`, pure |
+| One-time DOM setup | `firstUpdated()` | After first render only | DOM guaranteed to exist, cheap |
+| Post-render side effects (API, analytics, DOM mutation) | `updated()` | After every render | DOM is stable; listeners see rendered state |
+| Async data fetching | `Task` (preferred) or `updated()` | On arg change | Cancellation, status tracking, race prevention |
+
+**Golden rule:** `render()` is pure. Everything else (derived state, side effects, DOM access) goes in a lifecycle hook.
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly map the three tasks to willUpdate, firstUpdated, and updated, and both mention the changedProperties parameter. Answer A is more thorough in its explanations, explicitly addresses why alternative lifecycle methods are wrong for each case, includes a practical caveat about @lit/task for data-fetching scenarios, and provides a cleaner summary table. Answer B is accurate and concise but lacks the depth and nuance that makes Answer A more educational and useful.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| mentions willUpdate | tie |
+| mentions firstUpdated | tie |
+| mentions updated | tie |
+| mentions changedProperties parameter | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| mentions willUpdate | ✓ | `willUpdate` |
+| mentions firstUpdated | ✓ | `firstUpdated` |
+| mentions updated | ✓ | `updated(` |
+| mentions changedProperties parameter | ✓ | `changedProperties` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| mentions willUpdate | ✓ | `willUpdate` |
+| mentions firstUpdated | ✓ | `firstUpdated` |
+| mentions updated | ✓ | `updated(` |
+| mentions changedProperties parameter | ✓ | `changedProperties` |
+
+<details><summary>opus: baseline answer</summary>
+
+# Lit Lifecycle Method Placement
+
+## (a) Compute a derived property from `this.someInput` before render
+
+**Use `willUpdate(changedProperties)`**
+
+```js
+willUpdate(changed) {
+  if (changed.has('someInput')) {
+    this.derived = expensiveCompute(this.someInput);
+  }
+}
+```
+
+**Why:** `willUpdate` runs before `render()` during the update cycle. Setting properties here is folded into the same render pass — no extra re-render is triggered. It's the official hook for computing derived state. (Avoid doing this in `update()` unless you need to call `super.update()` yourself, and avoid `updated()` because that runs *after* render and would force a second update.)
+
+## (b) One-time DOM measurement after first render
+
+**Use `firstUpdated(changedProperties)`**
+
+```js
+firstUpdated() {
+  const rect = this.renderRoot
+    .querySelector('.target')
+    .getBoundingClientRect();
+  this._height = rect.height;
+}
+```
+
+**Why:** `firstUpdated` is called exactly once, after the component's DOM has been rendered for the first time. The shadow DOM exists and is laid out, so measurements are valid. Doing this in `connectedCallback` would be too early (no rendered DOM yet); doing it in `updated` would re-measure on every change.
+
+## (c) Call an external API after every render that changed an input
+
+**Use `updated(changedProperties)`**
+
+```js
+updated(changed) {
+  if (changed.has('query')) {
+    this.fetchResults(this.query);
+  }
+}
+```
+
+**Why:** `updated` runs after every render (including the first). Guarding with `changedProperties.has(...)` ensures you only fire the API call when the relevant input actually changed, not on every unrelated re-render. You shouldn't do side effects with external systems in `willUpdate`/`update` because those run before the DOM reflects the new state, and the work could be wasted if the update is interrupted.
+
+---
+
+### Quick mental model
+
+| Phase | Method | Use for |
+|---|---|---|
+| Before render | `willUpdate` | derived state from props |
+| After first render only | `firstUpdated` | initial DOM measurement / setup |
+| After every render | `updated` | side effects, external calls, post-render DOM work |
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
+
+Great question — these three cases map cleanly onto three different Lit lifecycle hooks. Picking the right one matters because they run at different phases relative to rendering and reactive-property updates.
+
+## (a) Derived property from `this.someInput` → `willUpdate(changedProperties)`
+
+```ts
+willUpdate(changed: PropertyValues<this>) {
+  if (changed.has('someInput')) {
+    this.derived = expensiveCompute(this.someInput);
+  }
+}
+```
+
+**Why `willUpdate` and not `render()` or `updated()`:**
+
+- **Not `render()`** — `render()` must be pure. Side effects there (including assigning to reactive properties) violate Lit's contract and can trigger warnings or extra render cycles.
+- **Not `updated()`** — that runs *after* render. If you set `this.derived` there, you've already rendered with the stale value, and setting it then schedules a *second* update cycle. Wasteful and visibly flickery.
+- **`willUpdate` runs before `render()`**, after reactive properties have settled but before the template is built. Anything you assign to `this.derived` here is visible to `render()` in the same cycle. It's also the place to gate work with `changedProperties.has('someInput')` so you don't recompute when unrelated properties change.
+
+## (b) One-time DOM measurement of a child → `firstUpdated(changedProperties)`
+
+```ts
+firstUpdated() {
+  const child = this.renderRoot.querySelector('.target')!;
+  this._initialHeight = child.getBoundingClientRect().height;
+}
+```
+
+**Why `firstUpdated`:**
+
+- It runs exactly once, after the first render completes and the shadow DOM is populated. The child element is guaranteed to exist.
+- **Not `connectedCallback`** — the element is in the document, but `render()` hasn't run yet, so `this.renderRoot` is empty. Querying for `.target` returns `null`.
+- **Not `constructor`** — same problem, plus no DOM at all.
+- **Not `updated()`** — that runs on *every* update, so you'd re-measure unnecessarily (and pay layout cost each time). `firstUpdated` is purpose-built for one-shot post-render setup.
+
+If you need the measurement to reflect later layout changes too, use a `ResizeObserver` set up in `firstUpdated` (or better, in a reactive controller) rather than measuring in `updated()`.
+
+## (c) External API call when an input changed → `updated(changedProperties)`
+
+```ts
+updated(changed: PropertyValues<this>) {
+  if (changed.has('userId')) {
+    this._sendAnalytics(this.userId);
+  }
+}
+```
+
+**Why `updated`:**
+
+- It runs after every render, with `changedProperties` telling you what actually changed. Gate the side effect with `changed.has('userId')` so you only call the API when the relevant input changed, not on every render.
+- The DOM reflects the latest state at this point, which matters if the API call needs to read rendered DOM (measurements, computed styles, etc.).
+- **Not `willUpdate`** — that's for synchronous, pure derivations of state. Doing async I/O there is wrong: it runs before render, and if the API response sets a property, you'd kick off another update mid-cycle.
+- **Not `render()`** — never put side effects in `render()`.
+
+**Important caveat for case (c):** if the "external API" is really a fetch to load data that drives the UI, don't hand-roll it in `updated()`. Use `@lit/task` with `args: () => [this.userId]` — you get cancellation, race-condition handling, and pending/error states for free. `updated()` is the right place for *fire-and-forget* side effects (analytics, logging, imperative DOM commands on a third-party library) that don't feed back into render state.
 
 ## Summary table
 
-| Work | Method | Runs | Purpose |
-|------|--------|------|---------|
-| Derive state for render | `willUpdate()` | Before every render | Computed values consumed by `render()` |
-| One-time DOM setup | `firstUpdated()` | Once, after first render | Measure/wire up real DOM |
-| Post-render side effects | `updated()` | After every render | Notify the outside world; gate on `changedProperties` |
-| Async data fetching | `Task` (not a lifecycle method) | When args change | Cancellable request/response with status |
-
-The mental model: **`willUpdate` prepares → `render` describes → `updated` reacts.** And `firstUpdated` is the one-shot variant of `updated` for setup that only makes sense once.
+| Work | Hook | Runs | Key reason |
+|------|------|------|------------|
+| Derive state before render | `willUpdate` | Before every render | Visible to `render()` same cycle; no second pass |
+| One-time DOM setup | `firstUpdated` | Once, after first render | DOM exists; runs exactly once |
+| Side effect on input change | `updated` | After every render | DOM is current; gate with `changedProperties.has(...)` |
 
 </details>
 
@@ -1881,7 +1786,7 @@ field? I'm a bit unclear on the distinction.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers cover all three rubric criteria well, but Answer A provides more concrete, realistic examples (SearchBox with multiple properties and states) and includes the important mutation/reference equality rule that helps developers avoid common pitfalls. Answer A's decision table and richer code examples make it more practically useful, though Answer B is also solid and slightly more concise.
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers are excellent and cover all three rubric criteria thoroughly. Answer A adds a useful note about reference equality and mutation detection, while Answer B includes a helpful clarification that @state() is essentially shorthand for @property({ attribute: false }), which is a concrete technical detail. Both provide clear examples, comparison tables, and decision rules at roughly the same quality level.
 
 **Per-criterion verdict (judge)**
 
@@ -1895,9 +1800,9 @@ field? I'm a bit unclear on the distinction.
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| identifies @property as public API / attribute-synced | ✓ | `Public` |
-| identifies @state as internal / no attribute | ✓ | `Internal` |
-| mentions reactive trigger / re-render | ✓ | `trigger re-render` |
+| identifies @property as public API / attribute-synced | ✓ | `public` |
+| identifies @state as internal / no attribute | ✓ | `internal` |
+| mentions reactive trigger / re-render | ✓ | `Triggers re-render` |
 
 **Skill rubric**
 
@@ -1911,13 +1816,12 @@ field? I'm a bit unclear on the distinction.
 
 ## `@state()` vs `@property()` in Lit
 
-Both decorators trigger re-renders when their values change, but they serve different purposes.
+The core distinction is about **public API vs internal state**.
 
 ---
 
 ### `@property()` — Public API
-
-Use this for values that should be **exposed to the outside world**.
+Use when the value should be **configurable from outside** the component.
 
 ```javascript
 class MyButton extends LitElement {
@@ -1927,36 +1831,35 @@ class MyButton extends LitElement {
 ```
 
 ```html
-<!-- These can be set from outside the component -->
+<!-- Consumers can set these as HTML attributes or JS properties -->
 <my-button label="Submit" disabled></my-button>
 ```
 
 **Characteristics:**
-- Reflected to/from HTML attributes (configurable)
-- Shows up in the element's public API
+- Reflected to/from HTML attributes (by default)
+- Shows up in your component's public interface
+- Triggers re-render on change
 - Can be set by parent components or plain HTML
-- Included in `observedAttributes`
 
 ---
 
-### `@state()` — Private Internal State
-
-Use this for values that are **internal implementation details**.
+### `@state()` — Internal/Private State
+Use when the value is **implementation detail** that outsiders shouldn't touch.
 
 ```javascript
 class MyDropdown extends LitElement {
-  @property({ type: Array }) items = [];  // public input
+  @property({ type: Array }) options = [];  // public input
 
-  @state() private isOpen = false;        // internal state
-  @state() private selectedIndex = -1;   // internal state
+  @state() private isOpen = false;          // internal state
+  @state() private selectedIndex = -1;      // internal state
 }
 ```
 
 **Characteristics:**
-- No attribute reflection
-- Not part of the public API
-- Signals to other developers "don't touch this from outside"
-- Slightly more efficient (skips attribute handling)
+- **Not** reflected to HTML attributes
+- No attribute observation
+- Triggers re-render on change
+- Signals "don't touch this from outside"
 
 ---
 
@@ -1965,17 +1868,17 @@ class MyDropdown extends LitElement {
 | Feature | `@property()` | `@state()` |
 |---|---|---|
 | Triggers re-render | ✅ | ✅ |
-| Attribute reflection | ✅ (by default) | ❌ |
+| Reflected to attribute | ✅ (configurable) | ❌ |
+| Observed from attribute | ✅ | ❌ |
 | Public API | ✅ | ❌ |
-| Set via HTML attribute | ✅ | ❌ |
-| TypeScript convention | `public` | `private` / `protected` |
+| Typical visibility | `public` | `private` / `protected` |
 
 ---
 
-### `@state()` is essentially shorthand
+### `@state()` is essentially a shorthand
 
 ```javascript
-// These are equivalent:
+// These two are equivalent:
 @state()
 private isOpen = false;
 
@@ -1987,130 +1890,102 @@ private isOpen = false;
 
 ### Quick Decision Rule
 
-> **"Does anything outside this component need to set or read this value?"**
-> - **Yes** → `@property()`
-> - **No** → `@state()`
+```
+Does a parent component or HTML author need to set this value?
+├── YES → @property()
+└── NO  → @state()
+```
 
-Think of it like class visibility: `@property()` is `public`, `@state()` is `private`.
+A common pattern is using both together — `@property()` for inputs, `@state()` for derived or UI-only values that change as the user interacts with the component.
 
 </details>
 
 <details><summary>sonnet: skill-loaded answer</summary>
 
-## `@property()` vs `@state()` in Lit
+## `@property()` vs `@state()`
 
-Both decorators make a field **reactive** — Lit re-renders when the value changes — but they differ in visibility and how they interact with HTML attributes.
+Both decorators make a field **reactive** — Lit schedules a re-render whenever the value changes. The difference is entirely about **visibility**: who is allowed to set the value, and whether it maps to an HTML attribute.
+
+---
 
 ### `@property()` — public API
 
-Use this for data the **outside world sets**, either via HTML attributes or JavaScript.
+Use this when the field is part of the component's **external interface**: something a parent component, framework, or HTML author should be able to set.
 
 ```typescript
 @customElement('user-card')
 class UserCard extends LitElement {
   @property() name = '';
   @property({ type: Number }) age = 0;
-  @property({ type: Boolean }) disabled = false;
+  @property({ type: Boolean, reflect: true }) disabled = false;
 }
 ```
 
-This gives you:
-- An **HTML attribute** (`<user-card name="Alice">`)
-- A **JavaScript property** (`el.name = 'Alice'`)
-- Automatic string↔type conversion via the `type` option
+What you get:
+- **Attribute binding** — Lit auto-converts between the HTML attribute (`name="Alice"`) and the JS property (`el.name = 'Alice'`). The `type` option controls that conversion.
+- **`reflect: true`** — writes the property value back to the attribute, useful for CSS attribute selectors like `[disabled]`.
+- **Public contract** — signals to consumers "this is a knob you're meant to turn."
 
 ### `@state()` — private internal state
 
-Use this for data that **only the component itself manages**. It triggers re-renders but creates no attribute and signals to consumers that the field is an implementation detail.
+Use this when the field drives rendering but is **nobody else's business** — things like whether a dropdown is open, a loading flag, or a locally computed value.
 
 ```typescript
-@customElement('toggle-button')
-class ToggleButton extends LitElement {
-  @property() label = 'Click me';  // public: callers set this
-
-  @state() private _isOpen = false; // private: component manages this
-  @state() private _count = 0;
-
-  render() {
-    return html`
-      <button @click=${this._handleClick}>
-        ${this.label} (${this._count})
-      </button>
-    `;
-  }
-
-  private _handleClick() {
-    this._isOpen = !this._isOpen;
-    this._count++;
-  }
-}
-```
-
-`@state()` is essentially shorthand for `@property({ state: true, attribute: false })`.
-
----
-
-### Decision guide
-
-| Question | Answer | Use |
-|---|---|---|
-| Should a parent component or HTML author set this? | Yes | `@property()` |
-| Should it be settable as an HTML attribute? | Yes | `@property()` |
-| Is it purely internal (UI state, derived data, flags)? | Yes | `@state()` |
-| Should it appear in the element's public TypeScript API? | No | `@state()` |
-
----
-
-### Common examples
-
-```typescript
+@customElement('search-box')
 class SearchBox extends LitElement {
-  // Public API — callers provide these
-  @property() placeholder = 'Search…';
-  @property({ type: Number }) maxResults = 10;
+  @property() placeholder = 'Search…'; // public input
 
-  // Internal state — component owns these
-  @state() private _query = '';
-  @state() private _isLoading = false;
-  @state() private _results: Result[] = [];
-
-  render() {
-    return html`
-      <input
-        .value=${this._query}
-        @input=${(e: InputEvent) =>
-          this._query = (e.target as HTMLInputElement).value}
-        placeholder=${this.placeholder}
-      />
-      ${this._isLoading ? html`<span>Loading…</span>` : nothing}
-    `;
-  }
+  @state() private _isOpen = false;    // internal toggle
+  @state() private _inputValue = '';   // tracks the live input
 }
 ```
 
+What you get:
+- **Reactive** — still triggers re-renders on change.
+- **No attribute** — never serialized to or from HTML.
+- **No public surface** — TypeScript's `private` keyword (or the `#` prefix) enforces this at compile time; `@state()` signals the intent at the Lit level.
+
 ---
 
-### The mutation rule (applies to both)
+### Side-by-side comparison
 
-Lit detects changes by **reference equality** (`!==`). Mutating an object or array in place won't trigger a re-render:
+| | `@property()` | `@state()` |
+|---|---|---|
+| Triggers re-render | ✅ | ✅ |
+| Maps to HTML attribute | ✅ (by default) | ❌ |
+| Reflects to attribute | Optional (`reflect: true`) | ❌ |
+| Intended audience | External callers | The component itself |
+| Conventional visibility | `public` | `private` / `#` |
+
+---
+
+### The mutation rule applies to both
+
+Lit uses **reference equality** (`!==`) to detect changes. Mutating an object or array in place won't trigger a re-render regardless of which decorator you used:
 
 ```typescript
 // ❌ No re-render — same array reference
-this._results.push(newItem);
+this._items.push(newItem);
 
-// ✅ New reference — re-render triggered
-this._results = [...this._results, newItem];
+// ✅ New reference — re-render scheduled
+this._items = [...this._items, newItem];
 ```
 
 ---
 
-**Short version:** `@property()` is your component's public interface; `@state()` is its private memory. When in doubt, start with `@state()` and promote to `@property()` only if an external caller needs to set it.
+### Quick decision rule
+
+> **Will anything outside this component ever read or write this field?**
+> - Yes → `@property()`
+> - No → `@state()`
+
+If you find yourself reaching for `@property()` on something that's clearly internal (a hover flag, a toggle, a cached computation), switch to `@state()`. It keeps the public API surface small and prevents accidental coupling.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers cover the core distinction well, but Answer B is more thorough and idiomatic. It explicitly notes that @state properties don't respond to HTML attributes (with a concrete example showing the attribute being ignored), covers type conversion for @property, includes the mutation rules for triggering re-renders, and uses TypeScript with proper access modifiers which is more idiomatic for Lit. Answer A is solid but slightly less complete on the attribute-binding nuances.
+**Met:** ✓  ·  **Judge:** **skill** — Answer B is more comprehensive and concrete, providing a practical modal dialog example that clearly shows both decorators used together in a realistic scenario. It more explicitly explains that @property() fields are synced with HTML attributes by default (showing actual HTML attribute usage), while @state() has no attribute binding, and it uses TypeScript's private keyword to reinforce the internal-only nature of @state(). Both answers cover all rubric criteria, but B does so with greater depth and clarity.
 
 **Per-criterion verdict (judge)**
 
@@ -2134,7 +2009,7 @@ this._results = [...this._results, newItem];
 | --- | --- | --- |
 | identifies @property as public API / attribute-synced | ✓ | `Public` |
 | identifies @state as internal / no attribute | ✓ | `Internal` |
-| mentions reactive trigger / re-render | ✓ | `trigger re-render` |
+| mentions reactive trigger / re-render | ✓ | `Triggers update` |
 
 <details><summary>haiku: baseline answer</summary>
 
@@ -2165,11 +2040,11 @@ class MyComponent extends LitElement {
 **Characteristics:**
 - Private to the component (by convention, prefix with `_`)
 - Changes trigger a re-render
-- Not exposed as HTML attributes
-- Not reflected to attributes
+- Not exposed to parent components
+- Not reflected in HTML attributes
 
 ## @property()
-Use this for **public properties** that can be set from outside and should trigger re-renders.
+Use this for **public properties** that can be set by parent components and should trigger re-renders.
 
 ```javascript
 import { LitElement, html } from 'lit';
@@ -2180,56 +2055,29 @@ class MyComponent extends LitElement {
   name = 'World';
 
   render() {
-    return html`<p>Hello ${this.name}!</p>`;
+    return html`<p>Hello, ${this.name}!</p>`;
   }
 }
 ```
 
 **Characteristics:**
-- Public API for your component
-- Can be set as HTML attributes: `<my-component name="Alice"></my-component>`
+- Public API for the component
 - Changes trigger a re-render
-- Can be configured to reflect back to attributes
+- Can be set by parent components
+- Can be reflected to HTML attributes (with `reflect: true`)
+- Supports type conversion
 
 ## Quick Comparison
 
 | Feature | @state() | @property() |
 |---------|----------|------------|
-| **Purpose** | Internal state | Public API |
-| **Triggers re-render** | ✅ Yes | ✅ Yes |
-| **Set from outside** | ❌ No | ✅ Yes |
-| **HTML attribute** | ❌ No | ✅ Yes (by default) |
-| **Convention** | `_privateState` | `publicProp` |
+| Triggers re-render | ✅ | ✅ |
+| Public API | ❌ | ✅ |
+| Set by parent | ❌ | ✅ |
+| Reflect to attribute | ❌ | ✅ (optional) |
+| Internal only | ✅ | ❌ |
 
-## Real-world example
-
-```javascript
-class UserCard extends LitElement {
-  @property()
-  userId = '';  // Set by parent: <user-card userId="123"></user-card>
-
-  @state()
-  _loading = false;  // Internal state
-
-  @state()
-  _userData = null;  // Internal state
-
-  async connectedCallback() {
-    super.connectedCallback();
-    this._loading = true;
-    this._userData = await fetchUser(this.userId);
-    this._loading = false;
-  }
-
-  render() {
-    return this._loading 
-      ? html`<p>Loading...</p>`
-      : html`<p>${this._userData.name}</p>`;
-  }
-}
-```
-
-**Rule of thumb:** Use `@property()` for anything the parent component needs to control, and `@state()` for everything else.
+**Rule of thumb:** Use `@state()` for internal data, `@property()` for component inputs.
 
 </details>
 
@@ -2246,7 +2094,7 @@ Use `@property()` for inputs that:
 - Should be **settable via HTML attributes** (with optional type conversion)
 - Represent **external data flowing in** from a parent or attribute
 
-```ts
+```typescript
 import { LitElement, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 
@@ -2268,108 +2116,104 @@ export class UserCard extends LitElement {
 ```
 
 Or via JavaScript:
-```ts
+```javascript
 const card = document.querySelector('user-card');
 card.name = 'Bob';
+card.email = 'bob@example.com';
 ```
+
+---
 
 ## @state() — Private Internal State, No Attributes
 
 Use `@state()` for state that:
 - Is **internal to the component** — consumers don't set it
-- Drives rendering but **doesn't need attribute binding**
-- Changes in response to user interaction, async operations, or internal logic
+- Should **not** be reflected to an HTML attribute
+- Drives rendering but is **not part of the public API**
 
-```ts
+```typescript
 @customElement('counter-button')
 export class CounterButton extends LitElement {
   @state() private count = 0;
 
   render() {
-    return html`<button @click=${this._increment}>Count: ${this.count}</button>`;
+    return html`<button @click=${this.increment}>Count: ${this.count}</button>`;
   }
 
-  private _increment() {
+  private increment() {
     this.count++;
   }
 }
 ```
 
-**Consumers can't set it via attributes:**
-```html
-<!-- This does nothing; count is not an attribute -->
-<counter-button count="5"></counter-button>
-```
+**Key difference:** `@state()` fields are typically `private` and never set from outside the component.
 
-They *can* read it via JavaScript, but it's not part of the intended API:
-```ts
-const btn = document.querySelector('counter-button');
-console.log(btn.count); // 0 (initial value)
-```
+---
 
-## Key Differences
+## Side-by-Side Comparison
 
 | Aspect | `@property()` | `@state()` |
 |--------|--------------|-----------|
-| **Attribute binding** | ✅ Yes (by default) | ❌ No |
-| **Public API** | ✅ Yes | ❌ No (private by convention) |
-| **Type conversion** | ✅ Configurable | ❌ N/A |
-| **Reflection** | ✅ Optional (reflects to attribute) | ❌ No |
-| **Use case** | External inputs | Internal state |
+| **Visibility** | Public API | Private/internal |
+| **Set from outside?** | Yes (attribute or JS) | No |
+| **HTML attribute?** | Yes (if `attribute: true`, the default) | No |
+| **Type conversion?** | Yes (via `type` or `converter`) | No |
+| **Typical access** | `public` | `private` |
+| **Triggers update?** | Yes | Yes |
+| **Use case** | Inputs, configuration | Derived state, UI toggles, counters |
 
-## Practical Example: Form Input Component
+---
 
-```ts
-@customElement('my-input')
-export class MyInput extends LitElement {
-  // Public API: consumers set the label via attribute or property
-  @property() label: string = '';
+## Practical Example: Modal Dialog
 
-  // Internal state: tracks whether the input is focused
-  @state() private isFocused = false;
+```typescript
+@customElement('my-modal')
+export class MyModal extends LitElement {
+  // Public API: consumers control whether modal is shown
+  @property({ type: Boolean }) open = false;
+
+  // Internal state: tracks which tab is active
+  @state() private activeTab = 'general';
 
   render() {
+    if (!this.open) return nothing;
     return html`
-      <label>${this.label}</label>
-      <input
-        @focus=${() => (this.isFocused = true)}
-        @blur=${() => (this.isFocused = false)}
-      />
-      ${this.isFocused ? html`<p>Focused!</p>` : nothing}
+      <div class="modal">
+        <button @click=${() => (this.activeTab = 'general')}>General</button>
+        <button @click=${() => (this.activeTab = 'advanced')}>Advanced</button>
+        ${this.activeTab === 'general' ? html`<p>General content</p>` : html`<p>Advanced content</p>`}
+      </div>
     `;
   }
 }
 ```
 
-- `label` is `@property()` because the parent sets it
-- `isFocused` is `@state()` because it's internal and changes on user interaction
+**Usage:**
+```html
+<!-- Parent controls open/close via property -->
+<my-modal open></my-modal>
 
-## Mutation Rules Apply to Both
-
-Both trigger re-renders on **reference change** (`!==`), not mutation:
-
-```ts
-// ❌ Won't trigger update
-this.items.push(newItem);
-
-// ✅ Triggers update
-this.items = [...this.items, newItem];
+<script>
+  const modal = document.querySelector('my-modal');
+  modal.open = false; // Parent can toggle this
+  // But modal.activeTab is private — parent doesn't touch it
+</script>
 ```
 
-This applies equally to `@property()` and `@state()`.
+---
 
 ## When in Doubt
 
-- **Can a parent/consumer reasonably set this?** → `@property()`
-- **Is this only for internal bookkeeping?** → `@state()`
+- **Does a parent component or HTML attribute need to set this?** → `@property()`
+- **Is this only used internally to drive rendering?** → `@state()`
 
-Most components have a mix: a few `@property()` inputs and several `@state()` fields tracking UI state, async progress, or derived values.
+Both trigger re-renders when they change. The distinction is about **encapsulation and API clarity**, not reactivity.
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers are excellent and cover all three rubric criteria well. Answer A edges out B by providing the additional nuance of `@property({ attribute: false })` as a middle ground between fully public attribute-synced properties and fully private state, which is genuinely useful and often overlooked. Answer A also provides a more comprehensive comparison table and the 'full hierarchy' framing adds clarity. Answer B is slightly more concise and has a clean example, but A's extra depth on the attribute:false option makes it more complete.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers are excellent and cover all three rubric criteria well. Answer A edges out B by providing more depth: it explains the `@property({ attribute: false })` edge case which clarifies the boundary between the two decorators, includes a concrete `willUpdate()` derived-state example, and gives a cleaner narrative flow. Answer B's decision table is a nice touch but overall A provides more actionable nuance without being verbose.
 
 **Per-criterion verdict (judge)**
 
@@ -2377,7 +2221,7 @@ Most components have a mix: a few `@property()` inputs and several `@state()` fi
 | --- | --- |
 | identifies @property as public API / attribute-synced | tie |
 | identifies @state as internal / no attribute | tie |
-| mentions reactive trigger / re-render | tie |
+| mentions reactive trigger / re-render | skill |
 
 **Baseline rubric**
 
@@ -2385,7 +2229,7 @@ Most components have a mix: a few `@property()` inputs and several `@state()` fi
 | --- | --- | --- |
 | identifies @property as public API / attribute-synced | ✓ | `public` |
 | identifies @state as internal / no attribute | ✓ | `internal` |
-| mentions reactive trigger / re-render | ✓ | `Triggers re-render` |
+| mentions reactive trigger / re-render | ✓ | `triggers re-render` |
 
 **Skill rubric**
 
@@ -2393,7 +2237,7 @@ Most components have a mix: a few `@property()` inputs and several `@state()` fi
 | --- | --- | --- |
 | identifies @property as public API / attribute-synced | ✓ | `public` |
 | identifies @state as internal / no attribute | ✓ | `internal` |
-| mentions reactive trigger / re-render | ✓ | `trigger re-render` |
+| mentions reactive trigger / re-render | ✓ | `triggers a re-render` |
 
 <details><summary>opus: baseline answer</summary>
 
@@ -2401,137 +2245,2738 @@ Most components have a mix: a few `@property()` inputs and several `@state()` fi
 
 The core distinction is **public API vs. internal state**.
 
-## `@property()` — Public, reactive API
+## `@property()` — Public, reactive, exposed to HTML
 
-Use this when the value should be settable from **outside** the component, typically as an HTML attribute or DOM property.
+Use when the field is part of your component's public interface:
+
+- Should be settable from outside (HTML attributes or parent components)
+- Reflects to/from an HTML attribute by default
+- Shows up in TypeScript's element interface for consumers
 
 ```ts
 @property({ type: String })
-name = 'world';
+name = 'World';
+
+@property({ type: Boolean, reflect: true })
+disabled = false;
 ```
 
-- Creates a corresponding **HTML attribute** (e.g., `<my-el name="Alice">`)
-- Part of your component's public contract
-- Triggers re-render on change
-- Supports type conversion, attribute name customization, etc.
+Then consumers can do:
+```html
+<my-element name="Alice" disabled></my-element>
+```
 
-## `@state()` — Private, reactive internal state
+## `@state()` — Private, reactive, internal only
 
-Use this for values that are **internal** to the component and shouldn't be set by consumers.
+Use when the field is internal implementation detail:
+
+- Not exposed as an attribute
+- Not part of the public API (won't appear in generated manifests, etc.)
+- Still triggers re-renders when changed
 
 ```ts
 @state()
 private _isOpen = false;
-```
 
-- **No** corresponding HTML attribute
-- Not part of the public API (often paired with `private`)
-- Still triggers re-render on change
-- Excluded from tooling that introspects public properties
+@state()
+private _fetchedData: User[] = [];
+```
 
 ## Quick decision guide
 
 | Question | Use |
 |---|---|
 | Should a parent set this via attribute or property? | `@property()` |
-| Is this derived from user interaction or async work inside the component? | `@state()` |
-| Does it need to be reflected to/from an attribute? | `@property()` |
-| Is it implementation detail that could change without breaking consumers? | `@state()` |
+| Is this derived/fetched/computed internally? | `@state()` |
+| Is it a UI toggle like "is the menu open"? | `@state()` |
+| Is it config the user provides? | `@property()` |
 
-## Common example
+## Common pitfall
 
-```ts
-@customElement('user-card')
-class UserCard extends LitElement {
-  // Public input — caller provides this
-  @property() userId = '';
+Don't use `@property()` for everything just to get reactivity. If you do, you're leaking internals into your public API, and tools like custom-element manifests will document them as if users should set them.
 
-  // Internal — fetched data, not for callers to set
-  @state() private _user?: User;
-  @state() private _loading = false;
-
-  async updated(changed: PropertyValues) {
-    if (changed.has('userId')) {
-      this._loading = true;
-      this._user = await fetchUser(this.userId);
-      this._loading = false;
-    }
-  }
-}
-```
-
-**Rule of thumb:** if you'd document it in your component's README, it's `@property()`. If it's an implementation detail, it's `@state()`.
+A good rule: **if it starts with `_` or feels private, it's probably `@state()`.**
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-Great question — the distinction is about **API surface**, not behavior. Both trigger re-renders the same way; they differ in whether the field is part of your component's public contract.
+## `@property()` vs `@state()`
 
-## `@property()` — public input
+Both make a class field **reactive** — changing the field triggers a re-render. The difference is whether the field is part of your component's **public API**.
 
-Use when the field is part of how external code (HTML, parents, frameworks) configures your component:
+### `@property()` — public, external input
 
-- **Reflected to/from an HTML attribute** by default, so it can be set in markup: `<user-card name="Ada">`
-- **Documented as part of your component's API**
-- Type-converted from the attribute string (string, number, boolean, object via JSON)
+Use when the value is set by **whoever uses your component** (parent template, framework, plain HTML).
 
-```ts
-@customElement('user-card')
-export class UserCard extends LitElement {
-  @property() name = '';
-  @property({ type: Number }) age = 0;
-  @property({ type: Boolean }) active = false;
-}
-```
-
-## `@state()` — private internal state
-
-Use when the field drives rendering but is an implementation detail:
-
-- **Not associated with an attribute** — can't be set from HTML
-- **Not part of the public API** — safe to rename/remove without breaking consumers
-- Triggers re-renders identically to `@property`
+- Reflects to/from an HTML **attribute** by default, so it works from markup: `<user-card name="Ada">`
+- Has type conversion (String, Number, Boolean, Object, Array)
+- Shows up in your component's documented API
 
 ```ts
-@customElement('user-card')
-export class UserCard extends LitElement {
-  @property() userId = '';
-
-  // Internal: fetched data, UI mode, hover state, etc.
-  @state() private _expanded = false;
-  @state() private _loadedUser: User | null = null;
-}
+@property() name = '';
+@property({ type: Number }) age = 0;
+@property({ type: Boolean }) disabled = false;
 ```
 
-## Quick decision rule
+### `@state()` — private, internal
 
-Ask: *"Should someone be able to set this from HTML or from a parent component?"*
+Use when the value is **managed inside the component** and consumers shouldn't know or care about it.
+
+- No attribute, no type conversion, no public API surface
+- Triggers re-renders just like `@property()`
+- Signals "this is an implementation detail"
+
+```ts
+@state() private _isOpen = false;
+@state() private _hoveredIndex = -1;
+@state() private _fetchedData: User[] = [];
+```
+
+### Rule of thumb
+
+Ask: *"Should someone be able to set this from outside the component?"*
 
 - **Yes** → `@property()`
-- **No, it's internal bookkeeping** → `@state()`
+- **No** → `@state()`
 
-## Common cases
+### Common case: derived state
 
-| Field | Decorator |
-|---|---|
-| `name`, `value`, `disabled`, `placeholder` | `@property()` |
-| `_isOpen`, `_hoverIndex`, `_fetchedData` | `@state()` |
-| Result of a `Task` you store on the instance | `@state()` |
-| Anything prefixed with `_` (convention for private) | usually `@state()` |
-
-## One subtle gotcha
-
-Don't use `@property()` for objects you don't want serialized to attributes. If you have a complex object input from a parent, use `@property({ attribute: false })` — that keeps it as a public reactive input but disables the attribute machinery. It's the right choice for context providers/consumers and for object/array props that only ever come from JS, not HTML.
+If a value is computed from properties, it's internal — use `@state()` (or just compute it in `willUpdate()` without a decorator at all):
 
 ```ts
-@property({ attribute: false }) user!: User;  // public, JS-only
+@property() firstName = '';
+@property() lastName = '';
+@state() private _fullName = '';
+
+willUpdate(changed: PropertyValues) {
+  if (changed.has('firstName') || changed.has('lastName')) {
+    this._fullName = `${this.firstName} ${this.lastName}`;
+  }
+}
 ```
 
-So the full hierarchy is:
-1. `@property()` — public, attribute-bindable
-2. `@property({ attribute: false })` — public, JS-only
-3. `@state()` — private, internal
+### Edge case: `@property({ attribute: false })`
+
+This is a `@property()` with no attribute binding — useful for public API values that **can't** be expressed as a string attribute (objects, functions, complex data passed only from JS/templates). Still public, just not settable from HTML markup.
+
+```ts
+@property({ attribute: false }) user?: User;  // public, but JS-only
+```
+
+If you find yourself reaching for this **and** the value is internal, you probably want `@state()` instead.
+
+</details>
+
+---
+
+### `custom-directive-vs-helper`
+
+**Prompt**
+
+```
+I have a small piece of templating logic I'm reusing across three
+Lit components — it formats a list of items with some conditional
+rendering. Should I extract it into a custom Lit directive (extends
+Directive) or just a helper function that returns a TemplateResult?
+What's the difference?
+```
+
+**Judge focus:** The better answer explains that a plain helper function returning
+a TemplateResult is the right tool for "compose a sub-template" —
+custom directives only earn their weight when you need access to
+the underlying Part (DOM node), want noChange to skip work, or
+need persistent state between renders. Custom directives are
+overkill for "I want to reuse some markup."
+
+#### `sonnet`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend a helper function and explain when directives are justified, but Answer B is more focused and pedagogically cleaner. B's decision rule at the end is particularly crisp, its directive justification section is more precise (mentioning AsyncDirective and the 'push updates outside render cycle' case), and it avoids the slightly misleading noChange example in A where the directive still computes a result before checking reference equality. B also better emphasizes that Lit's diffing handles TemplateResult efficiently regardless of extraction, which directly addresses a common concern.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends helper function for the simple case | tie |
+| explains when a Directive is justified | skill |
+| mentions Directive class or directive() factory | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends helper function for the simple case | ✓ | `Helper` |
+| explains when a Directive is justified | ✓ | `noChange` |
+| mentions Directive class or directive() factory | ✓ | `class HighlightListDirective extends Directive` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends helper function for the simple case | ✓ | `Helper` |
+| explains when a Directive is justified | ✓ | `Part` |
+| mentions Directive class or directive() factory | ✓ | `class CountUpDirective extends Directive` |
+
+<details><summary>sonnet: baseline answer</summary>
+
+## Helper Function vs Custom Directive
+
+Great question — this is a common decision point in Lit development. The short answer is: **use a helper function** for your case. Here's why, and when each actually makes sense.
+
+---
+
+## Helper Function (Returns `TemplateResult`)
+
+```typescript
+// helpers/format-list.ts
+import { html, TemplateResult, nothing } from 'lit';
+
+interface ListItem {
+  id: string;
+  label: string;
+  disabled?: boolean;
+}
+
+export function formatList(
+  items: ListItem[],
+  selectedId?: string
+): TemplateResult | typeof nothing {
+  if (!items.length) {
+    return html`<p class="empty">No items found.</p>`;
+  }
+
+  return html`
+    <ul class="item-list">
+      ${items.map(
+        (item) => html`
+          <li
+            class=${item.disabled ? 'disabled' : ''}
+            aria-selected=${item.id === selectedId}
+          >
+            ${item.label}
+          </li>
+        `
+      )}
+    </ul>
+  `;
+}
+```
+
+```typescript
+// my-component.ts
+import { LitElement, html } from 'lit';
+import { customElement, property } from 'lit/decorators.js';
+import { formatList } from './helpers/format-list.js';
+
+@customElement('my-component')
+class MyComponent extends LitElement {
+  @property({ type: Array }) items = [];
+  @property() selectedId?: string;
+
+  render() {
+    return html`
+      <div class="wrapper">
+        ${formatList(this.items, this.selectedId)}
+      </div>
+    `;
+  }
+}
+```
+
+**This is the right choice when:**
+- You're composing/returning markup
+- Logic is stateless (no need to track previous renders)
+- You just need reusable template fragments
+- Straightforward conditional rendering
+
+---
+
+## Custom Directive (Extends `Directive`)
+
+```typescript
+// directives/highlight-list.ts
+import { Directive, directive, PartInfo, PartType } from 'lit/directive.js';
+import { html, noChange, nothing } from 'lit';
+import type { ChildPart } from 'lit';
+
+class HighlightListDirective extends Directive {
+  // Directives can hold STATE between renders
+  private previousItems: string[] = [];
+  private renderCount = 0;
+
+  constructor(partInfo: PartInfo) {
+    super(partInfo);
+    // Can validate WHERE the directive is used
+    if (partInfo.type !== PartType.CHILD) {
+      throw new Error('highlight-list must be used in child position');
+    }
+  }
+
+  render(items: string[], highlightNew: boolean) {
+    this.renderCount++;
+
+    const newItems = items.filter(
+      (item) => !this.previousItems.includes(item)
+    );
+
+    // KEY FEATURE: return noChange to skip DOM update entirely
+    if (items === this.previousItems) {
+      return noChange;
+    }
+
+    const result = html`
+      <ul>
+        ${items.map(
+          (item) => html`
+            <li class=${highlightNew && newItems.includes(item) ? 'new' : ''}>
+              ${item}
+            </li>
+          `
+        )}
+      </ul>
+    `;
+
+    // Mutate state AFTER computing result
+    this.previousItems = [...items];
+    return result;
+  }
+}
+
+export const highlightList = directive(HighlightListDirective);
+```
+
+```typescript
+// usage
+render() {
+  return html`
+    ${highlightList(this.items, true)}
+  `;
+}
+```
+
+**This is the right choice when:**
+- You need **state that persists between renders** (previous values, timers, subscriptions)
+- You need **direct DOM access** via `update()` instead of `render()`
+- You need to return `noChange` to **bail out of rendering** for performance
+- You need to **validate placement** (child vs attribute vs property position)
+- You're building something like `repeat()`, `until()`, `animate()` — behavior, not just markup
+
+---
+
+## The Core Difference
+
+| | Helper Function | Custom Directive |
+|---|---|---|
+| **Returns** | `TemplateResult` | `TemplateResult`, `noChange`, or DOM values |
+| **Has state** | ❌ No | ✅ Yes (instance persists) |
+| **DOM access** | ❌ No | ✅ Via `update()` |
+| **Complexity** | Low | Medium-High |
+| **Use for** | Markup composition | Behavior / optimization |
+| **Lit internals** | Unaware | Integrated |
+
+---
+
+## Your Specific Case
+
+```
+formatting a list with conditional rendering → Helper Function ✅
+```
+
+Directives exist to hook into Lit's **rendering lifecycle** for things that can't be expressed as markup alone. Your use case is purely about **what to render**, not **how rendering behaves** — that's exactly what helper functions are for.
+
+A good rule of thumb: **reach for a directive only when you find yourself wishing a helper function could remember something between renders, or skip rendering altogether.**
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+## Helper Function vs Custom Directive
+
+For formatting a list with conditional rendering, **a helper function returning `TemplateResult` is almost certainly the right choice**. Custom directives solve a different class of problem.
+
+Here's the core distinction:
+
+| | Helper function | Custom directive |
+|---|---|---|
+| Returns | `TemplateResult` | Controls a DOM `Part` directly |
+| Statefulness | Stateless (pure) | Can hold instance state across renders |
+| DOM access | None | Direct, low-level |
+| Complexity | Trivial | Meaningful boilerplate |
+| Right for | Reusable templates | DOM manipulation Lit can't express declaratively |
+
+---
+
+### Helper function — what you actually want
+
+```typescript
+// list-helpers.ts
+import { html, nothing, TemplateResult } from 'lit';
+
+export interface ListItem {
+  id: string;
+  label: string;
+  disabled?: boolean;
+}
+
+export function renderItemList(
+  items: ListItem[],
+  selectedId: string | null
+): TemplateResult {
+  if (items.length === 0) {
+    return html`<p class="empty">No items found.</p>`;
+  }
+
+  return html`
+    <ul>
+      ${items.map(item => html`
+        <li
+          class=${item.disabled ? 'disabled' : nothing}
+          aria-selected=${item.id === selectedId}
+        >
+          ${item.label}
+          ${item.disabled ? html`<span class="badge">Unavailable</span>` : nothing}
+        </li>
+      `)}
+    </ul>
+  `;
+}
+```
+
+```typescript
+// any-component.ts
+import { LitElement, html } from 'lit';
+import { customElement, state } from 'lit/decorators.js';
+import { renderItemList } from './list-helpers.js';
+
+@customElement('my-component')
+class MyComponent extends LitElement {
+  @state() private items: ListItem[] = [];
+  @state() private selectedId: string | null = null;
+
+  render() {
+    return html`
+      <h2>Items</h2>
+      ${renderItemList(this.items, this.selectedId)}
+    `;
+  }
+}
+```
+
+Lit's template engine handles efficient diffing of the returned `TemplateResult` — you get the same update performance as inline templates. There's no overhead to extracting it this way.
+
+---
+
+### When a directive is actually justified
+
+A directive is the right tool when you need something a `TemplateResult` **cannot express**:
+
+- **Instance state that persists across renders** — e.g., a directive that animates between old and new values needs to remember the previous value
+- **Direct DOM Part manipulation** — e.g., `ref()`, `live()`, `unsafeHTML()` all need to reach into the DOM node itself
+- **Async rendering with external push** — `AsyncDirective` lets you call `setValue()` from outside the render cycle (think a directive that subscribes to an observable)
+- **Bypassing Lit's diffing intentionally** — e.g., `unsafeHTML` sets `innerHTML` directly
+
+The built-in directives (`repeat`, `classMap`, `styleMap`, `ref`, `until`) are good examples of things that *genuinely* need the directive API. Your list formatting doesn't need any of that.
+
+```typescript
+// A directive IS warranted here: stateful animation between values
+import { Directive, directive, PartInfo, PartType } from 'lit/directive.js';
+
+class CountUpDirective extends Directive {
+  private _previousValue = 0; // state that survives re-renders
+
+  render(newValue: number) {
+    // animate from _previousValue → newValue, then update
+    this._previousValue = newValue;
+    return newValue;
+  }
+}
+export const countUp = directive(CountUpDirective);
+```
+
+A helper function has no `this` — it can't hold that previous value between calls.
+
+---
+
+### Decision rule
+
+```
+Does the logic need to:
+  - remember state between renders?          → directive
+  - directly manipulate a DOM node/Part?     → directive
+  - push updates outside the render cycle?   → AsyncDirective
+  - just produce HTML from inputs?           → helper function
+```
+
+Your case — formatting a list with conditional rendering — is pure input-to-template transformation. Use a helper function. Save directives for when you're fighting against what `TemplateResult` can express, not working within it.
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend the helper function for the simple case, but Answer B is more precise and idiomatic in its explanation of when directives are justified — specifically calling out `noChange` to skip work, Part access, and persistent state between renders, which aligns directly with the focus area. Answer B also includes a decision tree, mentions `AsyncDirective`, and explicitly shows `noChange` as a key directive benefit, while Answer A's directive example is somewhat misleading (storing items as instance variables in a way that doesn't demonstrate real directive value). Answer B's 'even here you could use a helper + updated()' section reinforces the core message more effectively.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends helper function for the simple case | tie |
+| explains when a Directive is justified | skill |
+| mentions Directive class or directive() factory | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends helper function for the simple case | ✓ | `Helper` |
+| explains when a Directive is justified | ✓ | `part` |
+| mentions Directive class or directive() factory | ✓ | `class FormatItemListDirective extends Directive` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends helper function for the simple case | ✓ | `Helper` |
+| explains when a Directive is justified | ✓ | `Part` |
+| mentions Directive class or directive() factory | ✓ | `class FormatItemListDirective extends Directive` |
+
+<details><summary>haiku: baseline answer</summary>
+
+# Directive vs Helper Function in Lit
+
+Both work, but they have different strengths. Here's how to choose:
+
+## Helper Function (Simpler)
+
+```typescript
+function formatItemList(items: Item[], showPrice: boolean) {
+  return html`
+    <ul>
+      ${items.map(item => html`
+        <li>
+          ${item.name}
+          ${showPrice ? html`<span class="price">${item.price}</span>` : ''}
+        </li>
+      `)}
+    </ul>
+  `;
+}
+
+// Usage
+class MyComponent extends LitElement {
+  render() {
+    return html`
+      <div>${formatItemList(this.items, true)}</div>
+    `;
+  }
+}
+```
+
+**Use this when:**
+- Logic is purely presentational
+- You just need to return a `TemplateResult`
+- No need to interact with the DOM after rendering
+- Simpler to test and reason about
+
+## Custom Directive (More Powerful)
+
+```typescript
+class FormatItemListDirective extends Directive {
+  items: Item[] = [];
+  showPrice = false;
+
+  render(items: Item[], showPrice: boolean) {
+    this.items = items;
+    this.showPrice = showPrice;
+    return html`
+      <ul>
+        ${items.map(item => html`
+          <li>
+            ${item.name}
+            ${showPrice ? html`<span class="price">${item.price}</span>` : ''}
+          </li>
+        `)}
+      </ul>
+    `;
+  }
+
+  update(part: Part, [items, showPrice]: Parameters<this['render']>) {
+    // Called when inputs change
+    if (items !== this.items) {
+      console.log('Items changed, could do cleanup');
+    }
+    return this.render(items, showPrice);
+  }
+}
+
+export const formatItemList = directive(FormatItemListDirective);
+
+// Usage
+class MyComponent extends LitElement {
+  render() {
+    return html`
+      <div>${formatItemList(this.items, true)}</div>
+    `;
+  }
+}
+```
+
+**Use this when:**
+- You need lifecycle hooks (`update`, `disconnect`)
+- You need to manage DOM references or side effects
+- You want to optimize re-renders (e.g., only update when specific props change)
+- You need to clean up resources
+
+## Key Differences
+
+| Aspect | Helper Function | Directive |
+|--------|-----------------|-----------|
+| **Lifecycle** | None | `render()`, `update()`, `disconnect()` |
+| **DOM Access** | No | Yes (via `Part`) |
+| **Side Effects** | Not ideal | Built for this |
+| **Complexity** | Low | Higher |
+| **Performance** | Good for simple cases | Better for complex updates |
+| **Testing** | Easier | Requires more setup |
+
+## Practical Example: When Directive Shines
+
+```typescript
+// Directive that manages focus or event listeners
+class FocusItemDirective extends Directive {
+  private focusedIndex = 0;
+
+  render(items: Item[]) {
+    return html`
+      <ul>
+        ${items.map((item, i) => html`
+          <li ?autofocus=${i === this.focusedIndex}>
+            ${item.name}
+          </li>
+        `)}
+      </ul>
+    `;
+  }
+
+  update(part: Part, [items]: Parameters<this['render']>) {
+    // Can access the actual DOM element via part.element
+    const ul = part.element as HTMLUListElement;
+    const focused = ul.querySelector('[autofocus]') as HTMLLIElement;
+    focused?.focus();
+    
+    return this.render(items);
+  }
+
+  disconnect() {
+    // Cleanup if needed
+  }
+}
+```
+
+## Recommendation
+
+**Start with a helper function.** Only upgrade to a directive if you need:
+- DOM manipulation after rendering
+- Lifecycle management
+- Performance optimization for complex updates
+
+For your reusable templating logic, a helper function is probably the right choice unless you have specific DOM interaction needs.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# Custom Directive vs. Helper Function
+
+**Use a helper function** unless you need direct DOM Part access, async lifecycle, or stateful DOM manipulation. For pure template logic, a helper is simpler and sufficient.
+
+## Quick Comparison
+
+| Aspect | Helper Function | Custom Directive |
+|--------|-----------------|------------------|
+| **Complexity** | Simple: `(items) => html\`...\`` | More boilerplate: class + `render()` |
+| **When to use** | Pure template transformation, no DOM side effects | DOM Part manipulation, async setup, stateful DOM nodes |
+| **Lifecycle** | None — just returns `TemplateResult` | Full: `update()`, `render()`, async hooks |
+| **Performance** | Identical for pure templates | Slightly better if you avoid re-rendering the same Part |
+| **Testing** | Trivial: call the function, check output | Requires directive test harness |
+
+## Helper Function (Recommended for Your Case)
+
+```typescript
+// shared-templates.ts
+import { html, TemplateResult } from 'lit';
+
+export function formatItemList(
+  items: Array<{ id: string; label: string; hidden?: boolean }>
+): TemplateResult {
+  return html`
+    <ul>
+      ${items
+        .filter(item => !item.hidden)
+        .map(item => html`<li key=${item.id}>${item.label}</li>`)}
+    </ul>
+  `;
+}
+```
+
+```typescript
+// my-component.ts
+import { LitElement, html } from 'lit';
+import { customElement, property } from 'lit/decorators.js';
+import { formatItemList } from './shared-templates.js';
+
+@customElement('my-component')
+export class MyComponent extends LitElement {
+  @property() items: Array<{ id: string; label: string; hidden?: boolean }> = [];
+
+  render() {
+    return html`
+      <div class="container">
+        ${formatItemList(this.items)}
+      </div>
+    `;
+  }
+}
+```
+
+**Pros:**
+- Zero boilerplate — just a function
+- Easy to test: call it, assert the returned `TemplateResult`
+- Composable: nest helpers, pass them around
+- No lifecycle overhead
+
+**Cons:**
+- Can't intercept DOM updates or manage stateful DOM nodes
+- No async setup (but you can use `Task` in the component instead)
+
+---
+
+## Custom Directive (Only If You Need DOM Access)
+
+Use a directive **only** if you need to:
+- Directly manipulate DOM nodes (e.g., focus, scroll, measure)
+- Manage async setup/teardown tied to a specific Part
+- Avoid re-rendering the same Part when inputs haven't changed
+
+```typescript
+// format-item-list.directive.ts
+import { Directive, PartType, noChange } from 'lit';
+import { directive } from 'lit/directive.js';
+import { html } from 'lit';
+
+class FormatItemListDirective extends Directive {
+  render(
+    items: Array<{ id: string; label: string; hidden?: boolean }>
+  ) {
+    return html`
+      <ul>
+        ${items
+          .filter(item => !item.hidden)
+          .map(item => html`<li key=${item.id}>${item.label}</li>`)}
+      </ul>
+    `;
+  }
+}
+
+export const formatItemList = directive(FormatItemListDirective);
+```
+
+```typescript
+// my-component.ts
+import { LitElement, html } from 'lit';
+import { customElement, property } from 'lit/decorators.js';
+import { formatItemList } from './format-item-list.directive.js';
+
+@customElement('my-component')
+export class MyComponent extends LitElement {
+  @property() items: Array<{ id: string; label: string; hidden?: boolean }> = [];
+
+  render() {
+    return html`
+      <div class="container">
+        ${formatItemList(this.items)}
+      </div>
+    `;
+  }
+}
+```
+
+**Pros:**
+- Can intercept DOM updates via `update()` and `render()`
+- Can manage async setup/teardown
+- Can skip re-render if inputs haven't changed (return `noChange`)
+
+**Cons:**
+- More boilerplate
+- Harder to test (requires directive test harness)
+- Overkill for pure template logic
+
+---
+
+## Real-World Example: When a Directive Shines
+
+You'd reach for a directive if your "formatting" involved **DOM side effects**:
+
+```typescript
+// Example: auto-focus the first item, measure list height
+class FormatItemListDirective extends Directive {
+  private _listElement: HTMLUListElement | null = null;
+
+  render(items: Array<{ id: string; label: string; hidden?: boolean }>) {
+    return html`
+      <ul>
+        ${items
+          .filter(item => !item.hidden)
+          .map((item, idx) => html`
+            <li 
+              key=${item.id}
+              ${idx === 0 ? 'autofocus' : ''}
+            >
+              ${item.label}
+            </li>
+          `)}
+      </ul>
+    `;
+  }
+
+  update(part: Part, [items]: Parameters<this['render']>) {
+    // Measure the list after render
+    const result = super.update(part, [items]);
+    
+    // Access the DOM node after Lit updates it
+    if (part.type === PartType.CHILD) {
+      this._listElement = (part as ChildPart).parentNode?.querySelector('ul') ?? null;
+      if (this._listElement) {
+        console.log('List height:', this._listElement.offsetHeight);
+      }
+    }
+    
+    return result;
+  }
+}
+```
+
+But even here, you could achieve the same with a helper + `updated()` in the component:
+
+```typescript
+// Simpler: helper + component lifecycle
+export function formatItemList(items: Array<...>) {
+  return html`...`;
+}
+
+@customElement('my-component')
+export class MyComponent extends LitElement {
+  @property() items = [];
+
+  updated() {
+    const list = this.shadowRoot?.querySelector('ul');
+    if (list) console.log('List height:', list.offsetHeight);
+  }
+
+  render() {
+    return html`<div>${formatItemList(this.items)}</div>`;
+  }
+}
+```
+
+---
+
+## Decision Tree
+
+```
+Does your template logic need to:
+  ├─ Directly manipulate DOM nodes (focus, scroll, measure)?
+  │  └─ YES → Custom Directive
+  ├─ Manage async setup/teardown tied to a specific Part?
+  │  └─ YES → Custom Directive (or AsyncDirective)
+  ├─ Skip re-render if inputs haven't changed?
+  │  └─ YES → Custom Directive (return noChange)
+  └─ Just transform data into HTML?
+     └─ NO → Helper Function ✓
+```
+
+---
+
+## Recommendation for Your Case
+
+**Use a helper function.** You're reusing template logic across three components — that's a perfect fit for a simple function that returns `TemplateResult`. No DOM manipulation, no async setup, no stateful nodes. Keep it simple.
+
+```typescript
+// shared-templates.ts
+export function formatItemList(items: ItemType[]): TemplateResult {
+  return html`
+    <ul>
+      ${items
+        .filter(item => !item.hidden)
+        .map(item => html`<li key=${item.id}>${item.label}</li>`)}
+    </ul>
+  `;
+}
+```
+
+Then import and call it in each component's `render()`. If you later need DOM access or async setup, you can always refactor to a directive — but start with the simpler tool.
+
+</details>
+
+#### `opus`
+
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers are excellent and cover all three rubric criteria thoroughly. Answer A provides a more detailed table and TypeScript examples, while Answer B adds a useful practical tip about using Lit's built-in `repeat` directive as an alternative to custom directives for keyed list reconciliation. Both correctly recommend helper functions, explain directive justification well, and mention the Directive class/factory.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends helper function for the simple case | tie |
+| explains when a Directive is justified | tie |
+| mentions Directive class or directive() factory | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends helper function for the simple case | ✓ | `helper` |
+| explains when a Directive is justified | ✓ | `Part` |
+| mentions Directive class or directive() factory | ✓ | `extends Directive` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends helper function for the simple case | ✓ | `helper` |
+| explains when a Directive is justified | ✓ | `Part` |
+| mentions Directive class or directive() factory | ✓ | `extends Directive` |
+
+<details><summary>opus: baseline answer</summary>
+
+Short answer: use a plain helper function that returns a `TemplateResult`. Custom directives are overkill for what you're describing.
+
+## The difference
+
+**Helper function returning `TemplateResult`:**
+- Just a function. Called every render. Returns html`...`.
+- Lit diffs the result like any other template.
+- Zero ceremony, fully composable, easy to test.
+
+```js
+const renderItems = (items, opts = {}) => html`
+  <ul>
+    ${items.map(item => html`
+      <li class=${item.active ? 'active' : ''}>
+        ${item.label}
+        ${opts.showCount ? html`<span>(${item.count})</span>` : ''}
+      </li>
+    `)}
+  </ul>
+`;
+```
+
+**Custom directive (`extends Directive` / `AsyncDirective`):**
+- A class with `update()`/`render()` lifecycle, access to the `Part` it's bound to, and persistent state across renders.
+- Can do things templates can't: imperatively read/write the DOM node, hold subscriptions, schedule async updates, short-circuit re-renders, etc.
+- More boilerplate, harder to compose, and you opt out of some of Lit's normal flow.
+
+## When you actually need a directive
+
+Reach for `Directive` only when you need at least one of:
+
+1. **Persistent state tied to a Part** across renders (e.g. caching, memoization keyed to a DOM location).
+2. **Direct access to the DOM element/attribute** (like `ref`, `classMap`, `styleMap`, `live`).
+3. **Async updates** that push new values into a part without the host re-rendering (`AsyncDirective.setValue`).
+4. **Short-circuiting** — returning `noChange` to skip an update.
+
+"Format a list with some conditionals" hits none of these. It's pure value → template, which is exactly what functions are for.
+
+## Rules of thumb
+
+- Pure transformation of inputs to markup → **helper function**.
+- Need to interact with the DOM node, hold state, or push async values → **directive**.
+- Built-ins like `repeat`, `when`, `map`, `classMap` cover most "smart rendering" cases without writing your own directive.
+
+Stick with the function. If later you discover you need keyed reconciliation for the list, swap `items.map(...)` for Lit's `repeat` directive — still no custom directive needed.
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
+
+Use a **helper function returning `TemplateResult`**. That's almost certainly the right answer for your case.
+
+## Why
+
+A helper function is just:
+
+```ts
+import { html, nothing } from 'lit';
+
+export function renderItemList(items: Item[], options?: { showCount?: boolean }) {
+  if (items.length === 0) return html`<p>No items</p>`;
+  return html`
+    ${options?.showCount ? html`<span>${items.length} items</span>` : nothing}
+    <ul>
+      ${items.map((item) => html`<li>${item.name}</li>`)}
+    </ul>
+  `;
+}
+```
+
+Then in each component:
+
+```ts
+render() {
+  return html`<div>${renderItemList(this.items, { showCount: true })}</div>`;
+}
+```
+
+This works perfectly because `html` returns a `TemplateResult` value — composable, cacheable by Lit's template system, and efficient. Lit's diffing handles nested templates natively; there's no performance cost to splitting templates across functions.
+
+## When you'd actually need a custom Directive
+
+Custom directives (`extends Directive`) exist for things templates **can't express**:
+
+- **Direct DOM Part access** — you need to read/write the actual attribute, node, or property Part imperatively (e.g., `classMap`, `styleMap`, `ref`)
+- **Stateful rendering across renders** — the directive needs to remember something between calls (e.g., `cache`, `repeat`'s key tracking)
+- **Async lifecycle** — `AsyncDirective` for things like subscribing to an observable and calling `setValue()` outside the normal render cycle (e.g., `until`, `asyncAppend`)
+- **Disconnection callbacks** — cleanup when the directive's part is removed from the DOM
+
+Your case — "format a list with conditional rendering" — needs none of these. It's pure template composition.
+
+## Rule of thumb
+
+| Need | Use |
+|------|-----|
+| Reusable template fragment | **Helper function returning `TemplateResult`** |
+| Conditional/loop rendering | Helper function (or inline `map`/ternary) |
+| Imperative DOM manipulation | Custom directive |
+| Subscribe to async source | `AsyncDirective` |
+| State that persists across renders for the same DOM location | Custom directive |
+
+Custom directives are powerful but add real complexity (Part API, lifecycle, `update` vs `render`, `noChange` vs `nothing`). Don't reach for them when a function call composes templates just as well.
+
+</details>
+
+---
+
+### `reactive-controller-vs-task`
+
+**Prompt**
+
+```
+I want to add a persistent WebSocket connection to my Lit component
+— open on mount, close on unmount, and re-render the host when a
+message arrives. Should I write a ReactiveController or use
+@lit/task? What's the difference?
+```
+
+**Judge focus:** The better answer recommends a ReactiveController for this case
+(long-lived resource with hostConnected / hostDisconnected
+lifecycle hooks and requestUpdate to drive re-renders), and
+contrasts it with @lit/task which is for request-shaped async
+work tied to inputs (fetch-style, with status states).
+
+#### `sonnet`
+
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **baseline** — Both answers correctly recommend ReactiveController and cover all four rubric criteria, but Answer B is more practical and complete: it includes auto-reconnect logic, proper cleanup (nulling out handlers before close), a public API (send/disconnect/reconnect), and cleaner patterns for accumulating messages. Answer A has a garbled 'mental model' section with a broken ASCII diagram that runs on for thousands of characters, which significantly hurts readability and professionalism. Answer B's contrast table and lifecycle diagram are cleaner and more informative.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends ReactiveController for this scenario | tie |
+| mentions hostConnected / hostDisconnected | tie |
+| contrasts with Task as request-shaped async | baseline |
+| mentions requestUpdate or host re-render | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends ReactiveController for this scenario | ✓ | `ReactiveController` |
+| mentions hostConnected / hostDisconnected | ✓ | `hostConnected` |
+| contrasts with Task as request-shaped async | ✓ | `@lit/task` |
+| mentions requestUpdate or host re-render | ✓ | `requestUpdate` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends ReactiveController for this scenario | ✓ | `ReactiveController` |
+| mentions hostConnected / hostDisconnected | ✓ | `hostConnected` |
+| contrasts with Task as request-shaped async | ✓ | `@lit/task` |
+| mentions requestUpdate or host re-render | ✓ | `requestUpdate` |
+
+<details><summary>sonnet: baseline answer</summary>
+
+## ReactiveController vs `@lit/task` for WebSockets
+
+**Short answer: Write a `ReactiveController`.** `@lit/task` is designed for one-shot async operations (like fetch), not persistent connections. Here's why, and how to do it properly.
+
+---
+
+## Why Not `@lit/task`?
+
+```javascript
+// ❌ @lit/task is built around a single Promise that resolves/rejects
+const task = new Task(this, {
+  task: async ([url]) => {
+    const ws = new WebSocket(url);
+    // Task expects you to return a value — but WebSocket never "completes"
+    // You'd have to hack around it with manual Promise chains
+    return new Promise((resolve) => {
+      ws.onmessage = (e) => resolve(e.data); // Only gets FIRST message, then done
+    });
+  },
+  args: () => [this.url]
+});
+```
+
+| Concern | `@lit/task` | `ReactiveController` |
+|---|---|---|
+| Lifecycle hooks | ❌ No `hostConnected`/`hostDisconnected` | ✅ Built-in |
+| Persistent connections | ❌ Awkward, fights the API | ✅ Natural fit |
+| Multiple events over time | ❌ One promise = one value | ✅ Call `requestUpdate()` anytime |
+| Cleanup on unmount | ❌ No teardown hook | ✅ `hostDisconnected()` |
+| Reconnection logic | ❌ Very messy | ✅ Clean |
+
+---
+
+## The Right Way: ReactiveController
+
+```javascript
+// websocket-controller.js
+export class WebSocketController {
+  #host;
+  #url;
+  #ws = null;
+  #reconnectTimer = null;
+  #intentionalClose = false;
+
+  // Public state the host component can read
+  lastMessage = null;
+  status = 'disconnected'; // 'connecting' | 'connected' | 'disconnected' | 'error'
+  error = null;
+
+  constructor(host, url) {
+    this.#host = host;
+    this.#url = url;
+    // Register with the host — this is what makes it a ReactiveController
+    host.addController(this);
+  }
+
+  // ── Lifecycle hooks called by Lit automatically ──────────────────────
+
+  hostConnected() {
+    this.#connect();
+  }
+
+  hostDisconnected() {
+    this.#intentionalClose = true;
+    this.#cleanup();
+  }
+
+  // ── Public API ───────────────────────────────────────────────────────
+
+  send(data) {
+    if (this.#ws?.readyState === WebSocket.OPEN) {
+      this.#ws.send(typeof data === 'string' ? data : JSON.stringify(data));
+    } else {
+      console.warn('WebSocket is not open. Current status:', this.status);
+    }
+  }
+
+  disconnect() {
+    this.#intentionalClose = true;
+    this.#cleanup();
+  }
+
+  reconnect() {
+    this.#intentionalClose = false;
+    this.#cleanup();
+    this.#connect();
+  }
+
+  // ── Private internals ────────────────────────────────────────────────
+
+  #connect() {
+    this.#intentionalClose = false;
+    this.#setStatus('connecting');
+
+    try {
+      this.#ws = new WebSocket(this.#url);
+    } catch (err) {
+      this.#setError(err);
+      return;
+    }
+
+    this.#ws.onopen = () => {
+      this.error = null;
+      this.#setStatus('connected');
+    };
+
+    this.#ws.onmessage = (event) => {
+      // Parse JSON automatically, fall back to raw string
+      try {
+        this.lastMessage = JSON.parse(event.data);
+      } catch {
+        this.lastMessage = event.data;
+      }
+      // This is the key call — tells Lit to re-render the host
+      this.#host.requestUpdate();
+    };
+
+    this.#ws.onerror = (event) => {
+      this.#setError(new Error('WebSocket error'));
+    };
+
+    this.#ws.onclose = (event) => {
+      this.#setStatus('disconnected');
+      // Auto-reconnect unless we closed intentionally
+      if (!this.#intentionalClose) {
+        this.#scheduleReconnect();
+      }
+    };
+  }
+
+  #cleanup() {
+    clearTimeout(this.#reconnectTimer);
+    if (this.#ws) {
+      // Remove handlers before closing to prevent onclose triggering reconnect
+      this.#ws.onopen = null;
+      this.#ws.onmessage = null;
+      this.#ws.onerror = null;
+      this.#ws.onclose = null;
+      this.#ws.close();
+      this.#ws = null;
+    }
+  }
+
+  #scheduleReconnect(delay = 3000) {
+    this.#reconnectTimer = setTimeout(() => {
+      if (!this.#intentionalClose) {
+        console.log('Attempting WebSocket reconnect...');
+        this.#connect();
+      }
+    }, delay);
+  }
+
+  #setStatus(status) {
+    this.status = status;
+    this.#host.requestUpdate(); // Re-render on every status change
+  }
+
+  #setError(err) {
+    this.error = err;
+    this.status = 'error';
+    this.#host.requestUpdate();
+  }
+}
+```
+
+---
+
+## Using It in a Component
+
+```javascript
+// my-chat.js
+import { LitElement, html, css } from 'lit';
+import { WebSocketController } from './websocket-controller.js';
+
+class MyChat extends LitElement {
+  static styles = css`
+    .status { font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; }
+    .connected    { background: #d4edda; color: #155724; }
+    .connecting   { background: #fff3cd; color: #856404; }
+    .disconnected { background: #f8d7da; color: #721c24; }
+    .error        { background: #f8d7da; color: #721c24; }
+    .messages     { height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; }
+  `;
+
+  // Controller is instantiated once — Lit handles the rest
+  #ws = new WebSocketController(this, 'wss://echo.websocket.org');
+
+  #messages = [];
+
+  render() {
+    // Read directly from controller — no extra state needed
+    const { status, lastMessage, error } = this.#ws;
+
+    // Accumulate messages (you'd normally do this in onmessage callback)
+    if (lastMessage && !this.#messages.includes(lastMessage)) {
+      this.#messages = [...this.#messages, lastMessage];
+    }
+
+    return html`
+      <span class="status ${status}">${status}</span>
+
+      ${error ? html`<p class="error">Error: ${error.message}</p>` : ''}
+
+      <div class="messages">
+        ${this.#messages.map(msg => html`
+          <div class="message">${JSON.stringify(msg)}</div>
+        `)}
+      </div>
+
+      <div class="controls">
+        <input id="input" type="text" placeholder="Type a message..." />
+        <button @click=${this.#sendMessage}
+                ?disabled=${status !== 'connected'}>
+          Send
+        </button>
+        <button @click=${() => this.#ws.reconnect()}>Reconnect</button>
+      </div>
+    `;
+  }
+
+  #sendMessage() {
+    const input = this.shadowRoot.querySelector('#input');
+    if (input.value.trim()) {
+      this.#ws.send(input.value);
+      input.value = '';
+    }
+  }
+}
+
+customElements.define('my-chat', MyChat);
+```
+
+---
+
+## Accumulating Messages Cleanly
+
+The example above has a subtle bug (message dedup by reference). Here's the cleaner pattern — keep message history *in the controller*:
+
+```javascript
+// In WebSocketController
+#messageHistory = [];
+
+get messages() {
+  return this.#messageHistory;
+}
+
+// In onmessage handler:
+this.#ws.onmessage = (event) => {
+  const parsed = (() => {
+    try { return JSON.parse(event.data); } catch { return event.data; }
+  })();
+
+  this.lastMessage = parsed;
+  this.#messageHistory = [...this.#messageHistory, parsed]; // immutable update
+  this.#host.requestUpdate();
+};
+
+// Clear history on reconnect if desired
+#connect() {
+  this.#messageHistory = [];
+  // ...rest of connect
+}
+```
+
+```javascript
+// In component — now trivially simple
+render() {
+  return html`
+    ${this.#ws.messages.map(msg => html`<div>${JSON.stringify(msg)}</div>`)}
+  `;
+}
+```
+
+---
+
+## Key Takeaways
+
+```
+ReactiveController lifecycle:
+  addController() → hostConnected() → [requestUpdate() × N] → hostDisconnected()
+       ↑                  ↑                    ↑                       ↑
+  constructor         ws.open()           ws.onmessage()          ws.close()
+```
+
+1. **`hostConnected`** = open the socket (not the constructor — the element may not be in the DOM yet)
+2. **`hostDisconnected`** = close the socket and cancel reconnect timers
+3. **`requestUpdate()`** = the bridge between async WebSocket events and Lit's render cycle
+4. **`@lit/task`** is for fetch-style request/response — don't fight it into a persistent connection shape
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+## Controller vs Task for WebSocket
+
+**Use a Reactive Controller.** `@lit/task` is designed for request/response async (fetch a URL, get a result, done). A WebSocket is an *ongoing resource* — it has its own lifecycle that must be tied to the component's lifecycle, and it emits an unbounded stream of messages over time. That's exactly what reactive controllers exist for.
+
+The decision table from the skill captures this directly:
+
+| Pattern | Use when |
+|---|---|
+| `Task` | Request → response → done (fetch, DB query) |
+| Reactive Controller | Ongoing resource with setup/teardown (timers, observers, **WebSockets**) |
+
+---
+
+## The Reactive Controller
+
+```typescript
+// ws-controller.ts
+import type { ReactiveController, ReactiveControllerHost } from 'lit';
+
+export class WebSocketController<T = unknown> implements ReactiveController {
+  private _host: ReactiveControllerHost;
+  private _url: string;
+  private _socket: WebSocket | null = null;
+
+  /** Latest parsed message payload — read this in render() */
+  lastMessage: T | null = null;
+  readyState: number = WebSocket.CLOSED;
+  error: Event | null = null;
+
+  constructor(host: ReactiveControllerHost, url: string) {
+    this._host = host;
+    this._url = url;
+    host.addController(this);   // register with the host
+  }
+
+  // Called when the host connects to the DOM
+  hostConnected() {
+    this._open();
+  }
+
+  // Called when the host disconnects from the DOM
+  hostDisconnected() {
+    this._close();
+  }
+
+  send(data: string | ArrayBufferLike | Blob) {
+    if (this._socket?.readyState === WebSocket.OPEN) {
+      this._socket.send(data);
+    }
+  }
+
+  private _open() {
+    this._socket = new WebSocket(this._url);
+
+    this._socket.addEventListener('open', () => {
+      this.readyState = WebSocket.OPEN;
+      this.error = null;
+      this._host.requestUpdate();   // re-render the host
+    });
+
+    this._socket.addEventListener('message', (event: MessageEvent) => {
+      try {
+        this.lastMessage = JSON.parse(event.data) as T;
+      } catch {
+        this.lastMessage = event.data as T;
+      }
+      this._host.requestUpdate();   // re-render on every message
+    });
+
+    this._socket.addEventListener('error', (event) => {
+      this.error = event;
+      this.readyState = this._socket?.readyState ?? WebSocket.CLOSED;
+      this._host.requestUpdate();
+    });
+
+    this._socket.addEventListener('close', () => {
+      this.readyState = WebSocket.CLOSED;
+      this._host.requestUpdate();
+    });
+  }
+
+  private _close() {
+    this._socket?.close();
+    this._socket = null;
+  }
+}
+```
+
+Key points:
+- The host type is `ReactiveControllerHost`, not `LitElement` — keeps the controller usable with any compatible host
+- `requestUpdate()` is the only way the controller drives re-renders; it never touches the DOM directly
+- `_close()` in `hostDisconnected()` guarantees no leaked sockets or ghost message handlers
+
+---
+
+## Using It in a Component
+
+```typescript
+import { LitElement, html, css } from 'lit';
+import { customElement, state } from 'lit/decorators.js';
+import { WebSocketController } from './ws-controller.js';
+
+interface StockTick {
+  symbol: string;
+  price: number;
+}
+
+@customElement('stock-ticker')
+export class StockTicker extends LitElement {
+  static styles = css`
+    :host { display: block; font-family: monospace; }
+    .error { color: red; }
+    .connecting { color: grey; }
+  `;
+
+  // Controller is instantiated once; it self-registers via addController()
+  private _ws = new WebSocketController<StockTick>(
+    this,
+    'wss://example.com/stocks'
+  );
+
+  render() {
+    const { readyState, lastMessage, error } = this._ws;
+
+    if (error) {
+      return html`<p class="error">Connection error.</p>`;
+    }
+
+    if (readyState !== WebSocket.OPEN) {
+      return html`<p class="connecting">Connecting…</p>`;
+    }
+
+    return html`
+      <p>Status: connected</p>
+      ${lastMessage
+        ? html`<p>${lastMessage.symbol}: $${lastMessage.price.toFixed(2)}</p>`
+        : html`<p>Waiting for data…</p>`}
+      <button @click=${() => this._ws.send(JSON.stringify({ sub: 'AAPL' }))}>
+        Subscribe AAPL
+      </button>
+    `;
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'stock-ticker': StockTicker;
+  }
+}
+```
+
+The component's `render()` is pure — it just reads controller state. All the socket logic lives in the controller.
+
+---
+
+## Why Not Task?
+
+If you tried to model this with `@lit/task`, you'd immediately hit its design assumptions:
+
+```typescript
+// ❌ This doesn't work — Task expects a Promise that resolves once
+private _ws = new Task(this, {
+  task: async ([url]) => {
+    const socket = new WebSocket(url);
+    // What do you return here? The socket? The first message?
+    // Task has no model for "keep running and emit values over time"
+  },
+  args: () => [this.url],
+});
+```
+
+Task gives you one `pending → complete | error` cycle per run. A WebSocket needs:
+- Persistent state across many messages
+- Cleanup tied to component unmount
+- The ability to call `send()` imperatively
+
+None of those fit Task's model.
+
+---
+
+## The Mental Model
+
+```
+Task:           open → [one result] → close
+                ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend ReactiveController and cover the key criteria, but Answer A is more thorough and complete. It provides a more detailed contrast with Task (explaining why Task is wrong for WebSocket — it expects a promise that resolves, not a stream), explicitly mentions all four rubric criteria with greater depth, and includes additional practical guidance like reconnection logic, type safety, and public API design. Answer B is correct but more superficial.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends ReactiveController for this scenario | tie |
+| mentions hostConnected / hostDisconnected | tie |
+| contrasts with Task as request-shaped async | skill |
+| mentions requestUpdate or host re-render | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends ReactiveController for this scenario | ✓ | `ReactiveController` |
+| mentions hostConnected / hostDisconnected | ✓ | `hostConnected` |
+| contrasts with Task as request-shaped async | ✓ | `@lit/task` |
+| mentions requestUpdate or host re-render | ✓ | `requestUpdate` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends ReactiveController for this scenario | ✓ | `ReactiveController` |
+| mentions hostConnected / hostDisconnected | ✓ | `hostConnected` |
+| contrasts with Task as request-shaped async | ✓ | `Task is for request/response (fetch` |
+| mentions requestUpdate or host re-render | ✓ | `requestUpdate` |
+
+<details><summary>haiku: baseline answer</summary>
+
+# WebSocket in Lit: ReactiveController vs @lit/task
+
+For a persistent WebSocket connection, **ReactiveController is the better choice**. Here's why:
+
+## ReactiveController (Recommended)
+
+Use this for **stateful, long-lived connections** that need lifecycle management.
+
+```typescript
+import { ReactiveController, ReactiveControllerHost } from 'lit';
+
+class WebSocketController implements ReactiveController {
+  private ws?: WebSocket;
+  private host: ReactiveControllerHost;
+
+  constructor(host: ReactiveControllerHost, private url: string) {
+    this.host = host;
+    host.addController(this);
+  }
+
+  hostConnected() {
+    this.ws = new WebSocket(this.url);
+    this.ws.onmessage = (event) => {
+      this.onMessage(event.data);
+      this.host.requestUpdate(); // Re-render on message
+    };
+  }
+
+  hostDisconnected() {
+    this.ws?.close();
+  }
+
+  private onMessage(data: string) {
+    // Handle message
+  }
+
+  send(data: string) {
+    this.ws?.send(data);
+  }
+}
+```
+
+**Usage in component:**
+
+```typescript
+import { LitElement, html } from 'lit';
+
+class MyComponent extends LitElement {
+  private wsController = new WebSocketController(this, 'ws://localhost:8080');
+
+  render() {
+    return html`<p>Connected</p>`;
+  }
+}
+```
+
+## @lit/task (Not ideal for this)
+
+`@lit/task` is designed for **async operations with clear start/end points** (like API calls).
+
+```typescript
+import { task } from '@lit/task';
+
+class MyComponent extends LitElement {
+  private wsTask = new Task(this, {
+    task: async () => {
+      // ❌ Problem: task() expects a Promise that resolves
+      // WebSocket is never "done"
+      return new Promise(() => {}); // Never resolves!
+    }
+  });
+}
+```
+
+## Key Differences
+
+| Aspect | ReactiveController | @lit/task |
+|--------|-------------------|-----------|
+| **Lifecycle** | `hostConnected/Disconnected` | Task-based (start/end) |
+| **Best for** | Persistent connections | One-off async operations |
+| **State management** | Manual | Built-in (pending/complete/error) |
+| **Re-render trigger** | `requestUpdate()` | Automatic on completion |
+
+## Complete Example
+
+```typescript
+import { LitElement, html } from 'lit';
+import { ReactiveController, ReactiveControllerHost } from 'lit';
+
+class WebSocketController implements ReactiveController {
+  private ws?: WebSocket;
+  private host: ReactiveControllerHost;
+  data: string = '';
+
+  constructor(host: ReactiveControllerHost, private url: string) {
+    this.host = host;
+    host.addController(this);
+  }
+
+  hostConnected() {
+    this.ws = new WebSocket(this.url);
+    this.ws.onmessage = (event) => {
+      this.data = event.data;
+      this.host.requestUpdate();
+    };
+    this.ws.onerror = () => console.error('WebSocket error');
+  }
+
+  hostDisconnected() {
+    this.ws?.close();
+  }
+
+  send(message: string) {
+    this.ws?.send(message);
+  }
+}
+
+class MyComponent extends LitElement {
+  private ws = new WebSocketController(this, 'ws://localhost:8080');
+
+  render() {
+    return html`
+      <div>${this.ws.data}</div>
+      <button @click=${() => this.ws.send('hello')}>Send</button>
+    `;
+  }
+}
+```
+
+**Use ReactiveController** — it's purpose-built for this pattern! 🎯
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# WebSocket Connection: ReactiveController vs Task
+
+**Use a ReactiveController.** Task is for request/response (fetch, DB query). WebSocket is an ongoing resource that needs lifecycle-aware setup/teardown and should trigger re-renders on incoming messages.
+
+## Why ReactiveController, Not Task
+
+| Aspect | Task | ReactiveController |
+|--------|------|-------------------|
+| **Lifecycle** | Runs when args change; completes | Runs once on `hostConnected()`; lives until `hostDisconnected()` |
+| **Resource type** | Request/response (fetch, DB) | Ongoing (WebSocket, timer, observer, event listener) |
+| **Cleanup** | Automatic (abort signal) | Manual in `hostDisconnected()` |
+| **Re-render trigger** | Status change (pending → complete) | Call `host.requestUpdate()` on message |
+| **Multiple instances** | One per component | One per component, reusable across many |
+
+A WebSocket stays open for the lifetime of the component. Task would re-run every time its args changed, which is wasteful and wrong for a persistent connection.
+
+## Complete Example
+
+```typescript
+import { LitElement, html } from 'lit';
+import { customElement, property, state } from 'lit/decorators.js';
+import { ReactiveController, ReactiveControllerHost } from 'lit';
+
+// 1. Define the controller
+class WebSocketController implements ReactiveController {
+  private _host: ReactiveControllerHost;
+  private _ws: WebSocket | null = null;
+  private _reconnectAttempts = 0;
+  private _maxReconnectAttempts = 5;
+  private _reconnectDelay = 1000;
+
+  @state() isConnected = false;
+  @state() lastMessage: string | null = null;
+  @state() error: string | null = null;
+
+  constructor(
+    host: ReactiveControllerHost,
+    private _url: string,
+    private _onMessage?: (data: unknown) => void
+  ) {
+    this._host = host;
+    host.addController(this);
+  }
+
+  hostConnected() {
+    this._connect();
+  }
+
+  hostDisconnected() {
+    this._disconnect();
+  }
+
+  private _connect() {
+    try {
+      this._ws = new WebSocket(this._url);
+
+      this._ws.addEventListener('open', () => {
+        this.isConnected = true;
+        this._reconnectAttempts = 0;
+        this._host.requestUpdate();
+      });
+
+      this._ws.addEventListener('message', (event) => {
+        this.lastMessage = event.data;
+        this.error = null;
+        this._onMessage?.(JSON.parse(event.data));
+        this._host.requestUpdate();
+      });
+
+      this._ws.addEventListener('error', () => {
+        this.error = 'WebSocket error';
+        this._host.requestUpdate();
+      });
+
+      this._ws.addEventListener('close', () => {
+        this.isConnected = false;
+        this._host.requestUpdate();
+        this._attemptReconnect();
+      });
+    } catch (err) {
+      this.error = `Failed to connect: ${err}`;
+      this._host.requestUpdate();
+    }
+  }
+
+  private _attemptReconnect() {
+    if (this._reconnectAttempts < this._maxReconnectAttempts) {
+      this._reconnectAttempts++;
+      const delay = this._reconnectDelay * Math.pow(2, this._reconnectAttempts - 1);
+      setTimeout(() => this._connect(), delay);
+    }
+  }
+
+  private _disconnect() {
+    if (this._ws) {
+      this._ws.close();
+      this._ws = null;
+    }
+  }
+
+  send(data: unknown) {
+    if (this._ws?.readyState === WebSocket.OPEN) {
+      this._ws.send(JSON.stringify(data));
+    }
+  }
+
+  getStatus() {
+    return {
+      isConnected: this.isConnected,
+      lastMessage: this.lastMessage,
+      error: this.error,
+    };
+  }
+}
+
+// 2. Use the controller in your component
+@customElement('chat-app')
+export class ChatApp extends LitElement {
+  private _ws = new WebSocketController(
+    this,
+    'wss://echo.websocket.org',
+    (data) => {
+      // Optional callback when message arrives
+      console.log('Received:', data);
+    }
+  );
+
+  @state() messages: string[] = [];
+
+  render() {
+    const { isConnected, error } = this._ws.getStatus();
+
+    return html`
+      <div>
+        <p>Status: ${isConnected ? '🟢 Connected' : '🔴 Disconnected'}</p>
+        ${error ? html`<p style="color: red">${error}</p>` : ''}
+        <button @click=${() => this._sendMessage()}>Send</button>
+        <ul>
+          ${this.messages.map((msg) => html`<li>${msg}</li>`)}
+        </ul>
+      </div>
+    `;
+  }
+
+  private _sendMessage() {
+    this._ws.send({ text: 'Hello' });
+  }
+}
+```
+
+## Key Points
+
+1. **`hostConnected()` / `hostDisconnected()`** — Lit calls these automatically. Open the socket on connect, close on disconnect.
+
+2. **`requestUpdate()` on message** — When a message arrives, call `this._host.requestUpdate()` to trigger a re-render. The component sees the new state.
+
+3. **Expose a public API** — `send()`, `getStatus()` let the component interact with the WebSocket without exposing internals.
+
+4. **Type the host as `ReactiveControllerHost`** — Not `LitElement`. This keeps the controller framework-agnostic and reusable.
+
+5. **Cleanup in `hostDisconnected()`** — Close the socket, cancel timers, remove listeners. Prevents memory leaks.
+
+6. **Reconnection logic** — Exponential backoff with a max attempt limit. Adjust `_maxReconnectAttempts` and `_reconnectDelay` as needed.
+
+## Accessing Controller State in the Component
+
+If you want the component to read controller state directly (not via a callback), expose it as public fields:
+
+```typescript
+class WebSocketController implements ReactiveController {
+  isConnected = false;
+  lastMessage: string | null = null;
+  error: string | null = null;
+  // ...
+}
+
+// In the component:
+render() {
+  return html`
+    <p>Status: ${this._ws.isConnected ? '🟢' : '🔴'}</p>
+    ${this._ws.error ? html`<p>${this._ws.error}</p>` : ''}
+  `;
+}
+```
+
+The controller calls `this._host.requestUpdate()` whenever state changes, so the component re-renders automatically.
+
+## When to Use Task Instead
+
+Use Task **only** if you're fetching data once per component lifecycle or when args change:
+
+```typescript
+// ❌ Wrong for WebSocket
+private _task = new Task(this, {
+  task: async ({ signal }) => {
+    const ws = new WebSocket('wss://...');
+    // Task completes when the promise resolves
+    // But WebSocket never resolves — it's a stream
+  },
+});
+```
+
+Task is designed for async operations that have a clear end state (pending → complete/error). WebSocket is a stream that lives for the component's lifetime.
+
+---
+
+**Summary:** ReactiveController for WebSocket, timers, observers, event listeners, and other ongoing resources. Task for fetch, DB queries, and other request/response patterns.
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend ReactiveController and cover all four rubric criteria well. Answer A is more comprehensive with a richer comparison table, additional gotchas section, and more complete status tracking in the controller implementation. However, Answer B is cleaner and more concise while still hitting every criterion, and its 'when you'd combine the two' section adds a nice nuance. Answer A edges out B due to the explicit comparison table and the gotchas section that add practical depth, plus slightly more thorough coverage of the contrast with Task.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| recommends ReactiveController for this scenario | tie |
+| mentions hostConnected / hostDisconnected | tie |
+| contrasts with Task as request-shaped async | skill |
+| mentions requestUpdate or host re-render | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends ReactiveController for this scenario | ✓ | `ReactiveController` |
+| mentions hostConnected / hostDisconnected | ✓ | `hostConnected` |
+| contrasts with Task as request-shaped async | ✓ | `@lit/task` |
+| mentions requestUpdate or host re-render | ✓ | `requestUpdate` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends ReactiveController for this scenario | ✓ | `ReactiveController` |
+| mentions hostConnected / hostDisconnected | ✓ | `hostConnected` |
+| contrasts with Task as request-shaped async | ✓ | `@lit/task` |
+| mentions requestUpdate or host re-render | ✓ | `requestUpdate` |
+
+<details><summary>opus: baseline answer</summary>
+
+# ReactiveController is the right choice here
+
+For a persistent WebSocket lifecycle tied to a host element, use a **ReactiveController**. `@lit/task` is for something different.
+
+## The distinction
+
+**`Task`** models an *async operation* with discrete states (`initial` → `pending` → `complete`/`error`) that runs in response to changing inputs. It's built around a single promise that resolves once. Think: "fetch this user when the `userId` property changes."
+
+**`ReactiveController`** is a reusable bundle of state + lifecycle hooks (`hostConnected`, `hostDisconnected`, `hostUpdate`, `hostUpdated`) attached to a host. It's the right primitive for anything stream-like, subscription-based, or tied to mount/unmount — exactly your case.
+
+A WebSocket isn't a one-shot promise; it's a long-lived connection emitting many messages. Forcing that into `Task` would be awkward.
+
+## Example controller
+
+```ts
+import { ReactiveController, ReactiveControllerHost } from 'lit';
+
+export class WebSocketController implements ReactiveController {
+  host: ReactiveControllerHost;
+  private url: string;
+  private ws?: WebSocket;
+  lastMessage?: unknown;
+
+  constructor(host: ReactiveControllerHost, url: string) {
+    (this.host = host).addController(this);
+    this.url = url;
+  }
+
+  hostConnected() {
+    this.ws = new WebSocket(this.url);
+    this.ws.addEventListener('message', this.onMessage);
+  }
+
+  hostDisconnected() {
+    this.ws?.removeEventListener('message', this.onMessage);
+    this.ws?.close();
+    this.ws = undefined;
+  }
+
+  send(data: string) {
+    this.ws?.send(data);
+  }
+
+  private onMessage = (e: MessageEvent) => {
+    this.lastMessage = e.data;
+    this.host.requestUpdate(); // triggers re-render
+  };
+}
+```
+
+## Using it
+
+```ts
+@customElement('my-element')
+class MyElement extends LitElement {
+  private socket = new WebSocketController(this, 'wss://example.com');
+
+  render() {
+    return html`<p>Last: ${this.socket.lastMessage ?? '—'}</p>`;
+  }
+}
+```
+
+`addController(this)` wires it up; `host.requestUpdate()` is the bridge that schedules a re-render when a message arrives. Open/close happen automatically with `hostConnected`/`hostDisconnected`, which align with the element being added to / removed from the DOM.
+
+## When you'd combine the two
+
+If a particular message triggers a one-shot async operation (e.g., a request/response RPC over the socket), that *inner* operation could be modeled with `Task`. But the connection itself belongs in a controller.
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
+
+# Use a ReactiveController, not Task
+
+Short answer: **write a `ReactiveController`**. `@lit/task` is the wrong tool here.
+
+## Why not Task?
+
+`@lit/task` is designed for **request/response async** — you give it args, it runs an async function, you get back `{ pending, complete, error }`. It's modeled around a single async operation that resolves (or errors) once per arg change. Cancellation works via `AbortSignal` tied to arg changes.
+
+A WebSocket is the opposite shape:
+- It's an **ongoing resource**, not a one-shot promise
+- It pushes **many messages over time**, not a single result
+- Its lifecycle is tied to **mount/unmount**, not to argument changes
+- You need explicit **setup and teardown** symmetry
+
+Trying to force this into Task means fighting the abstraction the whole way.
+
+## Why a ReactiveController fits
+
+`ReactiveController` exists exactly for this: lifecycle-aware resources that need `hostConnected` / `hostDisconnected` symmetry, and that call `host.requestUpdate()` when their internal state changes.
+
+```ts
+import type { ReactiveController, ReactiveControllerHost } from 'lit';
+
+export class WebSocketController<T = unknown> implements ReactiveController {
+  private _host: ReactiveControllerHost;
+  private _url: string;
+  private _socket?: WebSocket;
+
+  message?: T;
+  status: 'connecting' | 'open' | 'closed' | 'error' = 'closed';
+
+  constructor(host: ReactiveControllerHost, url: string) {
+    this._host = host;
+    this._url = url;
+    host.addController(this);
+  }
+
+  hostConnected() {
+    this.status = 'connecting';
+    this._socket = new WebSocket(this._url);
+
+    this._socket.addEventListener('open', () => {
+      this.status = 'open';
+      this._host.requestUpdate();
+    });
+
+    this._socket.addEventListener('message', (e) => {
+      this.message = JSON.parse(e.data);
+      this._host.requestUpdate();
+    });
+
+    this._socket.addEventListener('close', () => {
+      this.status = 'closed';
+      this._host.requestUpdate();
+    });
+
+    this._socket.addEventListener('error', () => {
+      this.status = 'error';
+      this._host.requestUpdate();
+    });
+  }
+
+  hostDisconnected() {
+    this._socket?.close();
+    this._socket = undefined;
+  }
+
+  send(data: unknown) {
+    this._socket?.send(JSON.stringify(data));
+  }
+}
+```
+
+Usage:
+
+```ts
+@customElement('live-feed')
+export class LiveFeed extends LitElement {
+  private _ws = new WebSocketController<{ text: string }>(
+    this,
+    'wss://example.com/feed'
+  );
+
+  render() {
+    if (this._ws.status !== 'open') {
+      return html`<p>Status: ${this._ws.status}</p>`;
+    }
+    return html`<p>Latest: ${this._ws.message?.text ?? '(waiting…)'}</p>`;
+  }
+}
+```
+
+## The mental model
+
+| | Task | ReactiveController |
+|---|---|---|
+| Shape | one-shot async (request → response) | ongoing resource |
+| Lifecycle trigger | argument changes | `hostConnected`/`hostDisconnected` |
+| Cancellation | `AbortSignal` via args | manual cleanup in `hostDisconnected` |
+| Re-render trigger | status transitions | you call `host.requestUpdate()` |
+| Examples | `fetch`, DB query, expensive computation | WebSocket, timer, ResizeObserver, mouse tracker |
+
+A useful rule: **if the work has a single resolution, use Task. If it has a connection that lives across many updates, use a controller.**
+
+## A couple of gotchas
+
+- **Reconnection on URL change.** The example above only opens the socket on mount. If `url` is a reactive property that can change at runtime, add a `hostUpdate()` hook that compares the new URL and reconnects — or expose a `reconnect(newUrl)` method the host calls explicitly.
+- **`hostConnected` runs on every connection.** If the host element is moved in the DOM, it disconnects and reconnects. Your controller will tear down and re-open the socket — which is usually what you want, but be aware.
+- **Don't forget `requestUpdate()`.** The controller's fields aren't reactive properties; Lit doesn't know they changed unless you say so.
+
+For more on the controller interface, lifecycle integration, and composition patterns, see `references/reactive-controllers.md`.
+
+</details>
+
+---
+
+### `context-subscribe-true`
+
+**Prompt**
+
+```
+I'm using @lit/context to share a theme object from a top-level
+provider. The provider's value changes at runtime when the user
+toggles dark mode, but the consumer components don't update.
+The initial value is read fine, just not subsequent changes.
+What's missing?
+```
+
+**Judge focus:** The better answer pinpoints `subscribe: true` on the consumer
+side as the missing piece — without it, @lit/context fetches the
+value once and never re-subscribes to provider updates. It may
+also mention setting the provider's value via setValue (or
+re-assigning the @provide property) so the change actually fires.
+
+#### `sonnet`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify `subscribe: true` as the missing piece and explain the one-shot default behavior. Answer A is slightly more focused and better structured, leading with the core fix immediately and providing a cleaner explanation of why each piece matters. Answer B initially misdirects by suggesting the root cause is about replacing vs mutating the context value rather than leading with `subscribe: true`, which is the primary missing piece per the rubric.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| identifies subscribe option | skill |
+| explains default is one-shot / no resubscription | tie |
+| mentions @consume or ContextConsumer | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies subscribe option | ✓ | `subscribe: true` |
+| explains default is one-shot / no resubscription | ✓ | `one-shot` |
+| mentions @consume or ContextConsumer | ✓ | `@consume` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies subscribe option | ✓ | `subscribe: true` |
+| explains default is one-shot / no resubscription | ✓ | `one-shot` |
+| mentions @consume or ContextConsumer | ✓ | `@consume` |
+
+<details><summary>sonnet: baseline answer</summary>
+
+## The Problem: Context Value Updates Not Propagating
+
+This is a very common `@lit/context` gotcha. The issue is almost certainly that you're **replacing the context value object** rather than mutating it, or you're not calling the right method to notify consumers of changes.
+
+---
+
+## Root Cause
+
+`@lit/context` consumers only re-render when the provider **explicitly notifies them**. This happens automatically *only* when you use the `@provide` decorator correctly — specifically, the value must be set through the decorated property's **setter**, not by mutating a nested property.
+
+### ❌ Common Mistakes
+
+```javascript
+// MISTAKE 1: Mutating the object directly — setter is never called,
+// consumers are never notified
+this.theme.mode = 'dark';
+this.theme.colors.background = '#000';
+
+// MISTAKE 2: Reassigning but on a nested ref the decorator doesn't watch
+this.theme = { ...this.theme, mode: 'dark' }; // OK only if wired up right
+```
+
+```javascript
+// MISTAKE 3: Using ContextProvider imperatively but forgetting to
+// set .value through the instance
+this._provider = new ContextProvider(this, { context: themeContext });
+this._provider.value.mode = 'dark'; // ❌ mutation, no notification
+```
+
+---
+
+## The Fix
+
+### Option A — Declarative `@provide` (Recommended)
+
+Always **reassign the whole property** so the decorated setter fires:
+
+```javascript
+import { LitElement, html } from 'lit';
+import { provide } from '@lit/context';
+import { themeContext } from './theme-context.js';
+
+class ThemeProvider extends LitElement {
+
+  @provide({ context: themeContext })
+  theme = { mode: 'light', colors: { bg: '#fff', fg: '#000' } };
+
+  toggleDarkMode() {
+    // ✅ Reassign the property — triggers the @provide setter,
+    //    which calls setValue() on all registered consumers
+    this.theme = {
+      ...this.theme,
+      mode: 'dark',
+      colors: { bg: '#111', fg: '#eee' },
+    };
+  }
+
+  render() {
+    return html`
+      <button @click=${this.toggleDarkMode}>Toggle</button>
+      <slot></slot>
+    `;
+  }
+}
+```
+
+---
+
+### Option B — Imperative `ContextProvider`
+
+If you're using the class directly, set `.value` on the **provider instance** (not the object it holds):
+
+```javascript
+import { ContextProvider } from '@lit/context';
+import { themeContext } from './theme-context.js';
+
+class ThemeProvider extends LitElement {
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._provider = new ContextProvider(this, {
+      context: themeContext,
+      initialValue: { mode: 'light', colors: { bg: '#fff', fg: '#000' } },
+    });
+  }
+
+  toggleDarkMode() {
+    // ✅ Set through the provider instance's .value setter —
+    //    this internally calls updateObservers() for all consumers
+    this._provider.value = {
+      ...this._provider.value,
+      mode: 'dark',
+      colors: { bg: '#111', fg: '#eee' },
+    };
+  }
+}
+```
+
+---
+
+### Consumer Side — Ensure `subscribe: true`
+
+The consumer must opt into updates, otherwise it only reads the value **once**:
+
+```javascript
+import { LitElement, html } from 'lit';
+import { consume } from '@lit/context';
+import { themeContext } from './theme-context.js';
+
+class ThemedButton extends LitElement {
+
+  @consume({ context: themeContext, subscribe: true }) // ✅ subscribe!
+  theme;
+
+  render() {
+    return html`
+      <button style="background:${this.theme.colors.bg}">
+        Click me
+      </button>
+    `;
+  }
+}
+```
+
+> Without `subscribe: true`, the consumer fires a one-shot context request and **never listens for updates**.
+
+---
+
+## Summary Checklist
+
+| Check | Why it matters |
+|---|---|
+| Provider **reassigns** the property (not mutates) | Triggers the `@provide` setter which notifies consumers |
+| Imperative users set `provider.value = ...` | Same reason — uses the notifying setter |
+| Consumer has `subscribe: true` | Without it, only the initial value is ever received |
+| Context object identity is stable where needed | Avoid unnecessary re-renders by not recreating if nothing changed |
+
+The single most common fix is adding **`subscribe: true`** to `@consume` — that alone solves the problem in the majority of cases.
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+The most common cause is a missing `subscribe: true` on the `@consume` decorator. Without it, `@lit/context` does a one-shot lookup at connect time and never listens for updates.
+
+## The Fix
+
+**Consumer — add `subscribe: true`**
+
+```ts
+import { consume } from '@lit/context';
+import { themeContext, type Theme } from './theme-context.js';
+
+@customElement('my-consumer')
+class MyConsumer extends LitElement {
+  @consume({ context: themeContext, subscribe: true }) // ← required for updates
+  @property({ attribute: false })
+  theme?: Theme;
+
+  render() {
+    return html`
+      <div class=${this.theme?.mode ?? 'light'}>...</div>
+    `;
+  }
+}
+```
+
+**Provider — value must be reassigned, not mutated**
+
+```ts
+import { provide } from '@lit/context';
+import { themeContext, type Theme } from './theme-context.js';
+
+@customElement('my-provider')
+class MyProvider extends LitElement {
+  @provide({ context: themeContext })
+  @property({ attribute: false })
+  theme: Theme = { mode: 'light', accent: '#0057b8' };
+
+  toggleDarkMode() {
+    // ✅ New reference — context notifies all subscribers
+    this.theme = { ...this.theme, mode: 'dark' };
+
+    // ❌ In-place mutation — subscribers never notified
+    // this.theme.mode = 'dark';
+  }
+}
+```
+
+**Shared context definition**
+
+```ts
+// theme-context.ts
+import { createContext } from '@lit/context';
+
+export interface Theme {
+  mode: 'light' | 'dark';
+  accent: string;
+}
+
+// Symbol key guarantees uniqueness across module reloads
+export const themeContext = createContext<Theme>(Symbol('theme'));
+```
+
+---
+
+## Why Each Piece Matters
+
+| Requirement | What breaks without it |
+|---|---|
+| `subscribe: true` on `@consume` | One-shot lookup only; consumer never hears about updates |
+| New object reference on the provider | `@lit/context` compares by reference; mutation is invisible |
+| `@property({ attribute: false })` on both sides | Lit won't schedule a re-render when the context value arrives |
+| `Symbol` key in `createContext` | String keys can collide across packages or module reloads |
+
+---
+
+## If Consumers Still Don't Update After This
+
+**Consumers connect before the provider renders** — this is the lazy-loading / dynamic-rendering problem. Add `ContextRoot` to your app shell once:
+
+```ts
+import { ContextRoot } from '@lit/context';
+
+// In your app shell's constructor or connectedCallback
+const root = new ContextRoot();
+root.attach(document.body); // intercepts requests that find no provider yet
+```
+
+Without `ContextRoot`, a consumer that fires its context request event before the provider element exists in the DOM gets no response and stays on the default value permanently.
+
+**Check the provider is actually an ancestor.** Context travels up the DOM tree via events. If the provider and consumer are siblings, or the consumer is outside the provider's subtree, the request never reaches it.
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer B correctly identifies `subscribe: true` on the `@consume` decorator as the primary missing piece, which is exactly what the question asks about. Answer A focuses almost entirely on `setValue()` on the provider side and never mentions `subscribe: true`, missing the core issue entirely. Answer B also explains the default one-shot behavior and demonstrates proper use of `@consume` with the subscribe option.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| identifies subscribe option | skill |
+| explains default is one-shot / no resubscription | skill |
+| mentions @consume or ContextConsumer | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies subscribe option | ✗ | |
+| explains default is one-shot / no resubscription | ✗ | |
+| mentions @consume or ContextConsumer | ✓ | `@consume` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies subscribe option | ✓ | `subscribe: true` |
+| explains default is one-shot / no resubscription | ✗ | |
+| mentions @consume or ContextConsumer | ✓ | `@consume` |
+
+<details><summary>haiku: baseline answer</summary>
+
+# The Issue
+
+When you update the context value in the provider, you need to **explicitly notify consumers** that the value has changed. Simply reassigning the value won't trigger updates.
+
+# Solution
+
+Use the **`ContextProvider.setValue()`** method to notify all consumers:
+
+```typescript
+import { ContextProvider } from '@lit/context';
+import { LitElement, html } from 'lit';
+import { property } from 'lit/decorators.js';
+import { themeContext } from './theme-context.js';
+
+export class ThemeProvider extends LitElement {
+  @property({ attribute: false })
+  theme = { mode: 'light' };
+
+  private contextProvider = new ContextProvider(this, {
+    context: themeContext,
+    initialValue: this.theme,
+  });
+
+  toggleDarkMode() {
+    this.theme = { mode: this.theme.mode === 'light' ? 'dark' : 'light' };
+    
+    // ✅ Notify consumers of the change
+    this.contextProvider.setValue(this.theme);
+  }
+
+  render() {
+    return html`
+      <button @click=${this.toggleDarkMode}>Toggle Dark Mode</button>
+      <slot></slot>
+    `;
+  }
+}
+```
+
+# Key Points
+
+- **`setValue()`** is required to trigger reactivity in consumers
+- Simply mutating or reassigning the value won't work
+- Consumers using `@consume(themeContext)` will automatically re-render when `setValue()` is called
+
+# Alternative: Reactive Property Pattern
+
+If you want automatic updates, make the context value reactive:
+
+```typescript
+@property({ attribute: false })
+set theme(value) {
+  this._theme = value;
+  this.contextProvider.setValue(value);
+}
+get theme() {
+  return this._theme;
+}
+private _theme = { mode: 'light' };
+```
+
+This way, any property change automatically notifies consumers.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# Missing `subscribe: true` on `@consume`
+
+The issue is that your consumer components are **not subscribing to context updates**. By default, `@consume` reads the context value once at connection time and never listens for changes.
+
+## The Fix
+
+Add `subscribe: true` to every `@consume` decorator:
+
+```ts
+import { consume } from '@lit/context';
+import { themeContext } from './theme-context.js';
+
+@customElement('my-component')
+export class MyComponent extends LitElement {
+  @consume({ context: themeContext, subscribe: true })
+  @property({ attribute: false })
+  theme?: Theme;
+
+  render() {
+    return html`<div class="theme-${this.theme?.mode}">...</div>`;
+  }
+}
+```
+
+## Why This Happens
+
+- **Without `subscribe: true`**: The consumer reads the context value once when it connects to the DOM. If the provider's value changes later, the consumer never hears about it.
+- **With `subscribe: true`**: The consumer registers itself as a listener. When the provider calls `this.requestUpdate()` after changing its value, all subscribed consumers are notified and re-render.
+
+## Complete Example
+
+**Provider:**
+```ts
+import { provide } from '@lit/context';
+import { themeContext } from './theme-context.js';
+
+@customElement('app-shell')
+export class AppShell extends LitElement {
+  @provide({ context: themeContext })
+  @property({ attribute: false })
+  theme: Theme = { mode: 'light' };
+
+  toggleDarkMode() {
+    this.theme = { ...this.theme, mode: this.theme.mode === 'light' ? 'dark' : 'light' };
+    // requestUpdate() is automatic after @property assignment
+  }
+
+  render() {
+    return html`
+      <button @click=${this.toggleDarkMode}>Toggle Dark Mode</button>
+      <my-component></my-component>
+    `;
+  }
+}
+```
+
+**Consumer:**
+```ts
+@customElement('my-component')
+export class MyComponent extends LitElement {
+  @consume({ context: themeContext, subscribe: true })
+  @property({ attribute: false })
+  theme?: Theme;
+
+  render() {
+    return html`<p>Current mode: ${this.theme?.mode}</p>`;
+  }
+}
+```
+
+**Context definition:**
+```ts
+import { createContext } from '@lit/context';
+
+export interface Theme {
+  mode: 'light' | 'dark';
+}
+
+export const themeContext = createContext<Theme>(Symbol('theme'));
+```
+
+## When to Use `subscribe: true`
+
+| Scenario | Use `subscribe` |
+|----------|-----------------|
+| Value rarely or never changes (e.g., app config, feature flags) | `false` (default) — saves memory |
+| Value changes at runtime (e.g., theme, user, locale) | `true` — consumers stay in sync |
+| Value changes frequently AND you need fine-grained updates | Consider `@lit-labs/signals` instead — avoids re-firing all subscribers on every change |
+
+See [context.md](references/context.md) for nested providers, `ContextRoot`, and context vs signals guidance.
+
+</details>
+
+#### `opus`
+
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **baseline** — Both answers correctly identify `subscribe: true` as the missing piece and explain the one-shot default behavior. Answer A is more comprehensive with a clear checklist, code examples for both consumer and provider sides, and explicit coverage of the `ContextProvider.setValue()` API. Answer B adds a useful tip about `ContextRoot` for late-mounting consumers but contains a slightly inaccurate claim that `@property({ attribute: false })` is 'required' and that 'without it, Lit tries to reflect to an attribute and the context wiring breaks' — this overstates the issue. Answer A's structured format and accuracy across all rubric criteria make it the stronger response.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| identifies subscribe option | tie |
+| explains default is one-shot / no resubscription | tie |
+| mentions @consume or ContextConsumer | baseline |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies subscribe option | ✓ | `subscribe: true` |
+| explains default is one-shot / no resubscription | ✗ | |
+| mentions @consume or ContextConsumer | ✓ | `@consume` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| identifies subscribe option | ✓ | `subscribe: true` |
+| explains default is one-shot / no resubscription | ✗ | |
+| mentions @consume or ContextConsumer | ✓ | `@consume` |
+
+<details><summary>opus: baseline answer</summary>
+
+# The Missing Piece: `subscribe: true`
+
+By default, `@lit/context` consumers only read the value **once** when they connect. To receive updates when the provider's value changes, you need to opt into subscription.
+
+## Consumer side
+
+```ts
+import { LitElement, html } from 'lit';
+import { customElement, property } from 'lit/decorators.js';
+import { consume } from '@lit/context';
+import { themeContext, Theme } from './theme-context.js';
+
+@customElement('my-button')
+export class MyButton extends LitElement {
+  @consume({ context: themeContext, subscribe: true })
+  @property({ attribute: false })
+  theme!: Theme;
+
+  render() {
+    return html`<button style="background:${this.theme.bg}">Click</button>`;
+  }
+}
+```
+
+The two important bits:
+
+1. **`subscribe: true`** – tells the context protocol to keep the callback alive so the consumer is notified on every change.
+2. **`@property({ attribute: false })`** – ensures Lit treats the field as reactive, so assignment from the context triggers a re-render.
+
+## Provider side
+
+You also need to make sure the provider actually pushes a *new value*. Mutating the existing object will not notify subscribers — the provider compares by reference (or whatever your custom equality is).
+
+```ts
+import { provide } from '@lit/context';
+
+@customElement('app-root')
+export class AppRoot extends LitElement {
+  @provide({ context: themeContext })
+  @property({ attribute: false })
+  theme: Theme = lightTheme;
+
+  toggleDark() {
+    // ❌ this won't notify consumers
+    // this.theme.bg = '#000';
+
+    // ✅ assign a new object
+    this.theme = this.theme === lightTheme ? darkTheme : lightTheme;
+  }
+}
+```
+
+If you're using a `ContextProvider` controller directly instead of the decorator, call `setValue` with the new object:
+
+```ts
+this.themeProvider.setValue({ ...this.theme, mode: 'dark' });
+```
+
+## Summary checklist
+
+- [ ] Consumer uses `subscribe: true`
+- [ ] Consumer field is reactive (`@property` / `@state`)
+- [ ] Provider assigns a **new** object/value rather than mutating in place
+- [ ] If using `ContextProvider` directly, call `setValue(...)` (not just field mutation)
+
+Nine times out of ten with this symptom, it's the missing `subscribe: true`.
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
+
+You need `subscribe: true` on the consumer:
+
+```ts
+@consume({ context: themeContext, subscribe: true })
+@property({ attribute: false })
+theme!: Theme;
+```
+
+Without `subscribe: true`, the consumer reads the context value once (on connect) and never re-reads it. With `subscribe: true`, the consumer registers with the provider and gets re-notified whenever the provider's value changes — which then triggers a re-render.
+
+A couple of related things worth checking while you're in there:
+
+1. **Set a new reference on the provider, don't mutate.** If you're doing `this.theme.mode = 'dark'`, the provider sees the same object reference and won't notify subscribers. Do `this.theme = { ...this.theme, mode: 'dark' }` instead.
+
+2. **`@property({ attribute: false })` on the consumer field is required** (which you have). Without it, Lit tries to reflect to an attribute and the context wiring breaks.
+
+3. **If consumers might mount before the provider** (lazy loading, dynamic rendering), add `ContextRoot` at the app shell — it buffers context requests until a provider appears.
+
+See [references/context.md](references/context.md) for the full pitfall list. If the theme changes very frequently and you want to avoid re-rendering the whole subtree on every toggle, that reference also covers wrapping a signal in context for fine-grained updates.
 
 </details>
 
@@ -2555,7 +5000,7 @@ inside Lit defeats the templating system entirely.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend unsafeHTML with XSS warnings and DOMPurify sanitization, but Answer B goes further with a practical trust-level table that helps developers make informed decisions, mentions server-side sanitization as an option, and includes a note about Markdown-to-HTML conversion. Answer B also avoids the slightly misleading claim in A that 'dropping a raw string into a template won't work' (it works, it just gets escaped), and provides more complete guidance overall.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend unsafeHTML with XSS warnings and DOMPurify, but Answer B is slightly superior in depth and nuance. It explicitly explains why Lit's html template escapes strings by default (making unsafeHTML's purpose clearer), recommends server-side sanitization as the primary defense, mentions the native Sanitizer API as an alternative, and adds a nuanced caveat about when sanitization might be skippable. Answer A is solid but less comprehensive in its security guidance.
 
 **Per-criterion verdict (judge)**
 
@@ -2598,11 +5043,6 @@ class MyElement extends LitElement {
     apiContent: { type: String },
   };
 
-  constructor() {
-    super();
-    this.apiContent = '<p>Hello from the <strong>API</strong>!</p>';
-  }
-
   render() {
     return html`
       <div>
@@ -2619,7 +5059,9 @@ customElements.define('my-element', MyElement);
 
 ### ⚠️ Security Warning
 
-The directive is called **`unsafe`** HTML for a reason. Since the content comes from a user-controlled API, you **must sanitize it first** to prevent **XSS attacks**. Use a library like [DOMPurify](https://github.com/cure53/DOMPurify) before passing it to the directive:
+The directive is called **`unsafe`** HTML for a reason. Since the content comes from an API and is **user-controlled**, you **must sanitize it first** to prevent **XSS (Cross-Site Scripting) attacks**.
+
+Use a library like [**DOMPurify**](https://github.com/cure53/DOMPurify) before rendering:
 
 ```javascript
 import DOMPurify from 'dompurify';
@@ -2636,9 +5078,14 @@ render() {
 
 ---
 
-### Why not just use `innerHTML`?
+### Summary
 
-Lit's `html` template tag **escapes strings by default** to prevent XSS, so dropping a raw string into a template won't work — `unsafeHTML` is the intended escape hatch for this use case.
+| Approach | Safe? |
+|---|---|
+| `unsafeHTML(rawString)` | ❌ Not without sanitization |
+| `unsafeHTML(DOMPurify.sanitize(rawString))` | ✅ Yes |
+
+Never skip sanitization when the HTML originates from user input or external APIs.
 
 </details>
 
@@ -2657,23 +5104,26 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 export class MyArticle extends LitElement {
   @state() private _content = '';
 
+  async fetchContent() {
+    const res = await fetch('/api/content');
+    this._content = await res.text();
+  }
+
   render() {
-    return html`
-      <div class="content">
-        ${unsafeHTML(this._content)}
-      </div>
-    `;
+    return html`<div>${unsafeHTML(this._content)}</div>`;
   }
 }
 ```
 
-The name `unsafeHTML` is intentional — Lit's `html` template tag escapes interpolated strings by design to prevent XSS. This directive bypasses that protection entirely.
+The `html` tagged template escapes interpolated strings by default — `unsafeHTML` bypasses that to inject raw markup.
 
-## ⚠️ Security Warning
+---
 
-**Never use `unsafeHTML` with user-controlled content without sanitizing it first.** An attacker can inject `<script>` tags, event handlers (`onerror`, `onload`), and other malicious markup.
+## ⚠️ Security Warning — Read Before Using
 
-Sanitize on the server before the API returns the content, or sanitize on the client using a library like [DOMPurify](https://github.com/cure53/DOMPurify):
+The directive is named **unsafe** for a reason. Injecting user-controlled HTML directly creates an **XSS vulnerability**. If the string contains `<script>` tags or event handler attributes (`onclick`, `onerror`, etc.), they will execute.
+
+**Sanitize the string on the server before it reaches the API response.** If you need client-side sanitization as a second layer, use the [Sanitizer API](https://developer.mozilla.org/en-US/docs/Web/API/HTML_Sanitizer_API) (where available) or a library like [DOMPurify](https://github.com/cure53/DOMPurify):
 
 ```typescript
 import DOMPurify from 'dompurify';
@@ -2685,22 +5135,13 @@ render() {
 }
 ```
 
-## When `unsafeHTML` Is Appropriate
-
-| Content source | Safe to use `unsafeHTML`? |
-|---|---|
-| Your own CMS / trusted backend | ✅ Yes, but still consider sanitizing |
-| Third-party API you don't control | ⚠️ Only after sanitizing |
-| User-submitted content | ❌ Never without sanitizing |
-| Static strings in your own code | ✅ Yes |
-
-If the API returns Markdown instead of HTML, convert it with a library (e.g. `marked`) and then sanitize the resulting HTML before passing it to `unsafeHTML`.
+**Only skip sanitization if the HTML is generated entirely by your own trusted backend and never includes user-supplied input.**
 
 </details>
 
 #### `haiku`
 
-**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **baseline** — Answer A correctly recommends the `unsafeHTML` directive (the idiomatic Lit approach) with strong XSS warnings and a DOMPurify sanitization example, while also suggesting structured data as the best practice. Answer B incorrectly steers users away from `unsafeHTML` toward raw `innerHTML` in `updated()`, which actually defeats Lit's templating system and is the anti-pattern the rubric explicitly warns against — Shadow DOM does NOT prevent script execution from innerHTML, making B's 'Why this works' explanation factually wrong.
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **baseline** — Answer B correctly identifies unsafeHTML as the Lit-idiomatic solution while providing a strong XSS warning and recommending DOMPurify sanitization. Answer A's 'safe approach' of using innerHTML in updated() is actually worse — it defeats Lit's templating system entirely, which the rubric explicitly flags as problematic, and its claim that 'innerHTML is safe when you control the assignment' is misleading for user-controlled API content. Answer B hits all three rubric criteria: warns about XSS, mentions unsafeHTML with proper context, and while it doesn't avoid recommending innerHTML entirely, it uses it only as part of a sanitization pattern rather than as the primary approach.
 
 **Per-criterion verdict (judge)**
 
@@ -2747,7 +5188,7 @@ class MyComponent extends LitElement {
 
 ## ⚠️ Important Security Warning
 
-The name `unsafeHTML` is intentional—it's **unsafe** because it bypasses Lit's built-in XSS protection. Only use this if:
+The name `unsafeHTML` is intentional—it's **unsafe** because it bypasses Lit's built-in XSS protections. Only use this if:
 
 1. **You trust the source completely** (e.g., your own backend)
 2. **You've sanitized the HTML** on the server side
@@ -2773,7 +5214,7 @@ If possible, **avoid rendering raw HTML entirely**:
 - Use Lit templates to render components instead
 - This is safer and more maintainable
 
-Only use `unsafeHTML` when you have a legitimate need for dynamic HTML and can guarantee its safety.
+Only use `unsafeHTML` when you have no other choice and can guarantee the content is safe.
 
 </details>
 
@@ -2785,7 +5226,7 @@ Only use `unsafeHTML` when you have a legitimate need for dynamic HTML and can g
 
 ## The Safe Approach: Use a `<div>` with `innerHTML`
 
-The simplest safe way is to render an empty container and set its `innerHTML` after the element updates:
+The simplest safe way is to render a container element and set its `innerHTML` after the component updates:
 
 ```typescript
 import { LitElement, html } from 'lit';
@@ -2811,11 +5252,11 @@ export class MyComponent extends LitElement {
 **Why this works:**
 - `innerHTML` is safe when you control the assignment (not user input directly in the template)
 - `updated()` runs after the DOM is rendered, so the element exists
-- The `<div>` is in Shadow DOM, so styles and scripts in the HTML won't leak out
+- The content is inserted into Shadow DOM, isolated from the rest of your page
 
 ## If You Must Sanitize First
 
-If the API content might contain malicious scripts, sanitize it before setting `innerHTML`:
+If the API content might contain malicious scripts, sanitize it before assignment:
 
 ```typescript
 import DOMPurify from 'dompurify';
@@ -2833,35 +5274,34 @@ Install: `npm i dompurify`
 ## Why Not `unsafeHTML()`?
 
 ```typescript
-// ❌ NEVER do this with user content
+// ❌ DO NOT DO THIS
 render() {
   return html`${unsafeHTML(this.userContent)}`;
 }
 ```
 
-`unsafeHTML()` bypasses Lit's escaping entirely. If `userContent` contains `<img src=x onerror="alert('hacked')">`, it will execute.
+`unsafeHTML()` bypasses Lit's escaping entirely. If `userContent` comes from an untrusted API, an attacker can inject `<script>` tags or event handlers. It's only safe for content you control (e.g., your own markdown renderer output).
 
 ## Summary
 
-| Approach | Use When | Security |
-|----------|----------|----------|
-| `innerHTML` in `updated()` | Content is from your own API | Safe if you trust the source |
-| `innerHTML` + `DOMPurify` | Content is from untrusted sources | Safe; removes scripts/dangerous attrs |
-| `unsafeHTML()` | Never with user content | ❌ XSS risk |
-
-**Recommendation:** Use `innerHTML` in `updated()` + `DOMPurify` if there's any doubt about the source.
+| Scenario | Approach |
+|----------|----------|
+| User-controlled HTML from API | `innerHTML` in `updated()` |
+| User-controlled HTML + need sanitization | `innerHTML` + `DOMPurify` in `updated()` |
+| Your own generated HTML (trusted) | `unsafeHTML()` in `render()` |
+| Plain text from user | Regular property binding (safe by default) |
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers cover the key criteria well, but Answer A is more thorough and better structured. It leads with a strong XSS warning, explicitly avoids recommending innerHTML, correctly names and demonstrates the unsafeHTML directive, and provides clearer guidance on when sanitization is required versus optional. Answer A also adds useful context like the 'text vs HTML' question and the Markdown alternative, making it more practically helpful for someone who may not fully understand the risk.
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers cover all three rubric criteria well: they warn about XSS/sanitization, avoid recommending raw innerHTML, and mention the unsafeHTML directive with appropriate caveats. Answer A is more comprehensive with its decision tree and stronger framing of the safe default first, while Answer B adds a useful note about Shadow DOM not protecting against XSS. Neither has a clear advantage across all criteria.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
-| warns about XSS / sanitization | skill |
+| warns about XSS / sanitization | tie |
 | avoids recommending raw innerHTML | tie |
 | mentions unsafeHTML directive (if recommending it) | tie |
 
@@ -2883,102 +5323,107 @@ render() {
 
 <details><summary>opus: baseline answer</summary>
 
-# Rendering User-Controlled HTML in Lit
+# Rendering HTML Strings in Lit
 
-**Short answer:** Use Lit's `unsafeHTML` directive — but be very careful, because the name is a literal warning.
+The simplest way is to use Lit's `unsafeHTML` directive:
 
 ```js
 import { LitElement, html } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 
-class MyElement extends LitElement {
-  static properties = { apiHtml: { type: String } };
-
+class MyComponent extends LitElement {
   render() {
     return html`<div>${unsafeHTML(this.apiHtml)}</div>`;
   }
 }
-customElements.define('my-element', MyElement);
 ```
 
-By default, Lit escapes interpolated strings to prevent XSS. `unsafeHTML` bypasses that escaping and parses the string as HTML.
+## ⚠️ Important Security Warning
 
-## ⚠️ Security warning
+You said the HTML is **user-controlled**, which makes this dangerous. The directive is literally called `unsafeHTML` for a reason — it will execute any `<script>` tags, event handlers (`onclick`, `onerror`, etc.), and other XSS vectors contained in the string.
 
-You said the HTML is **user-controlled** and comes from an API. That's exactly the scenario where `unsafeHTML` is dangerous: a malicious user could inject `<script>` tags, `<img onerror=...>`, or other XSS payloads.
-
-**You should sanitize it first.** The standard choice is [DOMPurify](https://github.com/cure53/DOMPurify):
+**Don't use `unsafeHTML` directly with user-controlled content.** You should sanitize it first. The standard choice is [DOMPurify](https://github.com/cure53/DOMPurify):
 
 ```js
-import { html } from 'lit';
+import { LitElement, html } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import DOMPurify from 'dompurify';
 
-render() {
-  const clean = DOMPurify.sanitize(this.apiHtml);
-  return html`<div>${unsafeHTML(clean)}</div>`;
+class MyComponent extends LitElement {
+  render() {
+    const clean = DOMPurify.sanitize(this.apiHtml);
+    return html`<div>${unsafeHTML(clean)}</div>`;
+  }
 }
 ```
 
-## Note on Shadow DOM
+### A note about Shadow DOM
 
-If your component uses Shadow DOM (the Lit default), the injected HTML is somewhat isolated from the rest of the page's styles and scripts — but this is **not** a security boundary. Inline event handlers and `<script>` still execute in the same JS realm. Always sanitize.
+Lit components use Shadow DOM by default, which provides some isolation (styles and DOM are encapsulated), but it does **not** protect against XSS — scripts injected into shadow roots still execute with full page privileges. So sanitization is still required.
+
+### Alternatives to consider
+
+- If the API returns structured data (e.g., Markdown or JSON), render it through a parser (`marked` + DOMPurify, or build the template from data) instead of injecting raw HTML.
+- If you only need text, just interpolate the string normally — Lit will escape it automatically: `html`<div>${this.apiHtml}</div>``.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-# Don't render user-controlled HTML strings — this is an XSS vulnerability
+# Don't do this — it's a critical security risk
 
-Before I answer the "how," I have to flag the security issue: **rendering user-controlled HTML from an API directly into your DOM is a cross-site scripting (XSS) vulnerability.** An attacker can inject `<script>` tags, `<img onerror=...>` handlers, event handlers, `<iframe>` elements, etc., that run with your site's privileges (steal cookies, session tokens, make authenticated requests, etc.).
+Lit deliberately makes this hard because rendering user-controlled HTML as markup is **how XSS vulnerabilities happen**. Before I show you the mechanism, the strong default answer is: **render it as text, not HTML.**
 
-Lit deliberately makes this hard. By design, Lit's `html` template tag escapes all interpolated string values:
+## The safe default
+
+If you just interpolate the string into an `html` template, Lit escapes it for you:
 
 ```ts
 render() {
-  // This is SAFE — the string is rendered as text, tags are escaped
-  return html`<div>${this.apiHtml}</div>`;
+  return html`<div>${this.userContent}</div>`;
 }
 ```
 
-If `apiHtml` is `<script>alert(1)</script>`, the user sees the literal text, not an executed script. **In the vast majority of cases, this is what you want.** Ask yourself first: do you actually need HTML, or do you just need text? If text, you're already done.
+Any `<script>`, `<img onerror=...>`, etc. in `this.userContent` will appear as literal text, not execute. This is what you want 99% of the time.
 
-## If you genuinely need to render HTML
+## If you genuinely need HTML rendering
 
-You have two options, in order of preference:
-
-### 1. Sanitize first, then use `unsafeHTML` (the right choice for user content)
-
-Use a vetted sanitizer like [DOMPurify](https://github.com/cure53/DOMPurify) to strip dangerous content, then render with the `unsafeHTML` directive:
+Use the [`unsafeHTML`](references/templates-and-directives.md) directive — the name is intentionally alarming:
 
 ```ts
-import { html } from 'lit';
-import { unsafeHTML } from 'lit/directives/unsafe-html.js';
-import DOMPurify from 'dompurify';
+import {html} from 'lit';
+import {unsafeHTML} from 'lit/directives/unsafe-html.js';
 
 render() {
-  const clean = DOMPurify.sanitize(this.apiHtml);
-  return html`<div>${unsafeHTML(clean)}</div>`;
+  return html`<div>${unsafeHTML(this.userContent)}</div>`;
 }
 ```
 
-DOMPurify removes scripts, event handlers, `javascript:` URLs, and other vectors while preserving safe markup like `<p>`, `<strong>`, `<a href>`, etc. You can configure allowed tags/attributes if you want to be stricter.
+**Only use this if all of the following are true:**
 
-### 2. `unsafeHTML` alone (only for HTML you fully trust and control)
+1. The HTML comes from a source you fully trust (your own CMS authored by trusted users, server-rendered markup you control), **or**
+2. You sanitize the string first with a library like [DOMPurify](https://github.com/cure53/DOMPurify):
 
-```ts
-import { unsafeHTML } from 'lit/directives/unsafe-html.js';
+   ```ts
+   import DOMPurify from 'dompurify';
 
-render() {
-  return html`<div>${unsafeHTML(this.trustedHtml)}</div>`;
-}
-```
+   render() {
+     return html`<div>${unsafeHTML(DOMPurify.sanitize(this.userContent))}</div>`;
+   }
+   ```
 
-The directive is named `unsafeHTML` precisely because it bypasses Lit's escaping. **Only use it without sanitization if the HTML originates from a source you control end-to-end** (e.g., your own CMS where authors are trusted, server-rendered markup you generated yourself). API responses generally do not qualify, even from your own backend, unless that backend itself sanitizes.
+"User-controlled HTML I just received from an API" is a classic XSS vector — even if your own backend produced it, if a user supplied any of the content, treat it as hostile. Sanitize, or render as text.
 
-## Recommendation
+## What I'd recommend
 
-For your case (HTML from an API): **install DOMPurify and use option 1.** It's the simplest *safe* approach and adds maybe 20 KB. If the API content is actually plain text or has only a few formatting needs (bold, links), consider rendering it as text or parsing a restricted format like Markdown instead — both avoid the HTML-injection surface entirely.
+Tell me more about what you're trying to render:
+
+- **Rich text from a trusted CMS?** → `unsafeHTML` + DOMPurify
+- **Markdown?** → Parse with `marked` or `markdown-it`, then sanitize, then `unsafeHTML`
+- **Just formatting (bold, links)?** → Consider returning structured data from the API and building the template yourself with `html` — fully safe, no sanitizer needed
+- **Arbitrary user posts (forum, comments)?** → Sanitize aggressively with DOMPurify and a strict allow-list
+
+Which is it?
 
 </details>
 
@@ -2998,7 +5443,7 @@ essentially equivalent. Pick "tie" unless one is materially wrong.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **tie** — Both answers are essentially equivalent in quality, correctness, and usefulness. They both explain INNER JOIN vs LEFT JOIN clearly with similar table examples and SQL queries. Answer A includes a slightly more detailed quick reference table (including the unmatched records pattern), while Answer B adds a useful note about RIGHT JOIN. Neither is materially better than the other.
+**Met:** ✓  ·  **Judge:** **tie** — Both answers are essentially equivalent in quality, correctness, and usefulness. They both explain INNER JOIN vs LEFT JOIN clearly with similar table examples, SQL queries, and result sets. The minor differences (customers vs users, slightly different quick-reference tables) don't materially distinguish them.
 
 **Per-criterion verdict (judge)**
 
@@ -3027,7 +5472,7 @@ Returns **all rows from the left table**, plus matched rows from the right table
 
 ### Example Tables
 
-**customers**
+**users**
 | id | name  |
 |----|-------|
 | 1  | Alice |
@@ -3035,11 +5480,11 @@ Returns **all rows from the left table**, plus matched rows from the right table
 | 3  | Carol |
 
 **orders**
-| id | customer_id | item    |
-|----|-------------|---------|
-| 1  | 1           | Laptop  |
-| 2  | 1           | Mouse   |
-| 3  | 2           | Monitor |
+| id | user_id | item    |
+|----|---------|---------|
+| 1  | 1       | Book    |
+| 2  | 1       | Pen     |
+| 3  | 2       | Laptop  |
 
 *(Carol has no orders)*
 
@@ -3047,34 +5492,34 @@ Returns **all rows from the left table**, plus matched rows from the right table
 
 ### INNER JOIN
 ```sql
-SELECT customers.name, orders.item
-FROM customers
-INNER JOIN orders ON customers.id = orders.customer_id;
+SELECT users.name, orders.item
+FROM users
+INNER JOIN orders ON users.id = orders.user_id;
 ```
-| name  | item    |
-|-------|---------|
-| Alice | Laptop  |
-| Alice | Mouse   |
-| Bob   | Monitor |
+| name  | item   |
+|-------|--------|
+| Alice | Book   |
+| Alice | Pen    |
+| Bob   | Laptop |
 
-❌ Carol is **excluded** (no matching order)
+→ Carol is **excluded** (no matching order)
 
 ---
 
 ### LEFT JOIN
 ```sql
-SELECT customers.name, orders.item
-FROM customers
-LEFT JOIN orders ON customers.id = orders.customer_id;
+SELECT users.name, orders.item
+FROM users
+LEFT JOIN orders ON users.id = orders.user_id;
 ```
-| name  | item    |
-|-------|---------|
-| Alice | Laptop  |
-| Alice | Mouse   |
-| Bob   | Monitor |
-| Carol | NULL    |
+| name  | item   |
+|-------|--------|
+| Alice | Book   |
+| Alice | Pen    |
+| Bob   | Laptop |
+| Carol | NULL   |
 
-✅ Carol is **included** with NULL
+→ Carol is **included** with NULL
 
 ---
 
@@ -3082,10 +5527,16 @@ LEFT JOIN orders ON customers.id = orders.customer_id;
 
 | Use case | Join type |
 |----------|-----------|
-| Only want records with matches on both sides | `INNER JOIN` |
-| Want all records from left table, even without a match | `LEFT JOIN` |
+| Only matching records | `INNER JOIN` |
+| All records from left table, even without a match | `LEFT JOIN` |
 
-> **Note:** A `RIGHT JOIN` is just a `LEFT JOIN` with the tables flipped — most developers stick with `LEFT JOIN` for consistency.
+A common use of `LEFT JOIN` is finding records with **no match** — e.g., users who have **never placed an order**:
+```sql
+SELECT users.name
+FROM users
+LEFT JOIN orders ON users.id = orders.user_id
+WHERE orders.id IS NULL;  -- Returns Carol
+```
 
 </details>
 
@@ -3113,9 +5564,9 @@ Returns **all rows from the left table**, plus matched rows from the right. Unma
 **orders**
 | id | customer_id | item    |
 |----|-------------|---------|
-| 1  | 1           | Book    |
-| 2  | 1           | Pen     |
-| 3  | 2           | Notebook|
+| 1  | 1           | Laptop  |
+| 2  | 1           | Mouse   |
+| 3  | 2           | Monitor |
 
 ---
 
@@ -3125,11 +5576,11 @@ SELECT customers.name, orders.item
 FROM customers
 INNER JOIN orders ON customers.id = orders.customer_id;
 ```
-| name  | item     |
-|-------|----------|
-| Alice | Book     |
-| Alice | Pen      |
-| Bob   | Notebook |
+| name  | item    |
+|-------|---------|
+| Alice | Laptop  |
+| Alice | Mouse   |
+| Bob   | Monitor |
 
 > Charlie is **excluded** — no matching order.
 
@@ -3141,14 +5592,14 @@ SELECT customers.name, orders.item
 FROM customers
 LEFT JOIN orders ON customers.id = orders.customer_id;
 ```
-| name    | item     |
-|---------|----------|
-| Alice   | Book     |
-| Alice   | Pen      |
-| Bob     | Notebook |
-| Charlie | NULL     |
+| name    | item    |
+|---------|---------|
+| Alice   | Laptop  |
+| Alice   | Mouse   |
+| Bob     | Monitor |
+| Charlie | `NULL`  |
 
-> Charlie is **included** with `NULL` for the item.
+> Charlie is **included** with `NULL` for the order.
 
 ---
 
@@ -3164,7 +5615,7 @@ LEFT JOIN orders ON customers.id = orders.customer_id;
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **tie** — Both answers are essentially equivalent in quality, correctness, and usefulness. They both clearly explain the difference between INNER JOIN and LEFT JOIN with appropriate table examples and SQL queries. Answer A includes a minor note about Lit scope which is slightly unnecessary, while Answer B uses slightly cleaner table aliases in the SQL, but neither difference is material.
+**Met:** ✓  ·  **Judge:** **tie** — Both answers are essentially equivalent in correctness, clarity, and usefulness. They both explain the key difference between INNER JOIN and LEFT JOIN with clear examples, tables, and SQL code. The minor differences (table names, amounts, the note in B about Lit) don't materially affect quality.
 
 **Per-criterion verdict (judge)**
 
@@ -3295,7 +5746,7 @@ LEFT JOIN orders ON users.id = orders.user_id;
 | Bob | $75 |
 | Carol | NULL |
 
-Carol appears because `LEFT JOIN` keeps all rows from the left table (`users`), with `NULL` for the missing order.
+Carol appears because `LEFT JOIN` keeps all rows from the left table (`users`), with `NULL` where there's no matching order.
 
 ---
 
@@ -3305,7 +5756,7 @@ Carol appears because `LEFT JOIN` keeps all rows from the left table (`users`), 
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **tie** — Both answers are essentially equivalent in content, accuracy, and usefulness. They use the same example data and queries, explain the same concepts, and include the same tip about using LEFT JOIN with IS NULL to find missing relationships. Minor differences like table aliases, column naming (item vs product), and formatting are cosmetic and do not materially affect quality.
+**Met:** ✓  ·  **Judge:** **tie** — Both answers are essentially equivalent in quality, accuracy, and structure. They use the same example setup (users and orders tables), explain INNER JOIN and LEFT JOIN correctly, and provide identical guidance on when to use each. The only trivial differences are the third user's name (Carol vs Charlie) and column name (item vs product), which don't affect correctness or usefulness.
 
 **Per-criterion verdict (judge)**
 
@@ -3324,20 +5775,20 @@ _(no rubric)_
 
 # INNER JOIN vs LEFT JOIN
 
-**INNER JOIN**: Returns only rows that have matching values in *both* tables.
+**INNER JOIN**: Returns only rows that have matching values in **both** tables.
 
-**LEFT JOIN**: Returns *all* rows from the left table, plus matched rows from the right table. Unmatched rows get `NULL` for right-table columns.
+**LEFT JOIN**: Returns **all rows from the left table**, plus matched rows from the right table. If there's no match, you get `NULL` for the right table's columns.
 
 ## Example
 
-**users table:**
+**`users` table:**
 | id | name    |
 |----|---------|
 | 1  | Alice   |
 | 2  | Bob     |
 | 3  | Charlie |
 
-**orders table:**
+**`orders` table:**
 | id | user_id | product |
 |----|---------|---------|
 | 1  | 1       | Book    |
@@ -3351,14 +5802,12 @@ FROM users u
 INNER JOIN orders o ON u.id = o.user_id;
 ```
 
-**Result:**
+**Result:** (Charlie is excluded — no orders)
 | name  | product |
 |-------|---------|
 | Alice | Book    |
 | Alice | Pen     |
 | Bob   | Laptop  |
-
-Charlie is excluded because he has no orders.
 
 ### LEFT JOIN
 ```sql
@@ -3367,7 +5816,7 @@ FROM users u
 LEFT JOIN orders o ON u.id = o.user_id;
 ```
 
-**Result:**
+**Result:** (Charlie included with `NULL`)
 | name    | product |
 |---------|---------|
 | Alice   | Book    |
@@ -3375,9 +5824,9 @@ LEFT JOIN orders o ON u.id = o.user_id;
 | Bob     | Laptop  |
 | Charlie | NULL    |
 
-Charlie appears with `NULL` since he has no matching orders.
-
-**Tip**: Use `LEFT JOIN ... WHERE right_table.id IS NULL` to find rows that *don't* have a match (e.g., users with no orders).
+## When to use which
+- **INNER JOIN** → You only care about records with matches (e.g., "users who placed orders").
+- **LEFT JOIN** → You want everything from the main table, even without matches (e.g., "all users and their orders, if any"). Great for finding missing data with `WHERE right_table.id IS NULL`.
 
 </details>
 
@@ -3387,7 +5836,7 @@ Charlie appears with `NULL` since he has no matching orders.
 
 **INNER JOIN** returns only rows where there's a match in *both* tables.
 
-**LEFT JOIN** returns *all* rows from the left table, plus matching rows from the right table. Where no match exists, columns from the right table are `NULL`.
+**LEFT JOIN** returns *all* rows from the left table, plus matching rows from the right table. Where there's no match, columns from the right table are `NULL`.
 
 ## Example
 
@@ -3398,7 +5847,7 @@ Given these tables:
 |----|---------|
 | 1  | Alice   |
 | 2  | Bob     |
-| 3  | Charlie |
+| 3  | Carol   |
 
 **orders**
 | id | user_id | item    |
@@ -3415,13 +5864,14 @@ FROM users
 INNER JOIN orders ON users.id = orders.user_id;
 ```
 
-Result — Charlie is excluded (no orders):
-
+Result:
 | name  | item   |
 |-------|--------|
 | Alice | Book   |
 | Alice | Pen    |
 | Bob   | Laptop |
+
+Carol is excluded — she has no orders.
 
 ### LEFT JOIN
 
@@ -3431,19 +5881,20 @@ FROM users
 LEFT JOIN orders ON users.id = orders.user_id;
 ```
 
-Result — Charlie appears with `NULL`:
+Result:
+| name  | item   |
+|-------|--------|
+| Alice | Book   |
+| Alice | Pen    |
+| Bob   | Laptop |
+| Carol | NULL   |
 
-| name    | item   |
-|---------|--------|
-| Alice   | Book   |
-| Alice   | Pen    |
-| Bob     | Laptop |
-| Charlie | NULL   |
+Carol appears with `NULL` because she has no matching order.
 
 ## When to use which
 
-- **INNER JOIN**: You only care about records that have related data in both tables (e.g., "show users who placed orders").
-- **LEFT JOIN**: You want all records from the primary table even if related data is missing (e.g., "show all users and their orders, if any"). Useful for finding missing relationships with `WHERE right_table.id IS NULL`.
+- **INNER JOIN**: You only care about records that exist in both tables (e.g., "users who placed orders").
+- **LEFT JOIN**: You want all records from the primary table, even those without matches (e.g., "all users and their orders, if any"). Especially useful with `WHERE right_table.id IS NULL` to find records *without* matches (e.g., "users who haven't ordered").
 
 </details>
 

@@ -164,6 +164,161 @@
       pattern: 'FTC.{0,30}(bank|enforce.{0,20}bank|UDAAP.{0,20}bank)'
       why: 'common misconception — FTC has no authority over banks'
 
+- id: sar-thresholds-continuing
+  prompt: |
+    A pattern of structured cash deposits ($8k each, 5 days running)
+    starts in Month 1 from the same customer. The same pattern shows
+    up again in Month 3. When does the bank file a SAR, what
+    threshold applies, and how long does the filing obligation
+    continue?
+  judge_focus: |
+    The better answer cites 31 CFR 1020.320, names BOTH thresholds
+    ($5,000 if a suspect can be identified; $25,000 regardless of
+    suspect), states the 30-day initial filing deadline (60 days if
+    no suspect identified), and — critically — explains the
+    continuing-activity obligation: a fresh SAR every 90 days for
+    as long as the suspicious activity persists.
+  rubric:
+    - name: cites 31 CFR 1020.320
+      kind: any_of
+      patterns:
+        - '31 CFR 1020\.320'
+        - '31 CFR §\s*1020\.320'
+        - '1020\.320'
+      why: 'the SAR rule citation discipline'
+    - name: states $5,000 threshold (with suspect identified)
+      kind: any_of
+      patterns:
+        - '\$5[,]?000'
+        - '5[,]?000 dollar'
+      why: 'the lower SAR threshold when a suspect is identified'
+    - name: states $25,000 threshold (no suspect)
+      kind: any_of
+      patterns:
+        - '\$25[,]?000'
+        - '25[,]?000 dollar'
+      why: 'the higher threshold for unidentified suspects'
+    - name: mentions 30-day initial filing deadline
+      kind: any_of
+      patterns:
+        - '30 (calendar )?days?'
+        - 'thirty days?'
+        - 'within 30'
+      why: 'the initial filing window'
+    - name: mentions 90-day continuing-activity SAR
+      kind: any_of
+      patterns:
+        - '90 (calendar )?days?'
+        - 'ninety days?'
+        - 'continuing.{0,15}(activity|SAR)'
+        - 'every 90'
+      why: 'the rolling-SAR obligation that baseline typically misses'
+
+- id: reg-cc-reasonable-cause-hold
+  prompt: |
+    A customer deposits a $15,000 check drawn on another bank. We
+    know that other-bank account has had six overdrafts in the past
+    three months. Can we place an exception hold under Reg CC, and
+    what notice do we owe the customer?
+  judge_focus: |
+    The better answer cites 12 CFR 229.13(g) (reasonable cause to
+    doubt collectibility), names the kind of facts that justify the
+    exception (history of overdrafts on the drawer account, large
+    relative to typical activity), and lays out the customer notice
+    requirement (written notice, by no later than the next business
+    day after deposit, stating the reason and the date funds will be
+    available).
+  rubric:
+    - name: cites 12 CFR 229.13(g) (or 229.13)
+      kind: any_of
+      patterns:
+        - '12 CFR 229\.13'
+        - '229\.13\(g\)'
+        - '229\.13'
+      why: 'the exception-hold citation'
+    - name: names "reasonable cause to doubt collectibility"
+      kind: any_of
+      patterns:
+        - 'reasonable cause'
+        - 'doubt[a-z]*\s+collect'
+        - 'reason to believe.{0,30}(uncollect|won.t)'
+      why: 'the specific exception category being invoked'
+    - name: identifies factual triggers (overdraft history, drawer behavior)
+      kind: any_of
+      patterns:
+        - 'overdraft history'
+        - 'drawer'
+        - 'drawn on'
+        - 'history of'
+        - 'past behavior'
+        - 'pattern'
+      why: 'must be fact-based, not subjective suspicion'
+    - name: states written notice by next business day
+      kind: any_of
+      patterns:
+        - 'written notice'
+        - 'next business day'
+        - 'by the next business day'
+        - 'no later than'
+      why: 'the notice timing requirement'
+    - name: notice must include reason and availability date
+      kind: any_of
+      patterns:
+        - 'reason'
+        - 'availability date'
+        - 'when.{0,15}available'
+        - 'date.{0,15}available'
+      why: 'specific contents of the required notice'
+
+- id: beneficial-ownership-prongs
+  prompt: |
+    We have a new LLC opening a business deposit account. Under
+    FinCEN's beneficial ownership rules for banks, what information
+    do we have to collect on the LLC's beneficial owners, and how
+    often do we have to refresh it?
+  judge_focus: |
+    The better answer cites 31 CFR 1010.230 and identifies BOTH
+    prongs: (1) the ownership prong — each individual who directly
+    or indirectly owns 25% or more, and (2) the control prong — one
+    individual with significant responsibility for managing the
+    legal entity (CEO, CFO, GP, etc.). It states refresh is on a
+    risk basis (not on a fixed annual cadence) and triggered by
+    information that would suggest a change.
+  rubric:
+    - name: cites 31 CFR 1010.230
+      kind: any_of
+      patterns:
+        - '31 CFR 1010\.230'
+        - '31 CFR §\s*1010\.230'
+        - '1010\.230'
+      why: 'the CDD/beneficial ownership citation'
+    - name: names the 25% ownership prong
+      kind: any_of
+      patterns:
+        - '25%'
+        - '25\s*percent'
+        - 'twenty[-\s]?five percent'
+        - 'ownership prong'
+      why: 'the ownership-prong threshold'
+    - name: names the control prong
+      kind: any_of
+      patterns:
+        - 'control prong'
+        - 'significant.{0,15}responsibility'
+        - 'managing'
+        - 'CEO|CFO|COO'
+        - 'managing member'
+      why: 'the control prong is what baseline typically omits'
+    - name: refresh is on a risk basis (not fixed annual)
+      kind: any_of
+      patterns:
+        - 'risk[-\s]?basis'
+        - 'risk[-\s]?based'
+        - 'when.{0,30}(change|trigger)'
+        - 'event[-\s]?driven'
+        - 'no.{0,15}fixed'
+      why: 'common misconception that BO is annually refreshed'
+
 # ---------- Adversarial case ----------
 
 - id: simplest-50-cap

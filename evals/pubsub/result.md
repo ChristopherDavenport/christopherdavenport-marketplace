@@ -1,17 +1,17 @@
 # Eval report: `pubsub`
 
 - Backend: **SDK direct (sonnet/haiku at temperature=0; opus uncontrolled)**
-- Cases: **6**
+- Cases: **8**
 - Models: **sonnet, haiku, opus**
-- Total cost: **$1.75** (judge cost not counted)
+- Total cost: **$2.55** (judge cost not counted)
 
 ## Per-model summary
 
 | Model | Expectations met | Judge (skill / baseline / tie) | Rubric: baseline → skill (Δ) |
 | --- | --- | --- | --- |
-| `sonnet` | 5/6 | 4 / 0 / 2 | 87% → 100% (+13%) |
-| `haiku` | 6/6 | 5 / 0 / 1 | 58% → 100% (+42%) |
-| `opus` ¹ | 4/6 | 4 / 1 / 1 | 80% → 100% (+20%) |
+| `sonnet` | 7/8 | 6 / 0 / 2 | 87% → 93% (+6%) |
+| `haiku` | 8/8 | 7 / 0 / 1 | 67% → 96% (+30%) |
+| `opus` ¹ | 8/8 | 7 / 0 / 1 | 82% → 100% (+18%) |
 
 ¹ Opus 4.7 does not accept the `temperature` parameter; its numbers are indicators, not measurements (re-runs may flip individual verdicts).
 
@@ -19,9 +19,9 @@
 
 | Expectation kind | Total | sonnet met | haiku met | opus met |
 | --- | --- | --- | --- | --- |
-| `skill_wins` | 4 | 3/4 | 4/4 | 3/4 |
+| `skill_wins` | 6 | 5/6 | 6/6 | 6/6 |
 | `skill_wins_strict` | 1 | 1/1 | 1/1 | 1/1 |
-| `tie` | 1 | 1/1 | 1/1 | 0/1 |
+| `tie` | 1 | 1/1 | 1/1 | 1/1 |
 
 ## Cases
 
@@ -30,9 +30,11 @@
 | `duplicate-processing` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
 | `ordering-keys-not-working` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
 | `publish-throughput-low` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
-| `dead-letter-not-working` | skill_wins | ✗ = tie | ✓ ✓ skill | ✗ = tie |
+| `dead-letter-not-working` | skill_wins | ✗ = tie | ✓ ✓ skill | ✓ ✓ skill |
+| `graceful-shutdown` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
+| `flow-control-oom` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
 | `simplest-publish` | skill_wins_strict | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
-| `offtopic-css-flexbox` | tie | ✓ = tie | ✓ = tie | ✗ ✗ baseline |
+| `offtopic-css-flexbox` | tie | ✓ = tie | ✓ = tie | ✓ = tie |
 
 ## Per-case detail
 
@@ -52,7 +54,7 @@ extension as a contributing cause before recommending exactly-once.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer A is more focused on the Go SDK context implied by the question, provides a concrete and accurate explanation of why fire-and-forget goroutines break lease extension, and gives a more precise idempotency example using msg.ID as the dedup key with a database unique constraint. Answer B covers the same topics but is written in Python, misses the goroutine/callback-return trap that is the most common Go-specific cause, and its idempotency example uses Redis with a TTL which can expire before the retention window ends—a subtle but real flaw.
+**Met:** ✓  ·  **Judge:** **skill** — Answer A is more thorough and idiomatic for the Go SDK context implied by the question (msg.Ack() style), explicitly diagnosing the goroutine/lease-extension trap as the most common cause, and providing a complete diagnostic checklist. Both answers cover all four rubric criteria, but Answer A's treatment of the slow-handler/lease-extension problem is more precise and actionable, and its use of msg.ID for deduplication is more clearly tied to the Go SDK's actual field name.
 
 **Per-criterion verdict (judge)**
 
@@ -70,7 +72,7 @@ extension as a contributing cause before recommending exactly-once.
 | identifies at-least-once as the default | ✓ | `At-least-once` |
 | recommends idempotency | ✓ | `Idempoten` |
 | mentions msg.ID for dedup key | ✓ | `message_id` |
-| considers ack deadline / slow handler / lease extension | ✓ | `ack deadline` |
+| considers ack deadline / slow handler / lease extension | ✓ | `Ack deadline` |
 
 **Skill rubric**
 
@@ -87,199 +89,246 @@ extension as a contributing cause before recommending exactly-once.
 
 ## Why This Happens
 
-`msg.Ack()` being called doesn't guarantee exactly-once delivery. Several things can cause duplicates:
+`msg.Ack()` being called doesn't guarantee exactly-once delivery. Several things can cause redelivery **even after a successful Ack**:
 
 ```
-Publisher → Pub/Sub → Subscriber 1 ✓ Ack'd
-                    → Subscriber 2 ✓ Ack'd  ← same message, different subscriber
-                    → Subscriber 1 again    ← ack deadline expired before processing finished
+Publisher → Pub/Sub → [Subscriber 1] ✓ Ack sent
+                    ↘ [Subscriber 2] ← same message redelivered!
 ```
 
 ### Root Causes
 
-| Cause | Description |
+| Cause | Explanation |
 |-------|-------------|
-| **Ack deadline exceeded** | Processing takes longer than the deadline (default 10-60s), Pub/Sub assumes failure and redelivers |
-| **Ack not confirmed** | Network issue means the ack never reached Pub/Sub |
-| **At-least-once guarantee** | Pub/Sub explicitly guarantees this — duplicates are *by design* |
-| **Multiple subscriptions** | Each subscription gets every message |
-| **Subscriber crash** | Process died after processing but before ack was confirmed |
+| **Ack deadline exceeded** | Handler takes longer than `ackDeadline` (default 10s), Pub/Sub assumes failure and redelivers |
+| **Ack not confirmed** | Ack is sent but lost in transit; Pub/Sub never received it |
+| **Multiple subscribers** | Multiple instances pulling from the same subscription race each other |
+| **At-least-once guarantee** | Pub/Sub explicitly guarantees at-least-once, never exactly-once |
+| **Subscriber restart** | Process crashes after processing but before Ack is confirmed |
+
+---
+
+## Diagnosing Your Specific Case
+
+```python
+import time
+import logging
+
+def handler(msg):
+    start = time.time()
+    logging.info(f"Received message_id={msg.message_id} delivery_attempt={msg.delivery_attempt}")
+    
+    process(msg)
+    
+    elapsed = time.time() - start
+    logging.info(f"Processing took {elapsed:.2f}s")  # Compare to ackDeadline
+    
+    msg.ack()
+```
+
+**Check `delivery_attempt`** — if it's > 1, the message was redelivered.
 
 ---
 
 ## Solutions
 
-### 1. Extend the Ack Deadline During Long Processing
+### 1. Fix Ack Deadline Exceeded (Most Common Cause)
 
 ```python
-import threading
 from google.cloud import pubsub_v1
 
-def process_message(msg):
-    # Keep extending deadline while processing
-    stop_event = threading.Event()
-    
-    def heartbeat():
-        while not stop_event.wait(timeout=30):  # extend every 30s
-            msg.modify_ack_deadline(60)          # push deadline 60s into future
-    
-    thread = threading.Thread(target=heartbeat, daemon=True)
-    thread.start()
-    
-    try:
-        do_slow_work(msg.data)
-        msg.ack()
-    except Exception as e:
-        msg.nack()
-        raise
-    finally:
-        stop_event.set()
-        thread.join()
+subscriber = pubsub_v1.SubscriberClient()
+
+flow_control = pubsub_v1.types.FlowControl(max_messages=10)
+
+# Extend deadline to match your processing time
+subscriber.subscribe(
+    subscription_path,
+    callback=handler,
+    flow_control=flow_control,
+)
 ```
 
-### 2. Idempotent Processing (Most Important)
-
-**Design your handler so running it twice has the same effect as running it once:**
+**Extend the deadline while processing long tasks:**
 
 ```python
-def handle_message(msg):
-    message_id = msg.message_id
-    data = json.loads(msg.data)
+def handler(msg):
+    # Modify ack deadline dynamically for long-running work
+    msg.modify_ack_deadline(60)  # extend by 60 seconds
     
-    # Check if already processed using a database/cache
-    if already_processed(message_id):
-        msg.ack()          # ack it and move on
+    do_long_running_work()       # your actual processing
+    
+    msg.ack()
+```
+
+Or configure it at the subscription level (max 600s):
+```bash
+gcloud pubsub subscriptions modify-push-config my-sub \
+  --ack-deadline=120
+```
+
+---
+
+### 2. Implement Idempotency (Most Robust Solution)
+
+Make your handler safe to run multiple times — this is the **correct long-term fix** regardless of other mitigations:
+
+```python
+import redis
+
+redis_client = redis.Redis()
+PROCESSED_TTL = 86400  # 24 hours
+
+def handler(msg):
+    message_id = msg.message_id
+    dedup_key = f"processed:{message_id}"
+    
+    # Atomic check-and-set
+    already_processed = not redis_client.set(
+        dedup_key,
+        "1",
+        nx=True,        # Only set if Not eXists
+        ex=PROCESSED_TTL
+    )
+    
+    if already_processed:
+        logging.info(f"Skipping duplicate message_id={message_id}")
+        msg.ack()       # Still ack it so it stops being redelivered
         return
     
     try:
-        # Do the actual work
-        result = process_order(data)
-        
-        # Mark as processed atomically with the work if possible
-        mark_as_processed(message_id, result)
-        
+        process(msg)
         msg.ack()
-    except Exception:
+    except Exception as e:
+        redis_client.delete(dedup_key)  # Allow retry on genuine failure
         msg.nack()
         raise
-
-def already_processed(message_id: str) -> bool:
-    # Use Redis, Datastore, Cloud SQL, etc.
-    return redis_client.exists(f"processed:{message_id}")
-
-def mark_as_processed(message_id: str, result):
-    redis_client.setex(
-        f"processed:{message_id}",
-        ex=86400,   # TTL: keep for 24h, longer than your retention window
-        value=json.dumps(result)
-    )
-```
-
-### 3. Use Exactly-Once Delivery (If Available)
-
-```python
-# Enable on the subscription — available in some regions/tiers
-subscriber = pubsub_v1.SubscriberClient()
-
-subscription = subscriber.create_subscription(
-    request={
-        "name": subscription_path,
-        "topic": topic_path,
-        "enable_exactly_once_delivery": True,  # ← this
-    }
-)
-```
-
-```
-⚠️  Caveats:
-- Higher latency
-- Not available in all regions
-- Still recommends idempotent design as a fallback
-- Ack failures will raise an exception you must handle
-```
-
-### 4. Set an Appropriate Ack Deadline Upfront
-
-```python
-subscriber.create_subscription(
-    request={
-        "name": subscription_path,
-        "topic": topic_path,
-        "ack_deadline_seconds": 300,  # 5 min — match your worst-case processing time
-    }
-)
 ```
 
 ---
 
-## Diagnostic Checklist
+### 3. Use a Database for Idempotency (Durable Alternative)
+
+```python
+# Using a processed_messages table
+def handler(msg):
+    message_id = msg.message_id
+    
+    with db.transaction():
+        # INSERT ... ON CONFLICT DO NOTHING
+        inserted = db.execute("""
+            INSERT INTO processed_messages (message_id, processed_at)
+            VALUES (%s, NOW())
+            ON CONFLICT (message_id) DO NOTHING
+        """, [message_id]).rowcount
+        
+        if inserted == 0:
+            msg.ack()
+            return
+            
+        process_and_write_results(msg)  # Same transaction!
+    
+    msg.ack()
+```
+
+> ✅ **Advantage:** Processing and dedup record are atomic — no window where a crash causes reprocessing.
+
+---
+
+### 4. Enable Exactly-Once Delivery (GCP Feature)
+
+```bash
+# Create subscription with exactly-once delivery
+gcloud pubsub subscriptions create my-sub \
+  --topic=my-topic \
+  --enable-exactly-once-delivery
+```
+
+```python
+# Ack is now retried automatically until confirmed
+# Check if it succeeded
+def handler(msg):
+    process(msg)
+    
+    ack_result = msg.ack_with_response()  # Returns a future
+    try:
+        ack_result.result(timeout=30)     # Blocks until Ack confirmed
+    except Exception:
+        logging.error("Ack failed — message will be redelivered")
+```
+
+> ⚠️ **Caveats:** Higher latency, higher cost, not available in all regions. Still not a substitute for idempotency.
+
+---
+
+## Decision Guide
 
 ```
-□ Is processing time close to or over the ack deadline?
-  → Extend deadline or increase it
+Is processing time > ackDeadline?
+├── YES → Extend ackDeadline or use modify_ack_deadline()
+└── NO  ↓
 
-□ Are you seeing message_id duplicates in logs?
-  → Confirms redelivery, not a logic bug
+Can you make the handler idempotent?
+├── YES → Do that first (Redis or DB dedup) ← recommended always
+└── NO  ↓
 
-□ Do you have multiple subscriptions on the same topic?
-  → Each sub gets all messages — expected behavior
-
-□ Are you running multiple instances of your subscriber?
-  → Normal, but means you need idempotency
-
-□ Is your handler throwing exceptions before ack()?
-  → Pub/Sub will redeliver — check error logs
+Do you need strict exactly-once?
+├── YES → Enable exactly-once delivery + idempotency
+└── NO  → Accept at-least-once, fix root cause of duplicates
 ```
 
 ---
 
-## Key Takeaway
+## Quick Checklist
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Pub/Sub = at-least-once delivery                   │
-│                                                     │
-│  Always design for idempotency.                     │
-│  Ack deadline extension prevents unnecessary        │
-│  redelivery. Exactly-once delivery reduces it       │
-│  further but doesn't eliminate the need for         │
-│  idempotent handlers.                               │
-└─────────────────────────────────────────────────────┘
-```
+- [ ] Log `delivery_attempt` to confirm duplicates are actually happening
+- [ ] Compare handler execution time to `ackDeadline`
+- [ ] Add idempotency check using `message_id` as dedup key
+- [ ] Ensure exceptions don't silently swallow the `ack()` call
+- [ ] Consider exactly-once delivery if duplicates are unacceptable
 
-The most robust solution is **idempotency + deadline extension** together, regardless of whether you enable exactly-once delivery.
+The **most important takeaway**: always design handlers to be idempotent — Pub/Sub's at-least-once guarantee means duplicates are always *possible*, even with exactly-once delivery enabled.
 
 </details>
 
 <details><summary>sonnet: skill-loaded answer</summary>
 
-Duplicate delivery despite calling `msg.Ack()` is one of the most common Pub/Sub surprises. There are usually two separate problems happening at once: **why the message redelivers** and **why duplicates cause harm**. Fix both independently.
+Calling `msg.Ack()` is necessary but not sufficient. There are several independent reasons Pub/Sub redelivers a message even when your code reaches the `Ack()` call. Work through them in order.
 
 ---
 
-## Why the message redelivers even though you call Ack()
+## 1. Understand what "at-least-once" means
 
-### 1. Processing takes longer than the ack deadline (most common cause)
+Pub/Sub's default delivery guarantee is **at-least-once**. The service can redeliver any message at any time — network hiccup, server-side failover, ack lost in transit. This is not a bug; it is the contract. **Your handler must be idempotent regardless of what else you fix below.**
 
-Pub/Sub grants a lease on each message. If the lease expires before your `Ack()` call reaches the server, Pub/Sub assumes the message was lost and redelivers it — even if your `Ack()` arrives a moment later.
+---
+
+## 2. Find the actual cause
+
+### Cause A — Processing takes longer than the ack deadline (most common)
+
+Pub/Sub grants a lease on each message. If the lease expires before your ack arrives, the message redelivers — even if your code eventually calls `Ack()`.
 
 The Go SDK extends leases automatically, **but only while the message is live inside the `Receive` callback**. The trap:
 
 ```go
-// BROKEN — lease stops extending the moment the callback returns
+// BROKEN — callback returns immediately; lease stops extending
 sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-    go func() {          // ← callback returns immediately
-        process(msg)     // lease is no longer being extended here
-        msg.Ack()        // may arrive after the deadline; redelivery fires
+    go func() {
+        doSlowWork(msg)   // lease expired long before this finishes
+        msg.Ack()
     }()
 })
 ```
 
-The fix — do the work synchronously inside the callback:
+The callback returns, the SDK considers the message "done", lease extension stops, and Pub/Sub redelivers after the deadline.
+
+**Fix — keep work inside the callback, or block until it finishes:**
 
 ```go
 sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-    if err := process(msg); err != nil {
+    // Work runs synchronously; SDK extends the lease the whole time.
+    if err := doSlowWork(ctx, msg); err != nil {
         msg.Nack()
         return
     }
@@ -287,112 +336,127 @@ sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
 })
 ```
 
-If you need a worker pool, block the callback until a worker slot is free:
+If you need a worker pool, block the callback on a channel so the lease stays alive:
 
 ```go
 sem := make(chan struct{}, workerCount)
 
 sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-    sem <- struct{}{}          // blocks callback (and lease extension) until slot opens
-    go func() {
-        defer func() { <-sem }()
-        if err := process(msg); err != nil {
-            msg.Nack()
-            return
-        }
-        msg.Ack()
-    }()
+    sem <- struct{}{}          // block here — lease keeps extending
+    defer func() { <-sem }()
+    if err := doSlowWork(ctx, msg); err != nil {
+        msg.Nack()
+        return
+    }
+    msg.Ack()
 })
 ```
 
-The callback is blocked (not returned), so the SDK keeps extending the lease.
-
-### 2. The ack deadline is too short for your processing time
-
-Default ack deadline is **10 seconds**. If your handler routinely takes longer, raise it at subscription creation/update (max 600 s):
-
-```bash
-gcloud pubsub subscriptions modify-push-config MY-SUB \
-  --ack-deadline=60
-```
-
-Or in Terraform / IaC. You cannot change this per-message at runtime, but the SDK's `MaxExtension` setting caps how long the SDK will keep extending:
+Also check `ReceiveSettings.MaxExtension`. Its default is 60 minutes, but if you set it lower than your actual processing time, leases expire on purpose:
 
 ```go
-sub.ReceiveSettings.MaxExtension = 10 * time.Minute  // default is 60 min; lower if needed
+sub.ReceiveSettings.MaxExtension = 30 * time.Minute // raise if needed
 ```
 
-### 3. Subscriber crashed or restarted mid-processing
+### Cause B — Subscriber crashed or restarted before the ack was sent
 
-If your process dies after processing but before `Ack()` reaches the server, Pub/Sub redelivers. This is **by design** — Pub/Sub is at-least-once. No amount of ack-deadline tuning prevents this case.
+If your process dies after doing the work but before `Ack()` is transmitted, Pub/Sub has no record of the ack and redelivers. This is unavoidable at the transport layer — it is exactly why idempotency is mandatory.
 
-### 4. Exactly-once delivery is not enabled (and even then, it's not a complete fix)
+### Cause C — Multiple `Receive` calls on the same subscription
 
-Exactly-once delivery (`EnableExactlyOnceDelivery`) reduces duplicates within a delivery attempt window, but it still permits duplicates across subscriber restarts. It also adds latency to every ack. Check whether it's on:
+Each concurrent `Receive` call opens an independent `StreamingPull` stream. Pub/Sub can send the same message to more than one stream before either acks it. Never call `Receive` twice on the same subscription handle concurrently. Use `NumGoroutines` inside a single `Receive` call instead:
+
+```go
+sub.ReceiveSettings.NumGoroutines = 8  // parallel callbacks, one stream
+```
+
+### Cause D — Exactly-once delivery is not enabled
+
+Even with perfect ack discipline, the default subscription can redeliver. Exactly-once delivery reduces (but does not eliminate) duplicates:
+
+```go
+// At subscription creation time only — cannot be changed later
+subConfig := pubsub.SubscriptionConfig{
+    Topic:                     topic,
+    EnableExactlyOnceDelivery: true,
+}
+```
+
+Check whether it is on:
 
 ```bash
 gcloud pubsub subscriptions describe MY-SUB \
   --format='value(enableExactlyOnceDelivery)'
 ```
 
+Note: EOD adds latency to every ack and still permits duplicates across subscriber restarts. It is not a substitute for idempotency.
+
 ---
 
-## Why duplicates cause harm — and the real fix
+## 3. Make your handler idempotent (non-negotiable)
 
-Redelivery is a guarantee, not a bug. **Your handler must be idempotent.** This is the only durable defense.
-
-### Key on `msg.ID`
-
-`msg.ID` is assigned by the server and is **stable across all redeliveries of the same message**. Use it as your idempotency key:
+Key on `msg.ID` — it is stable across all redeliveries of the same logical message:
 
 ```go
 sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-    // Check-and-set in your DB, keyed on msg.ID
-    inserted, err := db.ExecContext(ctx, `
-        INSERT INTO processed_events (pubsub_message_id, payload)
-        VALUES ($1, $2)
-        ON CONFLICT (pubsub_message_id) DO NOTHING
-    `, msg.ID, msg.Data)
-
-    if err != nil {
-        msg.Nack()
-        return
-    }
-    if inserted == 0 {
-        // Already processed — ack and move on
-        msg.Ack()
+    if alreadyProcessed(ctx, msg.ID) {
+        msg.Ack() // ack so it stops redelivering
         return
     }
 
-    if err := applyBusinessLogic(ctx, msg.Data); err != nil {
+    if err := processAndRecord(ctx, msg); err != nil {
         msg.Nack()
         return
     }
     msg.Ack()
 })
+
+// processAndRecord writes the result AND marks msg.ID as processed
+// in a single transaction (e.g., a DB upsert keyed on message_id).
+func processAndRecord(ctx context.Context, msg *pubsub.Message) error {
+    _, err := db.ExecContext(ctx,
+        `INSERT INTO processed_events (message_id, payload, processed_at)
+         VALUES ($1, $2, now())
+         ON CONFLICT (message_id) DO NOTHING`,
+        msg.ID, msg.Data,
+    )
+    return err
+}
 ```
 
-The idempotency check and the business effect should be in the same transaction where possible.
+The `ON CONFLICT DO NOTHING` pattern makes the DB write idempotent. The `alreadyProcessed` check before doing expensive work avoids redundant computation on redeliveries.
 
 ---
 
-## Checklist
+## 4. Diagnostic checklist
 
-| Check | How |
+| Check | Command / metric |
 |---|---|
-| Handler runs synchronously inside callback (or blocks it) | Code review — no fire-and-forget goroutines |
-| Ack deadline ≥ p99 processing time | `gcloud pubsub subscriptions describe` → `ackDeadlineSeconds` |
-| `MaxExtension` is long enough for slow outliers | `sub.ReceiveSettings.MaxExtension` |
-| Handler is idempotent on `msg.ID` | DB unique constraint or equivalent |
-| Exactly-once delivery enabled (optional, belt-and-suspenders) | `enableExactlyOnceDelivery: true` on subscription |
+| Is the ack deadline long enough? | `gcloud pubsub subscriptions describe MY-SUB --format='value(ackDeadlineSeconds)'` |
+| Is the backlog growing? | Cloud Monitoring: `pubsub.googleapis.com/subscription/num_undelivered_messages` |
+| Are messages expiring before ack? | `pubsub.googleapis.com/subscription/oldest_unacked_message_age` — if this climbs, processing is slower than the lease |
+| Is exactly-once on? | `--format='value(enableExactlyOnceDelivery)'` as above |
+| Are there multiple `Receive` calls? | Audit your code; grep for `.Receive(` |
 
-Fix the lease extension issue first (it's almost always the immediate cause), then add idempotency (it's the permanent safety net). Exactly-once delivery is a useful addition but should never be your only line of defense.
+---
+
+## Summary
+
+| Root cause | Fix |
+|---|---|
+| Work handed off to goroutine; callback returns early | Keep work synchronous inside callback, or block callback on a semaphore |
+| `MaxExtension` shorter than processing time | Raise `ReceiveSettings.MaxExtension` |
+| Process crash between work and ack | Idempotent handler keyed on `msg.ID` — unavoidable otherwise |
+| Multiple concurrent `Receive` calls | Use `NumGoroutines` inside one `Receive` call |
+| Default at-least-once subscription | Enable `EnableExactlyOnceDelivery` **and** keep idempotent handler |
+
+The single most important fix is always the idempotent handler. Everything else reduces redelivery frequency; idempotency makes redelivery harmless.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B explicitly identifies at-least-once delivery as the default and the root cause before anything else, while Answer A buries this fundamental concept. Answer B also provides clearer guidance on using msg.ID as a dedup key with concrete database examples, and correctly explains the lease extension mechanism (the callback must stay alive) rather than Answer A's incorrect suggestion to call msg.Nack() in a goroutine to extend the deadline.
+**Met:** ✓  ·  **Judge:** **skill** — Answer B is significantly more comprehensive and better aligned with the rubric criteria. It explicitly leads with at-least-once as the default, provides a concrete idempotency example keyed on msg.ID with database unique constraints, and gives a detailed explanation of ack deadline/lease extension including the goroutine pitfall. Answer A covers these topics but less precisely — it mentions idempotency and msg.ID but buries the at-least-once explanation, and its lease extension discussion is shallower without explaining the goroutine/async return problem.
 
 **Per-criterion verdict (judge)**
 
@@ -407,9 +471,9 @@ Fix the lease extension issue first (it's almost always the immediate cause), th
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| identifies at-least-once as the default | ✗ | |
-| recommends idempotency | ✓ | `idempoten` |
-| mentions msg.ID for dedup key | ✓ | `msg.ID` |
+| identifies at-least-once as the default | ✓ | `at-least-once` |
+| recommends idempotency | ✓ | `Idempoten` |
+| mentions msg.ID for dedup key | ✓ | `message_id` |
 | considers ack deadline / slow handler / lease extension | ✓ | `Ack Deadline` |
 
 **Skill rubric**
@@ -429,180 +493,125 @@ This is a common issue with Pub/Sub subscribers. Here are the main causes and so
 
 ## 1. **Ack Deadline Exceeded** (Most Common)
 
-If your message processing takes longer than the ack deadline, Pub/Sub will redeliver the message before you call `Ack()`.
+If your message handler takes longer than the ack deadline, Pub/Sub assumes processing failed and redelivers the message.
 
-**Solution: Extend the deadline**
+**Solution:** Increase the ack deadline or extend it during processing
 
-```go
-package main
+```python
+from google.cloud import pubsub_v1
+import time
 
-import (
-	"context"
-	"time"
-	"cloud.google.com/go/pubsub"
+subscriber = pubsub_v1.SubscriberClient()
+subscription_path = subscriber.subscription_path(project_id, subscription_id)
+
+def callback(message):
+    try:
+        # Long-running operation
+        process_message(message)
+        message.ack()
+    except Exception as e:
+        print(f"Error: {e}")
+        message.nack()  # Requeue on failure
+
+# Increase ack deadline to 600 seconds (max)
+flow_control = pubsub_v1.types.FlowControl(max_messages=10, max_bytes=1000)
+streaming_pull_future = subscriber.subscribe(
+    subscription_path, 
+    callback=callback,
+    flow_control=flow_control
 )
 
-sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-	// Extend the deadline while processing
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				msg.Nack() // This extends the deadline
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	// Your long-running processing
-	processMessage(msg)
-	
-	msg.Ack()
-})
+# Set ack deadline on subscription (via gcloud or API)
+# gcloud pubsub subscriptions update SUB_ID --ack-deadline=600
 ```
 
-**Or increase the subscription's ack deadline:**
+## 2. **Ack Before Processing Completes**
 
-```go
-sub, err := client.Subscription(subID)
-config, err := sub.Config(ctx)
-config.AckDeadline = 2 * time.Minute // Increase from default 10s
-err = sub.Update(ctx, config)
-```
+Calling `ack()` too early before async operations finish.
 
-## 2. **Panic or Error in Handler**
+**Solution:** Only ack after all processing is complete
 
-If your handler panics or crashes before `Ack()`, the message won't be acknowledged.
-
-```go
-sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("Panic: %v", r)
-			msg.Nack() // Explicitly nack on panic
-		}
-	}()
-
-	if err := processMessage(msg); err != nil {
-		log.Printf("Error: %v", err)
-		msg.Nack() // Nack on error
-		return
-	}
-
-	msg.Ack()
-})
+```python
+def callback(message):
+    try:
+        # Process synchronously
+        result = process_message(message)
+        save_to_database(result)  # Wait for this
+        message.ack()  # Ack only after everything is done
+    except Exception as e:
+        message.nack()
 ```
 
 ## 3. **Subscriber Crashes Before Ack**
 
-If the process dies between processing and `Ack()`, the message is redelivered.
+Process dies between message receipt and ack.
 
-**Solution: Use idempotent processing**
+**Solution:** Use proper error handling and graceful shutdown
 
-```go
-sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-	// Check if already processed (using message ID or idempotency key)
-	if alreadyProcessed(msg.ID) {
-		msg.Ack()
-		return
-	}
+```python
+import signal
+import sys
 
-	if err := processMessage(msg); err != nil {
-		msg.Nack()
-		return
-	}
+def signal_handler(sig, frame):
+    print('Shutting down gracefully...')
+    streaming_pull_future.cancel()
+    sys.exit(0)
 
-	msg.Ack()
-})
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
+
+def callback(message):
+    try:
+        process_message(message)
+        message.ack()
+    except Exception as e:
+        print(f"Processing failed: {e}")
+        message.nack()  # Requeue for retry
+
+streaming_pull_future = subscriber.subscribe(subscription_path, callback=callback)
+streaming_pull_future.result()
 ```
 
-## 4. **Check Subscription Settings**
+## 4. **Idempotency Issues**
 
-```go
-config, err := sub.Config(ctx)
-fmt.Printf("AckDeadline: %v\n", config.AckDeadline)
-fmt.Printf("RetentionDuration: %v\n", config.RetentionDuration)
+Even with proper acking, Pub/Sub guarantees "at-least-once" delivery. Duplicates can still occur.
+
+**Solution:** Make your handler idempotent
+
+```python
+def callback(message):
+    message_id = message.message_id
+    
+    # Check if already processed
+    if is_already_processed(message_id):
+        message.ack()
+        return
+    
+    try:
+        process_message(message)
+        mark_as_processed(message_id)
+        message.ack()
+    except Exception as e:
+        message.nack()
+
+def is_already_processed(message_id):
+    # Check in database, cache, or deduplication service
+    return db.exists(f"processed:{message_id}")
+
+def mark_as_processed(message_id):
+    db.set(f"processed:{message_id}", True, ex=86400)  # 24h TTL
 ```
 
-## Complete Robust Example
+## Quick Checklist
 
-```go
-package main
+- ✅ Increase ack deadline if processing takes time
+- ✅ Only ack after all processing completes
+- ✅ Handle exceptions and nack on failure
+- ✅ Implement graceful shutdown
+- ✅ Make handlers idempotent
+- ✅ Monitor for slow processing with logs
 
-import (
-	"context"
-	"log"
-	"time"
-	"cloud.google.com/go/pubsub"
-)
-
-func main() {
-	ctx := context.Background()
-	client, _ := pubsub.NewClient(ctx, "project-id")
-	sub := client.Subscription("sub-id")
-
-	// Configure subscription
-	config, _ := sub.Config(ctx)
-	config.AckDeadline = 2 * time.Minute
-	sub.Update(ctx, config)
-
-	// Receive messages
-	err := sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("Panic recovered: %v", r)
-				msg.Nack()
-			}
-		}()
-
-		// Check idempotency
-		if isProcessed(msg.ID) {
-			msg.Ack()
-			return
-		}
-
-		// Process with timeout
-		processCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-
-		if err := processMessage(processCtx, msg); err != nil {
-			log.Printf("Processing failed: %v", err)
-			msg.Nack()
-			return
-		}
-
-		// Mark as processed before ack
-		markProcessed(msg.ID)
-		msg.Ack()
-	})
-
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func processMessage(ctx context.Context, msg *pubsub.Message) error {
-	// Your processing logic
-	return nil
-}
-
-func isProcessed(id string) bool { return false }
-func markProcessed(id string)     {}
-```
-
-## Key Takeaways
-
-| Issue | Solution |
-|-------|----------|
-| Processing takes too long | Increase `AckDeadline` or extend deadline during processing |
-| Handler crashes | Use defer + recover, explicit error handling |
-| Process dies before Ack | Implement idempotent processing |
-| Unclear what's happening | Add detailed logging with message IDs |
-
-The **most common fix** is simply increasing the `AckDeadline` to match your actual processing time.
+Which language/framework are you using? I can provide more specific code examples.
 
 </details>
 
@@ -617,175 +626,188 @@ This is the most common Pub/Sub gotcha. The root cause is almost always one of t
 Pub/Sub guarantees **at-least-once delivery by default**, not exactly-once. This means:
 - A message can be delivered multiple times even if you ack it correctly.
 - Duplicates happen across subscriber restarts, network hiccups, or internal Pub/Sub retries.
-- **The only durable defense is idempotent message handlers.**
+- **Your handler MUST be idempotent** — the only durable defense.
 
 **Check your subscription:**
 ```bash
-gcloud pubsub subscriptions describe YOUR_SUBSCRIPTION \
-  --format='value(enableExactlyOnceDelivery)'
+gcloud pubsub subscriptions describe YOUR_SUB --format='value(enableExactlyOnceDelivery)'
 ```
 
-If it returns `False`, you're on at-least-once. This is expected and correct — you must make your handler idempotent.
+If it returns `False`, you're on at-least-once. This is expected and correct — but your code must handle it.
 
 ---
 
 ## 2. **Your Handler is Not Idempotent**
 
-Every effect (database write, API call, state change) must be keyed on a stable identifier so re-executing it is safe:
+Every side effect (database write, API call, message publish) must be keyed on a stable identifier so re-execution has no additional effect.
 
-**❌ Wrong — not idempotent:**
+**❌ Not idempotent:**
 ```go
-sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-  // If this crashes after the write but before Ack,
-  // the message redelivers and you insert a duplicate row.
-  db.Exec("INSERT INTO events (data) VALUES (?)", msg.Data)
-  msg.Ack()
-})
+func handleMessage(ctx context.Context, msg *pubsub.Message) {
+    var order Order
+    json.Unmarshal(msg.Data, &order)
+    
+    // If this runs twice, you charge the customer twice
+    db.Exec("INSERT INTO charges (customer_id, amount) VALUES (?, ?)", 
+        order.CustomerID, order.Amount)
+    
+    msg.Ack()
+}
 ```
 
-**✅ Right — idempotent:**
+**✅ Idempotent (keyed on msg.ID):**
 ```go
-sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-  // msg.ID is stable across redeliveries (server-assigned, never changes).
-  // Use it as a uniqueness key.
-  db.Exec(
-    "INSERT INTO events (message_id, data) VALUES (?, ?) ON CONFLICT DO NOTHING",
-    msg.ID, msg.Data,
-  )
-  msg.Ack()
-})
-```
-
-Or use a business key (e.g., order ID, user ID + timestamp):
-```go
-var event Event
-json.Unmarshal(msg.Data, &event)
-
-db.Exec(
-  "INSERT INTO processed_orders (order_id, ...) VALUES (?, ...) ON CONFLICT (order_id) DO NOTHING",
-  event.OrderID, ...,
-)
-msg.Ack()
+func handleMessage(ctx context.Context, msg *pubsub.Message) {
+    var order Order
+    json.Unmarshal(msg.Data, &order)
+    
+    // Upsert keyed on message ID — second execution is a no-op
+    db.Exec(`
+        INSERT INTO charges (message_id, customer_id, amount) 
+        VALUES (?, ?, ?)
+        ON CONFLICT(message_id) DO NOTHING
+    `, msg.ID, order.CustomerID, order.Amount)
+    
+    msg.Ack()
+}
 ```
 
 **Key points:**
-- `msg.ID` is **always the same** for a given message, even across redeliveries.
-- Use a database uniqueness constraint (`UNIQUE`, `PRIMARY KEY`, or `ON CONFLICT`) to enforce idempotency.
-- If you can't use a constraint, maintain a dedup table keyed on `msg.ID` with a TTL.
+- `msg.ID` is server-assigned and stable across redeliveries — use it as a dedup key.
+- Alternatively, use a business key (e.g., `order_id`) if it's unique per message.
+- Add a unique constraint on the dedup column so the database enforces idempotency.
 
 ---
 
-## 3. **Ack Deadline Expired Before Processing Finished**
+## 3. **Ack Deadline Expiration (Lease Extension Failure)**
 
-If your handler takes longer than the ack deadline (default 10 seconds), the message's lease expires and Pub/Sub redelivers it **even though you eventually call `msg.Ack()`**.
+If your handler takes longer than the ack deadline (default 10 seconds), the message lease expires and Pub/Sub redelivers it **even though you call `msg.Ack()`** at the end.
 
-**❌ Wrong — work happens after the callback returns:**
+**Why this happens:**
+- Pub/Sub extends the lease automatically **only while your callback is running**.
+- If the callback returns before the work is done (e.g., you spawn a goroutine and return), the lease stops extending.
+- When the deadline passes, Pub/Sub assumes the handler crashed and redelivers.
+
+**❌ Broken (spawns goroutine and returns):**
 ```go
 sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-  // Callback returns immediately; lease stops extending.
-  // If slowJob takes >10s, the message redelivers before slowJob finishes.
-  go slowJob(msg)
-  msg.Ack()  // Ack happens, but lease already expired!
+    go func() {
+        // This runs AFTER the callback returns
+        // Lease is no longer extending — message redelivers in ~10s
+        time.Sleep(30 * time.Second)
+        processOrder(msg)
+        msg.Ack()
+    }()
+    // Callback returns immediately — lease stops extending
 })
 ```
 
-**✅ Right — work happens inside the callback:**
+**✅ Correct (synchronous work inside callback):**
 ```go
 sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-  // Lease extends while this callback is running.
-  slowJob(msg)  // Synchronous; lease keeps extending.
-  msg.Ack()
+    // All work happens here, synchronously
+    // Lease extends automatically while this runs
+    time.Sleep(30 * time.Second)
+    processOrder(msg)
+    msg.Ack()
+    // Callback returns only after work is done
 })
 ```
 
-**If you must use goroutines**, use a bounded worker pool and wait for completion:
+**If you need async work, use a bounded worker pool:**
 ```go
+type WorkerPool struct {
+    jobs chan *pubsub.Message
+}
+
+func (wp *WorkerPool) Start(ctx context.Context, numWorkers int) {
+    for i := 0; i < numWorkers; i++ {
+        go func() {
+            for msg := range wp.jobs {
+                processOrder(msg)
+                msg.Ack()
+            }
+        }()
+    }
+}
+
 sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-  // Send work to a pool and wait for it to finish.
-  results := make(chan error, 1)
-  workerPool <- func() {
-    results <- slowJob(msg)
-  }
-  if err := <-results; err != nil {
-    msg.Nack()
-    return
-  }
-  msg.Ack()
+    // Non-blocking send to worker pool
+    select {
+    case wp.jobs <- msg:
+    case <-ctx.Done():
+        msg.Nack()
+    }
+    // Callback returns, but lease extends until worker acks
 })
 ```
 
-**Check your ack deadline:**
-```bash
-gcloud pubsub subscriptions describe YOUR_SUBSCRIPTION \
-  --format='value(ackDeadlineSeconds)'
-```
-
-If your p99 processing time is close to or exceeds this, raise it:
-```bash
-gcloud pubsub subscriptions update YOUR_SUBSCRIPTION \
-  --ack-deadline=60  # Up to 600 seconds
-```
-
-Or lower `MaxOutstandingMessages` to reduce concurrency and give each message more time:
+**Tune the ack deadline if processing is genuinely slow:**
 ```go
-sub.ReceiveSettings.MaxOutstandingMessages = 10  // Default is 1000
+sub.ReceiveSettings.MaxExtension = 10 * time.Minute  // Up to 10 min per message
 ```
+
+But this is a band-aid — if messages take 10+ minutes, consider an external work queue (Cloud Tasks, Firestore, etc.) instead.
 
 ---
 
 ## 4. **Enable Exactly-Once Delivery (Optional, After Idempotency)**
 
-If you want to reduce duplicates further, enable exactly-once delivery on the subscription:
+If you've made your handler idempotent and still want stronger guarantees, enable exactly-once delivery:
 
 ```bash
-gcloud pubsub subscriptions update YOUR_SUBSCRIPTION \
-  --enable-exactly-once-delivery
-```
-
-Or in Go:
-```go
-config := pubsub.SubscriptionConfig{
-  Topic:                      topic,
-  EnableExactlyOnceDelivery:  true,
-}
-sub, err := client.CreateSubscription(ctx, "my-sub", config)
+gcloud pubsub subscriptions update YOUR_SUB --enable-exactly-once-delivery
 ```
 
 **Important caveats:**
-- EOD adds latency to every ack (it uses a 2-phase commit internally).
-- It still does **not eliminate duplicates** — you can get duplicates across subscriber restarts or crashes.
-- **Idempotent handlers are still mandatory.**
+- EOD adds ~5–10ms latency to every ack (it writes to Firestore).
+- It **still permits some duplicates** around subscriber restarts (within a ~1-hour dedup window).
+- **Idempotency is still required** — EOD is not a substitute.
+- Use EOD only if the extra latency is acceptable and you need stronger guarantees for compliance reasons.
 
 ---
 
 ## Diagnostic Checklist
 
-1. **Is your handler idempotent?** (Use `msg.ID` or a business key with a uniqueness constraint.)
-2. **Does processing finish before the ack deadline?** (Check `ackDeadlineSeconds` vs. your p99 latency.)
-3. **Are you calling `msg.Ack()` inside the callback, not in a background goroutine?**
-4. **Is the subscription on at-least-once or exactly-once?** (Check `enableExactlyOnceDelivery`.)
+1. **Is your handler idempotent?**
+   - Every side effect keyed on `msg.ID` or a business key?
+   - Unique constraint in the database?
 
-If all four are correct, duplicates are expected and harmless — your handler will silently ignore them.
+2. **Does your handler finish before the ack deadline?**
+   - Check logs for processing time.
+   - If >10s, either raise `MaxExtension` or refactor to async with a worker pool.
+
+3. **Are you calling `msg.Ack()` inside the callback, not in a spawned goroutine?**
+   - The callback must not return until all work is done.
+
+4. **Is the subscription on at-least-once or exactly-once?**
+   - At-least-once is the default and is fine — just be idempotent.
+   - Exactly-once is optional and adds latency; only enable if you've already fixed idempotency.
 
 ---
 
-## See Also
+## Summary
 
-- [Delivery Guarantees](references/delivery-guarantees.md) — detailed idempotency patterns and message ID stability
-- [Subscribing](references/subscribing.md) — ack deadline tuning, lease extension internals, `MaxExtension`
-- [Operations](references/operations.md) — monitoring `oldest_unacked_message_age` to detect lease expiry
+| Root Cause | Fix |
+|---|---|
+| Handler not idempotent | Add `msg.ID` dedup key + unique constraint |
+| Processing time > ack deadline | Raise `MaxExtension` or use worker pool |
+| Async work in spawned goroutine | Move work into callback or use bounded worker pool |
+| Want stronger guarantees | Enable exactly-once delivery **after** fixing idempotency |
+
+**The golden rule:** Make your handler idempotent first. Everything else is tuning.
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers cover all four rubric criteria well, but Answer A is more thorough and precise on every dimension. It explicitly names 'at-least-once' as the default delivery semantic upfront, provides deeper explanation of the ack deadline / lease extension mechanism (including the nuance that extension stops when the callback returns), gives more concrete idempotency patterns with specific database primitives, and includes a diagnostic checklist with monitoring metrics. Answer B is solid and practical but slightly shallower on the lease-extension mechanics and idempotency implementation details.
+**Met:** ✓  ·  **Judge:** **skill** — Answer A more thoroughly addresses all four rubric criteria, particularly the slow-handler/lease-extension cause which it explains in depth with the goroutine handoff anti-pattern as a distinct cause. Answer A also provides a clearer prioritization (idempotency first, then deadline tuning, then exactly-once) and explicitly warns that exactly-once delivery is not a substitute for idempotency. Answer B covers the criteria but less deeply, and introduces some tangential points (panics, context cancellation) that dilute focus from the core issues.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
-| identifies at-least-once as the default | skill |
+| identifies at-least-once as the default | tie |
 | recommends idempotency | skill |
 | mentions msg.ID for dedup key | tie |
 | considers ack deadline / slow handler / lease extension | skill |
@@ -797,7 +819,7 @@ If all four are correct, duplicates are expected and harmless — your handler w
 | identifies at-least-once as the default | ✓ | `at-least-once` |
 | recommends idempotency | ✓ | `idempoten` |
 | mentions msg.ID for dedup key | ✓ | `msg.ID` |
-| considers ack deadline / slow handler / lease extension | ✓ | `ack deadline` |
+| considers ack deadline / slow handler / lease extension | ✓ | `Ack Deadline` |
 
 **Skill rubric**
 
@@ -810,176 +832,201 @@ If all four are correct, duplicates are expected and harmless — your handler w
 
 <details><summary>opus: baseline answer</summary>
 
-# Why Pub/Sub Redelivers Acked Messages
+# Why You're Seeing Duplicate Pub/Sub Messages
 
-This is one of the most common Pub/Sub gotchas. Even with `msg.Ack()` called correctly, you can get redeliveries. Here are the usual culprits:
+Pub/Sub guarantees **at-least-once** delivery, not exactly-once. Calling `msg.Ack()` at the end of your handler doesn't guarantee the message won't be redelivered. Here are the most common causes:
 
-## 1. Your handler exceeds the ack deadline
+## 1. Ack Deadline Exceeded (Most Common)
 
-Pub/Sub guarantees **at-least-once** delivery. If your handler takes longer than the message's ack deadline (default 10s, max 600s), Pub/Sub assumes the message was lost and redelivers it — even if you eventually call `Ack()`.
+If your handler takes longer than the subscription's **ack deadline** (default 10s), Pub/Sub assumes the message was lost and redelivers it — even if you eventually call `Ack()`.
 
-**Fix:** Let the client library extend the deadline automatically by configuring `MaxExtension`:
+**Fix:** The Go client library extends the deadline automatically via a lease manager, but only up to `MaxExtension` (default 60 min). Tune it:
 
 ```go
 sub := client.Subscription("my-sub")
-sub.ReceiveSettings.MaxExtension = 10 * time.Minute
-sub.ReceiveSettings.MaxExtensionPeriod = 1 * time.Minute
+sub.ReceiveSettings.MaxExtension = 30 * time.Minute
+sub.ReceiveSettings.MaxExtensionPeriod = 10 * time.Minute
+sub.ReceiveSettings.MinExtensionPeriod = 60 * time.Second
+```
 
-sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-    if err := doWork(ctx, msg); err != nil {
-        msg.Nack()
-        return
-    }
-    msg.Ack()
+If your handler genuinely takes longer than `MaxExtension`, raise it or shorten the work.
+
+## 2. Handler Panics or Blocks Before `Ack()`
+
+If your code panics, errors out early, or blocks on a channel/lock, `Ack()` never runs.
+
+```go
+sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+    defer func() {
+        if r := recover(); r != nil {
+            log.Printf("panic: %v", r)
+            m.Nack() // or Ack() if you want to drop it
+        }
+    }()
+    // ... work ...
+    m.Ack()
 })
 ```
 
-The client library sends `ModifyAckDeadline` requests in the background up to `MaxExtension`. If your work might take longer than that, raise it.
+## 3. Ack Sent After Context Cancellation
 
-## 2. The Ack RPC failed (or was racy on shutdown)
+Acks are sent over a streaming connection. If `ctx` is canceled (subscriber shutdown) before the ack actually flushes to the server, the message will be redelivered. Make sure you drain in-flight messages before exiting.
 
-`msg.Ack()` is best-effort — it queues the ack to be flushed. If the process dies, the network drops, or the streaming pull connection breaks before the ack is delivered to the server, the message will be redelivered.
+## 4. Pub/Sub Inherently Allows Duplicates
 
-**Fixes:**
-- Make sure `Receive` returns cleanly (don't `os.Exit` on shutdown — cancel the context and let it drain).
-- Handle SIGTERM/SIGINT and cancel the receive context.
+Even with perfect handler code, duplicates **will** occasionally happen due to:
+- Network issues between the client and Pub/Sub
+- Acks being lost in transit
+- Republishes at the publisher side
+
+This is by design.
+
+## How to Actually Prevent Duplicate **Processing**
+
+You have two options:
+
+### Option A: Make your handler idempotent
+Use a unique ID (either `msg.ID` or a business key in attributes) and deduplicate via:
+- A database UNIQUE constraint
+- Redis `SETNX` with TTL
+- An idempotency table you check before processing
 
 ```go
-ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-defer cancel()
-if err := sub.Receive(ctx, handler); err != nil {
-    log.Fatal(err)
-}
+ok, err := redis.SetNX(ctx, "msg:"+m.ID, 1, 24*time.Hour).Result()
+if err != nil { m.Nack(); return }
+if !ok { m.Ack(); return } // already processed
+// ... do work ...
+m.Ack()
 ```
 
-## 3. You're processing in a goroutine and acking immediately
-
-If your handler spawns a goroutine and returns, the library considers the slot free but the ack/nack call from the goroutine may race with the deadline. Stick to synchronous work inside the callback, or carefully manage your own concurrency via `ReceiveSettings.NumGoroutines` and `MaxOutstandingMessages`.
-
-## 4. Message redelivery is *expected* — design idempotently
-
-Pub/Sub explicitly does **not** guarantee exactly-once unless you enable it. Even then, exactly-once is per-subscriber and only across a window. You should always:
-
-- Use the message's `ID` (or a business key inside the payload) as a dedup key.
-- Store processed IDs in something fast (Redis, Spanner, your DB with a unique constraint).
-- Skip work if you've already seen the ID.
-
-## 5. Enable exactly-once delivery (if your use case allows)
+### Option B: Enable Exactly-Once Delivery
+On the subscription, enable exactly-once. It dramatically reduces (but doesn't entirely eliminate, across long timeframes) redelivery:
 
 ```bash
 gcloud pubsub subscriptions update my-sub --enable-exactly-once-delivery
 ```
 
-With this enabled, `msg.AckWithResult()` returns a status you can wait on:
+In Go, check the ack response so you know it was committed:
 
 ```go
-r := msg.AckWithResult()
-status, err := r.Get(ctx)
-if err != nil || status != pubsub.AcknowledgeStatusSuccess {
-    // ack didn't stick — handle accordingly
-}
+sub.ReceiveSettings.EnableMessageOrdering = false // optional
+sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+    if err := doWork(m); err != nil {
+        m.Nack()
+        return
+    }
+    ar := m.AckWithResult()
+    if _, err := ar.Get(ctx); err != nil {
+        // ack was rejected — message may redeliver, don't commit side effects
+        log.Printf("ack failed: %v", err)
+    }
+})
 ```
 
-This eliminates duplicates from acks that silently failed, but you still need idempotency for cases like #1.
+With exactly-once enabled, `AckWithResult()` lets you confirm the ack was actually accepted before committing irreversible side effects.
 
-## Quick checklist
+## TL;DR
 
-- [ ] Is your handler ever slower than `MaxExtension`? Raise it.
-- [ ] Are you shutting down cleanly so pending acks flush?
-- [ ] Is your processing idempotent on `msg.ID`?
-- [ ] Do you need exactly-once delivery enabled on the subscription?
-- [ ] Check the subscription's `oldest_unacked_message_age` and `ack_message_count` metrics in Cloud Monitoring to confirm where time is being spent.
+`msg.Ack()` doesn't prevent redelivery — it just *tries to*. The realistic answer:
 
-Most "duplicate processing" tickets I've seen turn out to be #1 (ack deadline expiring during slow work) — start there.
+1. Check your handler isn't exceeding the ack deadline (raise `MaxExtension`).
+2. Make sure `Ack()` actually runs (handle panics, errors).
+3. **Design your consumer to be idempotent** — this is the only robust solution.
+4. Optionally enable exactly-once delivery and use `AckWithResult()`.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-# Why You're Seeing Duplicates
+# Why you're seeing duplicates
 
-**Pub/Sub's default delivery semantic is at-least-once.** Calling `msg.Ack()` reliably is necessary but not sufficient — duplicates are *expected* under several conditions, and the only durable defense is making your handler idempotent. Let me walk through the likely causes in priority order.
+Pub/Sub is **at-least-once by default** — duplicates are part of the contract, not a bug. Calling `msg.Ack()` doesn't prevent them. There are three common causes; you likely have one or more.
 
-## 1. Your handler is too slow (most common cause)
+## Cause 1: Your handler is slower than the ack deadline
 
-Each delivered message has an **ack deadline** (default 10s). While your callback is running, the Go SDK auto-extends the lease in the background. But:
+This is the most common cause. When `Subscription.Receive` invokes your callback, the Go SDK leases the message and **automatically extends the lease in the background** while your callback is running — but only up to `ReceiveSettings.MaxExtension` (default ~60 minutes, but the per-extension call still has to win the race against the ack deadline).
 
-- If processing approaches `MaxExtension` (default 60 minutes, but bounded by what you've set in `ReceiveSettings`), extension stops and the message is redelivered — *even though you eventually call `Ack()`*.
-- If lease extension RPCs are delayed (network blip, throttling), the broker may consider the lease expired and redeliver the message to another subscriber while your original handler is still working. Both will then call `Ack()` on what is logically the same message.
+If your handler runs longer than the deadline (default 10s) and the lease-extension goroutine falls behind for any reason — slow network to Pub/Sub, GC pause, the SDK couldn't `modifyAckDeadline` in time — Pub/Sub considers the message un-acked and **redelivers it to another subscriber (or back to you)**, even though you eventually call `Ack()`. Your `Ack()` succeeds, but the duplicate is already in flight.
 
-**Diagnose:** Check your handler's p99 latency against the subscription's ack deadline:
-```bash
-gcloud pubsub subscriptions describe SUB_NAME --format='value(ackDeadlineSeconds)'
-```
-And in Cloud Monitoring, look at `subscription/expired_ack_deadlines_count`. If it's nonzero, this is your problem.
-
-**Fix:**
-- Keep handlers fast and synchronous — do *not* spawn a goroutine inside the callback and return; lease extension stops the moment the callback returns.
-- For genuinely long work, raise `ReceiveSettings.MaxExtension` (and increase the subscription's ack deadline up to 600s) — or hand off to an external queue and ack immediately.
-
-## 2. Subscriber crashes or restarts
-
-Any message in flight when the process dies will be redelivered after the ack deadline expires. Deploys, OOM kills, and preemption all trigger this. There's no fix — only idempotency saves you.
-
-## 3. You're on at-least-once delivery (the default)
-
-Even with a perfect, instant handler, Pub/Sub explicitly does not promise exactly-once on standard subscriptions. Network retries on the ack RPC, broker failovers, and rebalancing across `StreamingPull` connections can all cause the same `msg.ID` to be delivered more than once.
-
-**Check:**
+**Diagnose:**
 ```bash
 gcloud pubsub subscriptions describe SUB_NAME \
-  --format='value(enableExactlyOnceDelivery)'
+  --format='value(ackDeadlineSeconds)'
 ```
-If this is empty/false, duplicates are by design.
+Then compare to your handler's p99 latency.
 
-# How to Prevent It
-
-## Required: make the handler idempotent
-
-This is non-negotiable regardless of what else you do. Every side effect — DB write, downstream API call, file write — must be keyed on a stable identifier so a replay is a no-op.
-
-`msg.ID` is server-assigned and **stable across redeliveries of the same message**, so it's a good dedup key. A business key (order ID, event ID) is even better when available.
-
-Patterns that work:
-- **Database upserts** keyed on `msg.ID` or business key with a `UNIQUE` constraint — second insert fails harmlessly.
-- **Processed-IDs table** with a TTL: `INSERT ... ON CONFLICT DO NOTHING`; if the insert affected 0 rows, skip the work and ack.
-- **Conditional writes** (e.g., Spanner `INSERT OR IGNORE`, DynamoDB `attribute_not_exists`, Firestore transactions checking a marker doc).
-- **Idempotent downstream APIs** — pass `msg.ID` as an `Idempotency-Key` header.
-
-Avoid: in-memory dedup sets (lost on restart, useless across replicas) and "I'll just check before writing" race-prone read-modify-write patterns.
-
-## Optional: tighten the redelivery rate
-
-Once handlers are idempotent, you can also reduce *how often* duplicates happen:
-
-1. **Raise the ack deadline** so slow handlers don't trip the lease:
-   ```bash
-   gcloud pubsub subscriptions update SUB_NAME --ack-deadline=60
-   ```
-2. **Tune `ReceiveSettings`** in the Go client — lower `MaxOutstandingMessages` so each in-flight message gets more attention, and set `MaxExtension` generously:
-   ```go
-   sub.ReceiveSettings.MaxOutstandingMessages = 100
-   sub.ReceiveSettings.MaxExtension = 10 * time.Minute
-   ```
-3. **Enable exactly-once delivery** on the subscription:
-   ```bash
-   gcloud pubsub subscriptions update SUB_NAME --enable-exactly-once-delivery
-   ```
-   This *reduces* duplicates (and adds latency to every ack) but does not eliminate them — duplicates are still possible across subscriber restarts and within the dedup window. **Idempotency is still required.**
-
-# Quick Diagnostic Checklist
-
-```
-[ ] Is enableExactlyOnceDelivery set? (gcloud describe)
-[ ] Is the handler doing work synchronously inside Receive's callback,
-    or spawning goroutines and returning early?
-[ ] What is p99 handler latency vs ackDeadlineSeconds?
-[ ] Is subscription/expired_ack_deadlines_count > 0 in Monitoring?
-[ ] Are side effects keyed on msg.ID or a business key?
-[ ] Is there a UNIQUE constraint or conditional write enforcing dedup?
+**Fix:** raise the ack deadline at the subscription level (up to 600s), or for very long jobs, raise `ReceiveSettings.MaxExtension` and let the SDK keep the lease alive:
+```go
+sub.ReceiveSettings.MaxExtension = 30 * time.Minute
 ```
 
-If you can share your `Subscription.Receive` callback and the subscription's ack deadline, I can point at the specific failure mode.
+## Cause 2: You're handing work off to a goroutine inside the callback
+
+This is the silent killer. If your callback does:
+
+```go
+sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+    go process(m)   // ❌ callback returns immediately
+    m.Ack()         // ❌ or worse, ack before processing finishes
+})
+```
+
+…the SDK sees the callback return and **stops extending the lease**. The message redelivers as soon as the deadline expires. Even if you ack inside the goroutine, the redelivery is already on the wire.
+
+**Fix:** do the work synchronously in the callback. If you need a worker pool, have the callback `select` on a channel and block until the worker reports completion:
+
+```go
+sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+    done := make(chan error, 1)
+    workQueue <- job{msg: m, done: done}
+    if err := <-done; err != nil {
+        m.Nack()
+        return
+    }
+    m.Ack()
+})
+```
+
+## Cause 3: Genuine at-least-once duplicates you can't engineer away
+
+Even with a 10ms handler and a healthy lease, you'll occasionally get duplicates from:
+- Subscriber crashes between processing and ack landing on the server
+- Network partitions where your `Ack()` RPC didn't reach Pub/Sub
+- Rebalancing across StreamingPull streams
+
+**There is no configuration that eliminates these.** Even enabling exactly-once delivery (`EnableExactlyOnceDelivery=true` on the subscription) only *reduces* duplicates and adds latency to every ack — duplicates can still occur around subscriber restarts.
+
+**The only durable fix is an idempotent handler.** Key your side effects on `msg.ID` (server-assigned, stable across redeliveries of the same message) or a business key with a uniqueness constraint:
+
+```go
+sub.Receive(ctx, func(ctx context.Context, m *pubsub.Message) {
+    // Insert into a dedup table with msg.ID as PK; ON CONFLICT DO NOTHING.
+    // Or check before doing the side effect.
+    inserted, err := db.ExecContext(ctx,
+        `INSERT INTO processed_messages (id) VALUES ($1) ON CONFLICT DO NOTHING`,
+        m.ID)
+    if err != nil { m.Nack(); return }
+    rows, _ := inserted.RowsAffected()
+    if rows == 0 {
+        m.Ack() // already processed; ack and move on
+        return
+    }
+    if err := doTheRealWork(ctx, m); err != nil {
+        m.Nack()
+        return
+    }
+    m.Ack()
+})
+```
+
+# Order of operations
+
+1. **Make the handler idempotent first.** This protects you from all three causes and from future ones you haven't thought of.
+2. **Then check handler latency vs. ack deadline.** If p99 is anywhere near the deadline, raise the deadline or `MaxExtension`. This reduces the *rate* of duplicates so you stop wasting work re-processing.
+3. **Audit for goroutine handoffs in the callback.** Fix any you find.
+4. **Only then consider exactly-once delivery** if your duplicate rate is still operationally painful. It's not a substitute for steps 1–3.
+
+If you can share your `Receive` callback code and the subscription's `ackDeadlineSeconds`, I can point at the specific issue.
 
 </details>
 
@@ -1000,7 +1047,7 @@ and is clear that ordering is per-key, not global.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B is more technically precise and accurate. It correctly clarifies that in the Go client library, ordering is baked into the subscription config (not a runtime subscriber client flag), while Answer A incorrectly implies there's a subscriber client flag `enable_message_ordering=True` equivalent on all platforms. Answer B also provides a more nuanced explanation of ResumePublish (explaining *why* the key gets paused and what happens if you skip it), and adds valuable details about subscriber-side goroutine handling that Answer A omits. Both answers cover the core rubric criteria, but B is more accurate and actionable.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers cover the core requirements, but Answer B is more technically precise and accurate. Answer B correctly clarifies that EnableMessageOrdering on the subscription is set at creation time (not on the subscriber client), while Answer A conflates the subscription resource property with a subscriber client option. Answer B also provides a clearer explanation of ResumePublish with proper error handling context, and its per-key ordering explanation is more precise about what 'ordering' actually means in the subscriber callback context.
 
 **Per-criterion verdict (judge)**
 
@@ -1015,10 +1062,10 @@ and is clear that ordering is per-key, not global.
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| requires EnableMessageOrdering on both sides | ✓ | `subscriptionName, receiver)     .setEnableExactlyOnceDelivery(false)     .setEnableMessageOrdering` |
+| requires EnableMessageOrdering on both sides | ✓ | `subscriptionName, receiver)     .setEnableMessageOrdering` |
 | mentions EnableMessageOrdering by name | ✓ | `EnableMessageOrdering` |
-| clarifies per-key, not global | ✓ | `Same Ordering Key` |
-| mentions ResumePublish | ✓ | `resume_publish` |
+| clarifies per-key, not global | ✓ | `Same OrderingKey` |
+| mentions ResumePublish | ✓ | `resume after error publish` |
 
 **Skill rubric**
 
@@ -1026,20 +1073,20 @@ and is clear that ordering is per-key, not global.
 | --- | --- | --- |
 | requires EnableMessageOrdering on both sides | ✓ | `both** the publisher` |
 | mentions EnableMessageOrdering by name | ✓ | `EnableMessageOrdering` |
-| clarifies per-key, not global | ✓ | `per key` |
+| clarifies per-key, not global | ✓ | `same key` |
 | mentions ResumePublish | ✓ | `ResumePublish` |
 
 <details><summary>sonnet: baseline answer</summary>
 
 ## Pub/Sub Message Ordering Troubleshooting
 
-Setting `OrderingKey` on the publisher side is only **half the requirement**. Here are the most common reasons messages are still received out of order:
+Setting `OrderingKey` on the publisher side is only **half the requirement**. Here are the most common reasons messages are still arriving out of order:
 
 ---
 
 ## 1. ✅ Enable Message Ordering on the Subscriber Client
 
-This is the **most common mistake**. You must explicitly enable ordering on the subscriber client, not just set the key when publishing.
+This is the **most common mistake**. You must explicitly enable ordering on the subscriber client, not just the publisher.
 
 ```python
 # Python example
@@ -1060,32 +1107,41 @@ subscriber.subscribe(
 ```java
 // Java example
 Subscriber subscriber = Subscriber.newBuilder(subscriptionName, receiver)
-    .setEnableExactlyOnceDelivery(false)
     .setEnableMessageOrdering(true)  // ← THIS IS REQUIRED
     .build();
 ```
 
 ---
 
-## 2. ✅ Enable Message Ordering on the Subscription (GCP Side)
+## 2. ✅ Enable Message Ordering on the Subscription (GCP Console / Terraform)
 
-The **subscription itself** must have ordering enabled at creation time.
+The **subscription itself** must have message ordering enabled at creation time.
 
 ```bash
-# Create subscription with ordering enabled
+# gcloud
 gcloud pubsub subscriptions create my-sub \
   --topic=my-topic \
   --enable-message-ordering   # ← Required flag
 ```
 
-> ⚠️ You **cannot** enable ordering on an existing subscription — you must delete and recreate it.
+```hcl
+# Terraform
+resource "google_pubsub_subscription" "example" {
+  name  = "my-sub"
+  topic = google_pubsub_topic.example.name
+
+  enable_message_ordering = true  # ← Required
+}
+```
+
+> ⚠️ **Note:** This cannot be changed after the subscription is created. You must delete and recreate it.
 
 ---
 
-## 3. ✅ Enable Message Ordering on the Publisher Client
+## 3. ✅ Publisher Must Also Enable Ordering
 
 ```python
-# Publisher must also have ordering enabled
+# Python publisher
 publisher = pubsub_v1.PublisherClient(
     publisher_options=pubsub_v1.types.PublisherOptions(
         enable_message_ordering=True  # ← Required on publisher too
@@ -1095,46 +1151,37 @@ publisher = pubsub_v1.PublisherClient(
 
 ---
 
-## 4. ✅ Use the Same Ordering Key for Related Messages
+## 4. ✅ Use the Same OrderingKey for Related Messages
 
 Messages are only ordered **within the same ordering key**. Different keys are independent.
 
 ```python
-# ✅ These will be ordered relative to each other
+# These will be ordered relative to each other
 publisher.publish(topic_path, b"msg1", ordering_key="user-123")
 publisher.publish(topic_path, b"msg2", ordering_key="user-123")
 
-# ❌ These have NO ordering guarantee between them
-publisher.publish(topic_path, b"msg1", ordering_key="user-123")
-publisher.publish(topic_path, b"msg2", ordering_key="user-456")
+# This has NO ordering guarantee relative to the above
+publisher.publish(topic_path, b"msg3", ordering_key="user-456")
 ```
 
 ---
 
 ## 5. ✅ Handle Publisher Errors Correctly (Resume After Error)
 
-If a publish fails for an ordering key, you **must explicitly resume** that key or all subsequent messages for it will be rejected.
+If a publish fails for an ordering key, you **must explicitly resume** that key or all subsequent messages for that key will be rejected.
 
 ```python
-try:
-    future = publisher.publish(topic_path, data, ordering_key="user-123")
-    future.result()
-except Exception as e:
-    # MUST resume the ordering key after failure
-    publisher.resume_publish(topic_path, "user-123")
+# Python - resume after error
+publisher.resume_publish(topic_path, ordering_key="user-123")
 ```
+
+> Without this, the client intentionally blocks further messages on that key to prevent gaps in ordering.
 
 ---
 
-## 6. ✅ Don't Use Multiple Publisher Instances for the Same Key
+## 6. ✅ Don't Use Multiple Subscriber Instances Pulling the Same Subscription
 
-Using multiple publisher clients for the same ordering key **breaks ordering guarantees**.
-
-```
-❌ Publisher Instance A → sends msg1 with key "user-123"
-❌ Publisher Instance B → sends msg2 with key "user-123"
-# Order is NOT guaranteed
-```
+Multiple concurrent subscribers on the same subscription will break ordering since messages can be dispatched to different instances.
 
 ---
 
@@ -1143,137 +1190,143 @@ Using multiple publisher clients for the same ordering key **breaks ordering gua
 | Requirement | Where |
 |---|---|
 | `enable_message_ordering=True` | Publisher client |
-| `ordering_key` set on each message | Publisher |
-| `--enable-message-ordering` flag | Subscription (GCP) |
 | `enable_message_ordering=True` | Subscriber client |
-| Same key for related messages | Your logic |
-| Resume key after publish error | Error handling |
+| `--enable-message-ordering` | Subscription resource |
+| Same `ordering_key` for related messages | Each published message |
+| Resume publish after errors | Publisher error handling |
+| Single subscriber instance | Deployment architecture |
 
 ---
 
-## Summary
-
-The most likely culprits in order of frequency:
-1. **Subscription not created with ordering enabled** (most common)
-2. **Subscriber client missing `enable_message_ordering=True`**
-3. **Publisher client missing `enable_message_ordering=True`**
-4. **Not resuming after a publish error**
+The **most likely culprit** is that the subscription resource itself was created without ordering enabled, or the subscriber client is missing `enable_message_ordering=True`.
 
 </details>
 
 <details><summary>sonnet: skill-loaded answer</summary>
 
-Ordering in Pub/Sub requires **both sides** to opt in, and there are a few other ways it can silently break. Here's a systematic checklist.
+Ordering in Pub/Sub requires **both sides** to opt in, and there are a few other ways it can silently break. Here's a systematic diagnosis.
 
-## The most common cause: only one side has ordering enabled
+## The Most Common Cause: Only One Side Has Ordering Enabled
 
 Ordering requires `EnableMessageOrdering = true` on **both** the publisher topic handle **and** the subscription. Setting it on only one side silently disables the guarantee.
 
-### Publisher side (Go)
-
+**Publisher side (Go):**
 ```go
-client, err := pubsub.NewClient(ctx, projectID)
-// ...
-
-topic := client.Topic(topicID)
-topic.EnableMessageOrdering = true  // ← required on the publisher
-
-result := topic.Publish(ctx, &pubsub.Message{
-    Data:        []byte("payload"),
-    OrderingKey: "user-123",  // ← must be non-empty and consistent per key
-})
+topic := client.Topic("my-topic")
+topic.EnableMessageOrdering = true  // ← must be set
 ```
 
-### Subscription side
-
-This is a **fixed property set at subscription creation** — you cannot enable it on an existing subscription without recreating it.
-
-```bash
-# Check whether your subscription has it enabled
-gcloud pubsub subscriptions describe YOUR_SUB \
-  --format='value(enableMessageOrdering)'
-
-# Create a new subscription with ordering enabled
-gcloud pubsub subscriptions create YOUR_SUB \
-  --topic=YOUR_TOPIC \
-  --enable-message-ordering
-```
-
-Or via Terraform / the Go admin API:
-
+**Subscription side — set at create/update time, not in the subscriber client:**
 ```go
-sub, err := client.CreateSubscription(ctx, subID, pubsub.SubscriptionConfig{
+// At subscription creation:
+sub, err := client.CreateSubscription(ctx, "my-sub", pubsub.SubscriptionConfig{
     Topic:                 topic,
-    EnableMessageOrdering: true,  // ← required on the subscription
+    EnableMessageOrdering: true,  // ← must be set here
 })
 ```
 
-There is **no runtime flag in the Go subscriber client** to enable ordering — it is baked into the subscription config. If your subscription was created without it, you must recreate it.
+Check your existing subscription:
+```bash
+gcloud pubsub subscriptions describe my-sub \
+  --format='value(enableMessageOrdering)'
+```
+
+If it prints `False`, you need to **recreate the subscription** — this property cannot be changed on an existing subscription.
 
 ---
 
-## Other things that break ordering
+## The Other Failure Modes
 
-### 1. A publish error on the ordering key — and you didn't call `ResumePublish`
+### 1. Inconsistent or missing ordering keys
 
-When any publish fails for a given ordering key, the publisher **stops accepting new messages for that key** to prevent gaps in the sequence. Subsequent publishes return an error immediately until you explicitly resume:
+Every message that needs to be ordered relative to others must carry the **same non-empty ordering key**. Messages with different keys, or no key, are unordered relative to each other — by design.
+
+```go
+// ✅ All related messages share the same key
+result := topic.Publish(ctx, &pubsub.Message{
+    Data:        payload,
+    OrderingKey: "customer-123",  // same key = ordered delivery
+})
+
+// ❌ Empty key — ordering is disabled for this message
+result := topic.Publish(ctx, &pubsub.Message{
+    Data:        payload,
+    OrderingKey: "",  // treated as unordered
+})
+```
+
+### 2. A publish error paused the key — and you didn't resume it
+
+When a publish fails for a given ordering key, the client **stops accepting new publishes for that key** to prevent gaps in the sequence. Subsequent publishes return an error immediately. You must explicitly resume:
 
 ```go
 result := topic.Publish(ctx, &pubsub.Message{
-    Data:        data,
-    OrderingKey: "user-123",
+    Data:        []byte("event"),
+    OrderingKey: "customer-123",
 })
 if _, err := result.Get(ctx); err != nil {
     // The key is now paused. Resume before publishing again.
-    topic.ResumePublish("user-123")
-    // Then retry the failed message first, then continue.
+    topic.ResumePublish("customer-123")
+    // Then retry the failed message first, before new ones.
 }
 ```
 
-If you swallow the error and keep publishing without calling `ResumePublish`, those messages go through on a different internal stream and arrive out of order.
+If you silently swallow publish errors and keep publishing, those messages go through while the failed one is dropped — producing gaps that look like out-of-order delivery.
 
-### 2. Multiple publisher instances without coordinating ordering keys
+### 3. Multiple publisher instances without coordination
 
-Ordering is guaranteed **per key, per region** — but only when all messages for a key flow through a single publisher connection at a time. If two publisher instances both publish `OrderingKey: "user-123"` concurrently, the messages can interleave.
+Ordering is guaranteed **within a single publisher client** for a given key. If two separate processes publish to the same ordering key concurrently, Pub/Sub cannot guarantee their relative order — there's no distributed sequencing across publishers.
 
-**Fix:** Route all messages for a given key through the same publisher instance, or use a single shared `Topic` handle (which is goroutine-safe and serializes per key internally).
-
-### 3. The subscriber is using multiple goroutines and processing out of order locally
-
-Even if Pub/Sub delivers messages in order, your subscriber can process them out of order if it fans out to a worker pool. With `EnableMessageOrdering = true` on the subscription, the Go client **serializes delivery per ordering key** — but only within a single `Receive` call with `NumGoroutines = 1` (the default).
-
-Check your `ReceiveSettings`:
-
-```go
-sub.ReceiveSettings.NumGoroutines = 1  // default; safe for ordered processing
-// Do NOT set this higher if you need strict per-key ordering
+```
+Publisher A: key="user-1" → msg 1, msg 3
+Publisher B: key="user-1" → msg 2, msg 4
+                                    ↑ interleaved, order undefined
 ```
 
-If you need parallelism across *different* keys while preserving order *within* each key, that's fine — the SDK handles it. But if you're manually dispatching to a goroutine pool inside the callback, you've broken the ordering guarantee yourself.
+For strict ordering, route all messages for a given key through a single publisher instance.
 
-### 4. Inconsistent ordering key values
+### 4. The subscriber is processing messages concurrently
 
-The key must be **byte-for-byte identical** across all messages in the same logical sequence. A trailing space, different casing, or a missing prefix means Pub/Sub treats them as different keys with no ordering relationship between them.
+Even with ordering enabled, if your subscriber callback spawns goroutines or hands work off asynchronously, **you** are processing out of order — Pub/Sub delivered them correctly but your code reordered them.
+
+```go
+// ❌ Breaks ordering — callback returns immediately, goroutines race
+sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+    go func() {
+        process(msg)  // concurrent, unordered execution
+        msg.Ack()
+    }()
+})
+
+// ✅ Preserves ordering — process synchronously before returning
+sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+    process(msg)  // blocks until done
+    msg.Ack()
+})
+```
+
+With `EnableMessageOrdering = true` on the subscription, the SDK delivers messages for the same key **one at a time** — the next message for that key is not dispatched until the current callback returns and acks/nacks.
 
 ---
 
-## Quick diagnostic checklist
+## Diagnostic Checklist
 
 | Check | Command / Code |
 |---|---|
-| Subscription has ordering enabled? | `gcloud pubsub subscriptions describe SUB --format='value(enableMessageOrdering)'` |
-| Publisher topic handle has ordering enabled? | `topic.EnableMessageOrdering == true` in your publisher code |
-| Ordering key is non-empty on every message? | Log `msg.OrderingKey` at publish time |
-| Publish errors handled with `ResumePublish`? | Audit your `result.Get(ctx)` error paths |
-| Subscriber not fanning out inside the callback? | Check `NumGoroutines` and whether the callback spawns goroutines |
+| Subscription has ordering enabled | `gcloud pubsub subscriptions describe my-sub --format='value(enableMessageOrdering)'` |
+| Publisher topic handle has ordering enabled | Look for `topic.EnableMessageOrdering = true` before first `Publish` call |
+| All messages carry the same non-empty key | Log `msg.OrderingKey` on receipt; confirm no empty strings |
+| Publish errors are handled and `ResumePublish` called | Audit error handling on every `result.Get(ctx)` |
+| Subscriber callback is synchronous | Confirm no `go func()` inside the callback |
+| Only one publisher per ordering key | Check your deployment topology |
 
-Fix the subscription first (recreate it with `--enable-message-ordering`), then audit the publisher for `ResumePublish` gaps — those two cover the vast majority of ordering failures.
+Fix the subscription first (recreate if needed), then work through the rest of the list — the subscription flag is the most common miss and the only one that requires infrastructure changes.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer A correctly identifies that EnableMessageOrdering must be set on both the publisher AND the subscription, names the setting explicitly, clarifies that ordering is per-key not global, and mentions ResumePublish. Answer B misidentifies the root cause as FlowControl settings, never mentions EnableMessageOrdering on the publisher side, and never mentions ResumePublish at all — making it fundamentally incorrect on the core issue.
+**Met:** ✓  ·  **Judge:** **skill** — Answer A correctly identifies that EnableMessageOrdering must be set on both the publisher and the subscription, names the setting explicitly, clarifies per-key ordering, and mentions ResumePublish for error recovery. Answer B incorrectly focuses on flow control as the primary fix and never mentions EnableMessageOrdering by name or ResumePublish, making it fundamentally wrong about the root cause.
 
 **Per-criterion verdict (judge)**
 
@@ -1288,9 +1341,9 @@ Fix the subscription first (recreate it with `--enable-message-ordering`), then 
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| requires EnableMessageOrdering on both sides | ✓ | `enableMessageOrdering: true ```  Enable it if needed:  ```bash gcloud pubsub subscriptions update my-subscr` |
-| mentions EnableMessageOrdering by name | ✓ | `enableMessageOrdering` |
-| clarifies per-key, not global | ✓ | `same ordering key` |
+| requires EnableMessageOrdering on both sides | ✗ | |
+| mentions EnableMessageOrdering by name | ✗ | |
+| clarifies per-key, not global | ✓ | `same `OrderingKey` |
 | mentions ResumePublish | ✗ | |
 
 **Skill rubric**
@@ -1299,7 +1352,7 @@ Fix the subscription first (recreate it with `--enable-message-ordering`), then 
 | --- | --- | --- |
 | requires EnableMessageOrdering on both sides | ✓ | `BOTH the publisher AND the subscri` |
 | mentions EnableMessageOrdering by name | ✓ | `EnableMessageOrdering` |
-| clarifies per-key, not global | ✓ | `Same key` |
+| clarifies per-key, not global | ✓ | `per-key` |
 | mentions ResumePublish | ✓ | `ResumePublish` |
 
 <details><summary>haiku: baseline answer</summary>
@@ -1336,110 +1389,80 @@ Subscriber subscriber = Subscriber.newBuilder(subscriptionName, receiver)
 subscriber.startAsync();
 ```
 
-## 2. **Flow Control Settings Too High**
+## 2. **Flow Control Not Set Properly**
 
-Ordering requires limiting concurrent message processing:
+Ordering requires **sequential processing**. Ensure:
+- `max_messages` is set (typically 100 or less)
+- `max_bytes` is configured appropriately
+- Messages are processed sequentially, not in parallel
 
 ```python
-# ❌ Wrong - too many concurrent messages
-flow_control = pubsub_v1.types.FlowControl(max_messages=1000)
+# ❌ Wrong - no flow control
+subscriber.subscribe(subscription_path, callback)
 
-# ✅ Correct - reasonable limit
-flow_control = pubsub_v1.types.FlowControl(max_messages=100)
+# ✅ Correct
+flow_control = pubsub_v1.types.FlowControl(
+    max_messages=100,
+    max_bytes=1000*1024*1024
+)
+subscriber.subscribe(subscription_path, callback, flow_control=flow_control)
 ```
 
-## 3. **Messages Have Different OrderingKeys**
+## 3. **Different OrderingKeys Used**
 
-Messages are only ordered **within the same ordering key**:
+Messages with **different OrderingKeys** are processed independently:
 
 ```python
-# ❌ These won't be ordered relative to each other
-publisher.publish(topic_path, b"msg1", ordering_key="user-1")
-publisher.publish(topic_path, b"msg2", ordering_key="user-2")
+# These will be ordered relative to each other
+publisher.publish(topic_path, data, ordering_key="user-123")
+publisher.publish(topic_path, data, ordering_key="user-123")
 
-# ✅ These will be ordered
-publisher.publish(topic_path, b"msg1", ordering_key="user-1")
-publisher.publish(topic_path, b"msg2", ordering_key="user-1")
+# These won't be ordered with the above (different key)
+publisher.publish(topic_path, data, ordering_key="user-456")
 ```
 
-## 4. **Callback Processing Takes Too Long**
+## 4. **Subscriber Crashes/Restarts**
 
-If your message handler is slow, it can block ordering:
+If your subscriber crashes while processing a message:
+- That message is redelivered
+- Ordering resumes from that point
+- **Solution**: Implement proper error handling and idempotent processing
 
 ```python
-# ❌ Slow callback blocks ordering
 def callback(message):
-    time.sleep(5)  # Long operation
-    message.ack()
-
-# ✅ Use async processing
-def callback(message):
-    executor.submit(process_message, message)
-    message.ack()
+    try:
+        process_message(message)
+        message.ack()
+    except Exception as e:
+        # Don't ack - message will be redelivered
+        logger.error(f"Failed to process: {e}")
 ```
 
-## 5. **Subscription Doesn't Have Ordering Enabled**
+## 5. **Verify OrderingKey is Actually Set**
 
-Check your subscription settings:
-
-```bash
-gcloud pubsub subscriptions describe my-subscription
-# Look for: enableMessageOrdering: true
-```
-
-Enable it if needed:
-
-```bash
-gcloud pubsub subscriptions update my-subscription --enable-message-ordering
-```
-
-## Complete Working Example
+Double-check that `OrderingKey` is being published:
 
 ```python
-from google.cloud import pubsub_v1
-import time
+# ✅ Correct
+future = publisher.publish(
+    topic_path,
+    data=b"message",
+    ordering_key="my-key"  # Must be non-empty string
+)
 
-project_id = "my-project"
-topic_id = "my-topic"
-subscription_id = "my-subscription"
-
-# Publisher
-publisher = pubsub_v1.PublisherClient()
-topic_path = publisher.topic_path(project_id, topic_id)
-
-for i in range(5):
-    publisher.publish(
-        topic_path,
-        f"Message {i}".encode(),
-        ordering_key="user-123"  # Same key = ordered
-    )
-
-# Subscriber with ordering enabled
-subscriber = pubsub_v1.SubscriberClient()
-subscription_path = subscriber.subscription_path(project_id, subscription_id)
-
-def callback(message):
-    print(f"Received: {message.data.decode()}")
-    message.ack()
-
-flow_control = pubsub_v1.types.FlowControl(max_messages=100)
-future = subscriber.subscribe(subscription_path, callback, flow_control=flow_control)
-
-try:
-    future.result()
-except KeyboardInterrupt:
-    future.cancel()
+# ❌ Wrong - empty ordering key
+future = publisher.publish(topic_path, data=b"message", ordering_key="")
 ```
 
-## Checklist
+## Quick Checklist
 
-- [ ] Set `ordering_key` when publishing
-- [ ] Enable `enableMessageOrdering` on subscription
-- [ ] Set `FlowControl` with reasonable `max_messages` (50-100)
-- [ ] All messages use the **same** `ordering_key`
-- [ ] Callback completes quickly (or use async processing)
+- [ ] `OrderingKey` is set on **all** published messages
+- [ ] Subscriber has `FlowControl` configured with `max_messages`
+- [ ] Using same `OrderingKey` for messages that should be ordered
+- [ ] Subscriber processes messages sequentially (not parallel)
+- [ ] No subscriber crashes without proper error handling
 
-The most common mistake is forgetting the `FlowControl` setting on the subscriber!
+What language/framework are you using? I can provide more specific code examples.
 
 </details>
 
@@ -1447,7 +1470,7 @@ The most common mistake is forgetting the `FlowControl` setting on the subscribe
 
 # Ordering Key Not Working: Diagnosis
 
-You've hit the most common ordering-key trap: **`EnableMessageOrdering` must be set to `true` on BOTH the publisher AND the subscription.** Setting it on only one side silently disables ordering.
+You've hit the most common ordering-key trap: **ordering is only enforced if `EnableMessageOrdering = true` on BOTH the publisher AND the subscription.** Setting it on only one side silently disables ordering.
 
 ## Checklist
 
@@ -1457,99 +1480,116 @@ Verify your `Topic` has ordering enabled:
 ```go
 topic := client.Topic("my-topic")
 topic.PublishSettings.EnableMessageOrdering = true
-```
 
-Then publish with an ordering key:
-
-```go
+// Then publish with an ordering key
 result := topic.Publish(ctx, &pubsub.Message{
-    Data:      []byte("my-data"),
-    OrderingKey: "user-123",  // Same key = same order
+    Data:      []byte("..."),
+    OrderingKey: "user-123",  // ← Must be set
 })
 ```
 
-### 2. Subscription Side (The Usual Culprit)
-Check that the subscription was created or updated with `EnableMessageOrdering = true`:
+**Check:** Run `gcloud pubsub topics describe my-topic --format='value(messageStoragePolicy)'` — this won't show ordering status (it's a publisher-side setting), but confirm the topic exists and is in the right region.
+
+### 2. Subscription Side (The Likely Culprit)
+Ordering is a **subscription-level config**, not a runtime flag in the Go subscriber. Check if it's enabled:
 
 ```bash
 gcloud pubsub subscriptions describe my-subscription \
   --format='value(enableMessageOrdering)'
 ```
 
-If it returns `False` or nothing, that's your problem. **This property is fixed at subscription creation time** — you cannot toggle it at runtime in the Go client. You must recreate the subscription:
+If it returns `False` or is absent, **that's your problem.** You must enable it at subscription creation or update:
 
 ```bash
-gcloud pubsub subscriptions delete my-subscription
+# Create with ordering enabled
 gcloud pubsub subscriptions create my-subscription \
   --topic=my-topic \
   --enable-message-ordering
+
+# Or update an existing subscription
+gcloud pubsub subscriptions update my-subscription \
+  --enable-message-ordering
 ```
 
-Or in Go (at creation only):
+**In Go code**, you cannot toggle this at runtime on an existing subscription. If you're creating a new one:
 
 ```go
 sub, err := client.CreateSubscription(ctx, "my-subscription", pubsub.SubscriptionConfig{
-    Topic:                topic,
-    EnableMessageOrdering: true,  // ← Must be set here
+    Topic:                   topic,
+    EnableMessageOrdering:   true,  // ← Set at creation
 })
 ```
 
-### 3. Verify Both Are True
-Run:
+### 3. Verify the Ordering Key is Actually Set
+In your publisher, confirm every message has a non-empty `OrderingKey`:
+
+```go
+result := topic.Publish(ctx, &pubsub.Message{
+    Data:       []byte("event data"),
+    OrderingKey: "user-123",  // ← Must not be ""
+})
+```
+
+An empty ordering key (`""`) disables ordering for that message.
+
+### 4. Check for Publish Errors
+If a publish fails (e.g., quota exceeded, schema validation), **all subsequent publishes for that ordering key are blocked** until you call `Topic.ResumePublish(orderingKey)`:
+
+```go
+result := topic.Publish(ctx, &pubsub.Message{
+    Data:       []byte("..."),
+    OrderingKey: "user-123",
+})
+
+err := result.Get(ctx)
+if err != nil {
+    log.Printf("Publish failed: %v", err)
+    // Unblock this ordering key
+    topic.ResumePublish("user-123")
+}
+```
+
+If you don't resume, the key stays blocked and messages queue indefinitely.
+
+## What "In Order" Actually Means
+
+Pub/Sub guarantees **per-key ordering only**, not global ordering:
+- Messages with `OrderingKey: "user-123"` arrive in publish order.
+- Messages with `OrderingKey: "user-456"` arrive in publish order.
+- But messages from different keys can interleave.
+
+If you're seeing messages from the *same* key out of order, the subscription's `EnableMessageOrdering` is definitely `false`.
+
+## Quick Fix
 
 ```bash
-gcloud pubsub topics describe my-topic \
-  --format='value(messageStoragePolicy.allowedPersistenceRegions)'
-# (This doesn't show ordering, but confirms the topic exists)
-
+# 1. Check current state
 gcloud pubsub subscriptions describe my-subscription \
   --format='value(enableMessageOrdering)'
-# Should print: True
+
+# 2. If false, enable it
+gcloud pubsub subscriptions update my-subscription \
+  --enable-message-ordering
+
+# 3. Verify
+gcloud pubsub subscriptions describe my-subscription \
+  --format='value(enableMessageOrdering)'
 ```
 
-## What Happens If Only One Side Is Set
-
-- **Publisher has it, subscription doesn't:** Messages are published with an ordering key, but the subscription ignores it and delivers out of order.
-- **Subscription has it, publisher doesn't:** The subscription waits for ordered messages that never arrive (or arrive unordered), causing unnecessary blocking.
-
-## After Fixing: Ordering Guarantees
-
-Once both are enabled:
-
-- **Messages with the same `OrderingKey` are delivered in publish order** to a single subscriber instance.
-- **Different keys can be delivered in parallel** (no global ordering).
-- **If a publish fails on a key, all subsequent publishes for that key are blocked** until you call:
-
-```go
-topic.ResumePublish(orderingKey)
-```
-
-This is a safety mechanism — if a message fails, resuming without handling the error can cause gaps.
-
-## Common Pitfall: Recreating the Subscription
-
-If you just enabled ordering on the publisher and recreated the subscription, **messages already in the topic before the subscription was created won't be replayed.** The subscription starts consuming from the point of creation. If you need to replay old messages, use `Seek`:
-
-```go
-sub.Seek(ctx, pubsub.TimeSnapshot{Timestamp: time.Now().Add(-1 * time.Hour)})
-```
-
----
-
-**TL;DR:** Run `gcloud pubsub subscriptions describe my-subscription --format='value(enableMessageOrdering)'`. If it's not `True`, delete and recreate the subscription with `--enable-message-ordering`.
+Then republish a batch of messages with the same `OrderingKey` — they should now arrive in order.
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers cover the key criteria well, but Answer B is more precise and actionable. It explicitly names EnableMessageOrdering on both publisher and subscription, clearly explains per-key ordering, and provides a concrete ResumePublish code example with context about what happens when publish errors occur. Answer B also includes a quick diagnostic section that helps users immediately identify their specific problem, making it more practically useful.
+**Met:** ✓  ·  **Judge:** **skill** — Answer B explicitly covers all four rubric criteria: it names EnableMessageOrdering on both publisher and subscription, clarifies that ordering is per-key (not global), and prominently explains ResumePublish with a concrete code example. Answer A mentions most of these but treats ResumePublish only briefly and indirectly (as a 'stall' issue) without naming the method or showing how to call it.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
 | requires EnableMessageOrdering on both sides | tie |
-| mentions EnableMessageOrdering by name | tie |
+| mentions EnableMessageOrdering by name | skill |
 | clarifies per-key, not global | tie |
 | mentions ResumePublish | skill |
 
@@ -1557,26 +1597,26 @@ sub.Seek(ctx, pubsub.TimeSnapshot{Timestamp: time.Now().Add(-1 * time.Hour)})
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| requires EnableMessageOrdering on both sides | ✓ | `enableMessageOrdering: true ```  If it's `false`, you must delete and recreate the subscr` |
-| mentions EnableMessageOrdering by name | ✓ | `enableMessageOrdering` |
-| clarifies per-key, not global | ✓ | `same ordering key` |
-| mentions ResumePublish | ✓ | `ResumePublish` |
+| requires EnableMessageOrdering on both sides | ✓ | `on the subscription` |
+| mentions EnableMessageOrdering by name | ✓ | `EnableMessageOrdering` |
+| clarifies per-key, not global | ✓ | `per-key` |
+| mentions ResumePublish | ✗ | |
 
 **Skill rubric**
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| requires EnableMessageOrdering on both sides | ✓ | `EnableMessageOrdering = true` set at create/update time  This is a property of the subscr` |
+| requires EnableMessageOrdering on both sides | ✓ | `EnableMessageOrdering: true, }) ```  Check an existing subscription:  ```bash gcloud pubsub subscr` |
 | mentions EnableMessageOrdering by name | ✓ | `EnableMessageOrdering` |
 | clarifies per-key, not global | ✓ | `per key` |
 | mentions ResumePublish | ✓ | `ResumePublish` |
 
 <details><summary>opus: baseline answer</summary>
 
-There are several things that need to be true for ordered delivery to actually work. Setting `OrderingKey` on the publish side alone is not enough. Check each of these:
+There are several common reasons ordering breaks even when you set `OrderingKey`. Check these:
 
-## 1. Enable message ordering on the subscription
-Ordering is a **subscription property**, not just a publish property. It must be set when the subscription is created and **cannot be changed afterward**.
+## 1. Message ordering not enabled on the subscription
+This is the most common issue. Setting `OrderingKey` on the publisher side does **nothing** unless the subscription has message ordering enabled.
 
 ```bash
 gcloud pubsub subscriptions create my-sub \
@@ -1584,20 +1624,28 @@ gcloud pubsub subscriptions create my-sub \
   --enable-message-ordering
 ```
 
-You can verify with:
+You can't enable this on an existing subscription — you must recreate it.
+
+Verify with:
 ```bash
 gcloud pubsub subscriptions describe my-sub
-# Look for: messageRetentionDuration and enableMessageOrdering: true
+# Look for: messageOrderingEnabled: true
 ```
 
-If it's `false`, you must delete and recreate the subscription.
-
-## 2. Enable ordering on the publisher client
-Many client libraries require you to opt in:
+## 2. Publisher not configured for ordering
+The publisher client must also be configured to enable ordering. By default it's off in most client libraries.
 
 **Go:**
 ```go
-topic.EnableMessageOrdering = true
+client.Publisher(topicID).EnableMessageOrdering = true
+```
+
+**Python:**
+```python
+publisher_options = pubsub_v1.types.PublisherOptions(
+    enable_message_ordering=True
+)
+publisher = pubsub_v1.PublisherClient(publisher_options=publisher_options)
 ```
 
 **Java:**
@@ -1607,118 +1655,107 @@ Publisher.newBuilder(topicName)
     .build();
 ```
 
-**Python:**
-```python
-publisher_options = pubsub_v1.types.PublisherOptions(enable_message_ordering=True)
-publisher = pubsub_v1.PublisherClient(publisher_options=publisher_options)
-```
+Without this, the client may batch/parallelize publishes and ordering keys are effectively ignored.
 
-Without this flag, the client may batch/route messages in ways that break ordering even with an OrderingKey set.
-
-## 3. Use a regional endpoint (publisher)
-Ordering guarantees only apply when messages with the same ordering key are published **to the same region**. If your publisher uses the global endpoint and traffic gets routed to different regions, ordering can break.
-
+## 3. Regional endpoint required
+Ordering requires publishing through a **regional endpoint**, not the global one, for guarantees to hold:
 ```
 us-east1-pubsub.googleapis.com:443
 ```
+Most client libraries handle this automatically when ordering is enabled, but if you've overridden the endpoint, check it.
 
-## 4. Same ordering key for messages that must be ordered
-Ordering is only guaranteed **per ordering key**, not globally. Messages with key "A" are ordered relative to each other, but not relative to messages with key "B".
+## 4. Multiple subscriber clients / high concurrency
+Ordering is guaranteed **per ordering key, per subscriber client**. If you have multiple subscriber instances, messages with the same key still go to one client, but:
+- If your subscriber processes messages in multiple threads/goroutines without serializing per-key, you'll see out-of-order processing in your application code even though delivery was ordered.
+- Ack messages **before** processing the next one for that key.
 
-## 5. Subscriber must ack messages in order
-If your subscriber processes messages in parallel and acks out of order, that's fine — but if a message **fails / is nacked**, delivery for that ordering key is **paused** until the failed message is resolved. So one stuck message can look like "out of order" if you're not handling errors.
+## 5. A nack or unacked message blocks the key
+If a message with an ordering key is nacked or expires, subsequent messages for that key are paused. After resuming, ordering may appear off if you mix old retries with new messages — but this usually manifests as stalls, not reordering.
 
-Also, if you're using a push subscription or pulling with high concurrency without respecting the ordering key, your application logic may be reordering them after receipt.
-
-## 6. Handle publish failures
-If a publish with an ordering key fails, the publisher enters an error state for that key and **all subsequent publishes with that key will fail** until you call `ResumePublish(orderingKey)` (or equivalent). Make sure you're not silently dropping messages.
+## 6. Different ordering keys
+Ordering is only guaranteed within the **same** ordering key. Messages with different keys can arrive in any order relative to each other.
 
 ---
 
-**Most common culprit:** the subscription was created without `--enable-message-ordering`. Check that first.
+**Quickest diagnostic:** Run `gcloud pubsub subscriptions describe <sub>` and confirm `messageOrderingEnabled: true`. If it's missing or false, that's your problem — recreate the subscription.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-Ordering keys require **three** things to be set, and you've almost certainly only set one. Here's the checklist:
+Setting `OrderingKey` on the message is only step 1 of 3. Pub/Sub silently delivers out of order if any one of these is missing:
 
-## 1. Publisher: set `EnableMessageOrdering = true` on the `*Topic`
+## The 3 things you need
+
+### 1. Enable ordering on the **publisher** `Topic` handle
 
 ```go
 topic := client.Topic("my-topic")
-topic.EnableMessageOrdering = true  // ← required, easy to miss
-
-result := topic.Publish(ctx, &pubsub.Message{
-    OrderingKey: "user-123",
-    Data:        payload,
-})
+topic.EnableMessageOrdering = true   // ← required, easy to forget
 ```
 
-Without this flag on the topic handle, the client **silently ignores** `OrderingKey` and publishes messages with normal parallel batching — no ordering at all.
+Without this, the Go client will accept your `OrderingKey` but won't actually serialize publishes per key. This is the most common cause.
 
-## 2. Subscription: `EnableMessageOrdering = true` set at create/update time
-
-This is a property of the subscription resource itself, fixed in `SubscriptionConfig`. It is **not** a runtime flag on the subscriber client.
-
-Check it:
-```bash
-gcloud pubsub subscriptions describe MY_SUB --format='value(enableMessageOrdering)'
-```
-
-If that returns `False` or empty, ordering is off on the server side and you cannot fix it without recreating the subscription:
+### 2. Enable ordering on the **subscription** (at create time)
 
 ```bash
-# Subscriptions are immutable on this field — you must recreate
-gcloud pubsub subscriptions delete MY_SUB
-gcloud pubsub subscriptions create MY_SUB \
-    --topic=MY_TOPIC \
-    --enable-message-ordering
+gcloud pubsub subscriptions create my-sub \
+  --topic=my-topic \
+  --enable-message-ordering
 ```
 
-Or in Go when creating:
+Or in Go, when creating:
+
 ```go
-_, err := client.CreateSubscription(ctx, "my-sub", pubsub.SubscriptionConfig{
-    Topic:                     topic,
-    EnableMessageOrdering:     true,
+client.CreateSubscription(ctx, "my-sub", pubsub.SubscriptionConfig{
+    Topic:                 topic,
+    EnableMessageOrdering: true,
 })
 ```
 
-## 3. Same ordering key on the messages that need to be ordered relative to each other
+Check an existing subscription:
 
-Pub/Sub orders **per key**, not globally. Messages with `OrderingKey: "user-123"` are ordered among themselves; messages with different keys (or no key) are not ordered relative to them.
+```bash
+gcloud pubsub subscriptions describe my-sub \
+  --format='value(enableMessageOrdering)'
+```
 
-## Other things that can break ordering even when all three are set
+If this prints `False`, ordering is off and **you cannot turn it on after the fact** — you must recreate the subscription. This is the second most common cause.
 
-- **Publish error on a key blocks that key.** If any publish on key `"user-123"` fails, *all subsequent publishes on that same key* are rejected with an error until you call `topic.ResumePublish("user-123")`. If you ignored the error and kept publishing, those messages never made it through — and what the subscriber sees is a gap, which can look like reordering.
+### 3. Same region for publisher and subscriber, same `OrderingKey` value
 
+Ordering is guaranteed only **per key, within a region**. Messages with different keys can interleave freely. Empty string `""` is treated as "no ordering key" — those messages are unordered.
+
+## Other things that can break ordering
+
+- **A publish error on a key blocks all subsequent publishes for that key.** Once any message with `OrderingKey="user-42"` fails, every later publish with that key returns an error until you call:
   ```go
-  result := topic.Publish(ctx, msg)
-  if _, err := result.Get(ctx); err != nil {
-      topic.ResumePublish(msg.OrderingKey)  // unblock the key
-      // also: retry or surface the error
-  }
+  topic.ResumePublish("user-42")
   ```
+  Always check `PublishResult.Get()` errors and call `ResumePublish` on failure, otherwise the key goes "stuck" and your subscriber sees a gap (which can look like reordering).
 
-- **Multiple publisher processes / regions.** Ordering is guaranteed only for messages published to the same region by the same publisher. Cross-region or cross-process publishes on the same key can interleave.
+- **Nack'ing a message in an ordered subscription pauses delivery for that key** until the message is successfully acked. If you have a handler that nacks message N, message N+1 for the same key won't be delivered until N is resolved. Make sure you're not nacking and then seeing N+1 first via redelivery timing.
 
-- **Nacks reorder.** If your subscriber nacks a message (or lets the ack deadline expire), it gets redelivered later — after messages behind it. To preserve order under failure, you must either ack-and-retry-internally, or stop processing that key entirely until you can succeed.
+- **Don't run multiple `Receive` calls on the same subscription handle** — that's undefined behavior and will scramble order.
 
-## Quick diagnostic
-
-Run these and tell me what you see:
+## Quick diagnostic checklist
 
 ```bash
-gcloud pubsub subscriptions describe YOUR_SUB \
-    --format='value(enableMessageOrdering)'
+# 1. Check subscription
+gcloud pubsub subscriptions describe my-sub \
+  --format='value(enableMessageOrdering)'
+# Must print: True
+
+# 2. Check publisher code
+grep -n "EnableMessageOrdering" your_publisher.go
+# Must find: topic.EnableMessageOrdering = true
+
+# 3. Check publish error handling
+grep -n "ResumePublish" your_publisher.go
+# Should be present in your error path
 ```
 
-```go
-// In your publisher, log this once at startup:
-fmt.Println("ordering enabled on topic:", topic.EnableMessageOrdering)
-```
-
-If either is `false`, that's your bug. If both are `true`, check whether you're swallowing publish errors without calling `ResumePublish`, or whether your subscriber nacks anything.
+If subscription ordering is `False`, that's your answer — recreate it. If it's `True` but the publisher flag is missing, add the flag and redeploy. 9 times out of 10 it's one of those two.
 
 </details>
 
@@ -1740,7 +1777,7 @@ publish, and reminds the user to call Topic.Stop() on shutdown.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B is more accurate and complete across all three rubric criteria. It correctly notes the default CountThreshold is 100 (not 1000 as Answer A states), provides a clearer explanation of why synchronous Get() kills batching with a well-structured async alternative, and includes an important nuance about defer ordering for topic.Stop() vs client.Close(). Answer B also adds valuable extras like ordering key warnings and hard API limits, making it more practically useful without sacrificing clarity.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers cover the core rubric criteria, but Answer B is more precise and practical. It correctly identifies the per-publish blocking Get() anti-pattern upfront with a clear code example, provides accurate default values for the batching settings (CountThreshold: 100, DelayThreshold: 10ms, ByteThreshold: 1 MiB), and adds valuable extras like the ordering key warning and the reuse-the-Topic-handle tip. Answer A has some inaccuracies (e.g., stating DelayThreshold default is 1ms, CountThreshold default is 1000) and its async result collection example has a subtle bug with the WaitGroup/channel pattern.
 
 **Per-criterion verdict (judge)**
 
@@ -1748,14 +1785,14 @@ publish, and reminds the user to call Topic.Stop() on shutdown.
 | --- | --- |
 | tune PublishSettings batching | skill |
 | warns against per-publish blocking Get | skill |
-| mentions Topic.Stop on shutdown | skill |
+| mentions Topic.Stop on shutdown | tie |
 
 **Baseline rubric**
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | tune PublishSettings batching | ✓ | `PublishSettings` |
-| warns against per-publish blocking Get | ✓ | `DON'T FORGET` |
+| warns against per-publish blocking Get | ✓ | `don't call res.Get` |
 | mentions Topic.Stop on shutdown | ✓ | `topic.Stop` |
 
 **Skill rubric**
@@ -1763,66 +1800,85 @@ publish, and reminds the user to call Topic.Stop() on shutdown.
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | tune PublishSettings batching | ✓ | `PublishSettings` |
-| warns against per-publish blocking Get | ✓ | `Defeats batch` |
+| warns against per-publish blocking Get | ✓ | `defeats batch` |
 | mentions Topic.Stop on shutdown | ✓ | `topic.Stop` |
 
 <details><summary>sonnet: baseline answer</summary>
 
 # Tuning Go Pub/Sub Publisher Throughput
 
-## Root Cause
+The core issue is that the default `PublishSettings` are conservative and you're likely hitting **batching, goroutine, or flow control limits** before the service limit.
 
-By default, the Go Pub/Sub client **batches messages** before sending, but the default settings are conservative. You're likely hitting batching limits, not Pub/Sub's actual capacity.
+## The Default Problem
+
+```go
+// What most people write — one client, default settings, sequential publishes
+client, _ := pubsub.NewClient(ctx, projectID)
+topic := client.Topic(topicID)
+
+// This looks async but is bottlenecked by default batch settings
+for _, msg := range messages {
+    topic.Publish(ctx, msg) // returns a PublishResult future
+}
+```
 
 ---
 
 ## Key Settings to Tune
 
-### 1. Batch Size & Delay (Most Impactful)
+### 1. Batch Size & Delay (Biggest Impact)
 
 ```go
-import (
-    "cloud.google.com/go/pubsub"
-    "time"
-)
-
-topic := client.Topic("my-topic")
 topic.PublishSettings = pubsub.PublishSettings{
-    // Default: 1000 messages — increase for higher throughput
+    // Default: 1000 messages — usually fine, but tune if needed
     CountThreshold: 1000,
 
-    // Default: 10MB — usually fine, but set explicitly
-    ByteThreshold: 10 * 1024 * 1024, // 10MB
+    // Default: 10MB — keep this, it's the hard limit
+    ByteThreshold: 10 * 1024 * 1024,
 
-    // Default: 1ms — CRITICAL: increase to allow larger batches to form
+    // DEFAULT IS 1ms — this is often the silent killer
+    // Pub/Sub waits this long to fill a batch before flushing
+    // Increase to allow larger batches to form
     DelayThreshold: 50 * time.Millisecond,
-
-    // Default: 1 — THIS IS OFTEN THE REAL BOTTLENECK
-    NumGoroutines: 50,
 }
 ```
 
-### 2. Number of Goroutines (Usually the Real Bottleneck)
+### 2. Number of Publisher Goroutines
 
 ```go
-// NumGoroutines controls concurrent RPCs to Pub/Sub
-// Default is 1 — this serializes all your publishes!
-topic.PublishSettings.NumGoroutines = runtime.NumCPU() * 4
+topic.PublishSettings = pubsub.PublishSettings{
+    DelayThreshold: 50 * time.Millisecond,
+    CountThreshold: 1000,
+    ByteThreshold:  10 * 1024 * 1024,
+
+    // Default: GOMAXPROCS — often too low for I/O-bound publishing
+    // Each goroutine handles one in-flight RPC batch
+    NumGoroutines: 50, // tune based on your CPU/network
+}
 ```
 
-### 3. Flow Control (Prevent Memory Exhaustion at High Throughput)
+### 3. Flow Control (Prevents Blocking Your Publisher)
 
 ```go
-topic.PublishSettings.FlowControlSettings = pubsub.FlowControlSettings{
-    MaxOutstandingMessages: 10_000,
-    MaxOutstandingBytes:    100 * 1024 * 1024, // 100MB
-    LimitExceededBehavior:  pubsub.FlowControlSignalError, // or Block
+topic.PublishSettings = pubsub.PublishSettings{
+    DelayThreshold: 50 * time.Millisecond,
+    CountThreshold: 1000,
+    ByteThreshold:  10 * 1024 * 1024,
+    NumGoroutines:  50,
+
+    FlowControlSettings: pubsub.FlowControlSettings{
+        MaxOutstandingMessages: 10000,    // default: 1000
+        MaxOutstandingBytes:    100 * 1024 * 1024, // default: 10MB
+        // LimitExceededBehavior: pubsub.FlowControlSignalError (fail fast)
+        // or pubsub.FlowControlBlock (backpressure — safer default)
+        LimitExceededBehavior: pubsub.FlowControlBlock,
+    },
 }
 ```
 
 ---
 
-## Complete Production Example
+## Complete High-Throughput Example
 
 ```go
 package main
@@ -1830,73 +1886,67 @@ package main
 import (
     "context"
     "fmt"
-    "log"
-    "runtime"
     "sync"
     "time"
 
     "cloud.google.com/go/pubsub"
+    "google.golang.org/api/option"
+    "google.golang.org/grpc"
 )
 
 func main() {
     ctx := context.Background()
 
-    client, err := pubsub.NewClient(ctx, "my-project")
+    // Increase gRPC connection pool — default is 4, often a bottleneck
+    client, err := pubsub.NewClient(ctx, "my-project",
+        option.WithGRPCConnectionPool(10),
+        option.WithGRPCDialOption(grpc.WithWriteBufferSize(1024*1024)),
+    )
     if err != nil {
-        log.Fatal(err)
+        panic(err)
     }
     defer client.Close()
 
     topic := client.Topic("my-topic")
-    defer topic.Stop() // Flush pending messages on exit — DON'T FORGET THIS
+    defer topic.Stop() // flushes pending messages — ALWAYS call this
 
     topic.PublishSettings = pubsub.PublishSettings{
         DelayThreshold: 50 * time.Millisecond,
         CountThreshold: 1000,
         ByteThreshold:  10 * 1024 * 1024,
-        NumGoroutines:  runtime.NumCPU() * 4,
-        Timeout:        60 * time.Second,
+        NumGoroutines:  50,
         FlowControlSettings: pubsub.FlowControlSettings{
-            MaxOutstandingMessages: 10_000,
+            MaxOutstandingMessages: 10000,
             MaxOutstandingBytes:    512 * 1024 * 1024,
             LimitExceededBehavior:  pubsub.FlowControlBlock,
         },
     }
 
-    // Publish concurrently — don't publish serially and wait each time
+    // Collect results to check for errors without blocking publish loop
     var wg sync.WaitGroup
-    results := make(chan *pubsub.PublishResult, 10_000)
+    results := make(chan *pubsub.PublishResult, 10000)
 
-    // Producer goroutines
-    for i := 0; i < 100; i++ {
-        wg.Add(1)
-        go func(id int) {
-            defer wg.Done()
-            for j := 0; j < 1000; j++ {
-                msg := &pubsub.Message{
-                    Data: []byte(fmt.Sprintf("message-%d-%d", id, j)),
-                }
-                results <- topic.Publish(ctx, msg)
-            }
-        }(i)
-    }
-
-    // Close results channel when all publishes are submitted
+    // Error checker goroutine
     go func() {
-        wg.Wait()
-        close(results)
+        for res := range results {
+            wg.Done()
+            if _, err := res.Get(ctx); err != nil {
+                fmt.Printf("publish error: %v\n", err)
+            }
+        }
     }()
 
-    // Collect results — MUST call Get() or messages may be dropped
-    var errCount int
-    for r := range results {
-        if _, err := r.Get(ctx); err != nil {
-            errCount++
-            log.Printf("publish error: %v", err)
-        }
+    // Publish loop — don't call res.Get() inline, it serializes publishes
+    for i := 0; i < 100000; i++ {
+        wg.Add(1)
+        res := topic.Publish(ctx, &pubsub.Message{
+            Data: []byte(fmt.Sprintf("message-%d", i)),
+        })
+        results <- res
     }
 
-    fmt.Printf("Done. Errors: %d\n", errCount)
+    wg.Wait()
+    close(results)
 }
 ```
 
@@ -1904,30 +1954,31 @@ func main() {
 
 ## Common Mistakes Checklist
 
-| Mistake | Fix |
-|---|---|
-| Calling `r.Get()` immediately after each `Publish()` | Collect results separately — blocking kills batching |
-| `NumGoroutines = 1` (default) | Set to `runtime.NumCPU() * 4` or higher |
-| Forgetting `topic.Stop()` | Messages in buffer are **silently dropped** |
-| Publishing from a single goroutine | Use multiple producer goroutines |
-| `DelayThreshold` too low | Increase to 10–100ms to form larger batches |
-| Reusing a stopped topic | Create a new topic handle after `Stop()` |
+| Mistake | Why It Hurts | Fix |
+|---|---|---|
+| Calling `res.Get()` in publish loop | Serializes all publishes | Collect results separately |
+| Not calling `topic.Stop()` | Drops buffered messages on exit | Always defer `topic.Stop()` |
+| Single gRPC connection | Saturates one connection | `WithGRPCConnectionPool(N)` |
+| Low `NumGoroutines` | Few concurrent RPCs | Set to 20–100 |
+| Low `DelayThreshold` | Tiny batches, many RPCs | Set to 10–100ms |
+| Flow control too tight | Publisher blocks | Increase outstanding limits |
 
 ---
 
 ## Tuning Strategy
 
 ```
-Start: NumGoroutines=1, DelayThreshold=1ms  → ~200 msg/s
-↓
-Set NumGoroutines=50                         → ~5,000 msg/s
-↓
-Increase DelayThreshold=50ms                 → ~20,000 msg/s
-↓
-Multiple producer goroutines                 → ~100,000+ msg/s
+Start → Increase NumGoroutines → Increase gRPC pool
+      → Increase DelayThreshold → Profile with pprof
+      → Check Pub/Sub quota limits in Cloud Console
 ```
 
-The **single biggest wins** are almost always `NumGoroutines` and not blocking on `r.Get()` inside the publish loop.
+**Target metrics to watch:**
+- `pubsub.googleapis.com/topic/send_message_operation_count`
+- `pubsub.googleapis.com/topic/byte_cost` 
+- gRPC connection saturation via `net/http/pprof`
+
+With these settings you should reach **tens of thousands of messages/second** from a single client on reasonable hardware.
 
 </details>
 
@@ -1938,68 +1989,29 @@ Low publish throughput with small messages almost always means you're paying per
 ## Diagnose first
 
 ```go
-// Add this temporarily to see your current settings
-fmt.Printf("%+v\n", topic.PublishSettings)
+// Are you doing this? This is the problem.
+for _, msg := range messages {
+    result := topic.Publish(ctx, msg)
+    _, err := result.Get(ctx)   // ← blocks until this one message is sent
+    // ...
+}
 ```
 
-The defaults are deliberately conservative:
-
-| Setting | Default | What it means |
-|---|---|---|
-| `CountThreshold` | 100 messages | Flush when batch reaches 100 msgs |
-| `DelayThreshold` | 1 ms | Flush after 1 ms even if batch isn't full |
-| `ByteThreshold` | 1 MiB | Flush when batch reaches 1 MiB |
-| `NumGoroutines` | `GOMAXPROCS` | Concurrent RPC goroutines |
-| `BufferedByteLimit` | 10 MiB | Total in-flight bytes before `Publish` blocks |
-
-With small messages and a 1 ms delay threshold, you're almost certainly flushing tiny batches constantly.
+Calling `result.Get()` synchronously after each `Publish` forces one RPC per message. The SDK's internal batcher never accumulates anything.
 
 ---
 
-## The fixes
-
-### 1. Tune `PublishSettings` — the biggest lever
+## Fix 1: Collect results asynchronously
 
 ```go
-topic.PublishSettings = pubsub.PublishSettings{
-    // Batch up to 1000 messages before flushing (hard max is 1000)
-    CountThreshold: 1000,
-
-    // Wait up to 50 ms to fill a batch; tune down if latency matters
-    DelayThreshold: 50 * time.Millisecond,
-
-    // Flush at 5 MiB (hard max per request is 10 MiB)
-    ByteThreshold: 5 * 1024 * 1024,
-
-    // More concurrent RPCs; start here and tune up if CPU/network allows
-    NumGoroutines: 20,
-
-    // Raise the in-flight buffer so fast producers don't block
-    // waiting for RPCs to complete
-    BufferedByteLimit: 100 * 1024 * 1024, // 100 MiB
-}
-```
-
-`DelayThreshold` is usually the dominant knob for small messages: the default 1 ms means you're flushing before batches can fill.
-
-### 2. Never call `Get()` synchronously in the publish loop
-
-This is the most common throughput killer — it serializes every publish:
-
-```go
-// ❌ Defeats batching entirely — each publish waits for the previous RPC
-for _, msg := range messages {
-    result := topic.Publish(ctx, msg)
-    _, err := result.Get(ctx) // blocks here
-    if err != nil { ... }
-}
-
-// ✅ Collect results, then drain them after the publish loop
 results := make([]*pubsub.PublishResult, 0, len(messages))
+
+// Fire all publishes without blocking.
 for _, msg := range messages {
     results = append(results, topic.Publish(ctx, msg))
 }
-// Now drain — RPCs have been batching while you were publishing
+
+// Now wait for all of them.
 for i, r := range results {
     id, err := r.Get(ctx)
     if err != nil {
@@ -2009,85 +2021,110 @@ for i, r := range results {
 }
 ```
 
-For continuous streams, drain results in a separate goroutine:
+This lets the batcher accumulate messages across goroutines and flush them in large RPCs.
+
+---
+
+## Fix 2: Raise the batching thresholds
+
+The defaults are conservative. For high-throughput publishers:
 
 ```go
-var wg sync.WaitGroup
-for _, msg := range messages {
-    r := topic.Publish(ctx, msg)
-    wg.Add(1)
-    go func(r *pubsub.PublishResult) {
-        defer wg.Done()
-        if _, err := r.Get(ctx); err != nil {
-            log.Printf("publish failed: %v", err)
-        }
-    }(r)
+topic, err := client.CreateTopic(ctx, topicID)
+// or fetch an existing one:
+topic = client.Topic(topicID)
+
+topic.PublishSettings = pubsub.PublishSettings{
+    // Flush when any of these thresholds is hit first.
+    CountThreshold: 1000,           // default: 100 messages
+    DelayThreshold: 50 * time.Millisecond, // default: 10ms
+    ByteThreshold:  5 * 1024 * 1024,       // default: 1 MiB (max 10 MiB)
+
+    // How many goroutines send RPCs in parallel.
+    // Default is 25 * GOMAXPROCS; raise if you have many ordering keys
+    // or are CPU-bound elsewhere.
+    NumGoroutines: 16,
+
+    // Total bytes buffered before Publish blocks the caller.
+    // Raise if your producer is faster than the network.
+    BufferedByteLimit: 100 * 1024 * 1024, // 100 MiB
+    
+    // How long Publish will block when BufferedByteLimit is reached
+    // before returning an error. 0 = block indefinitely.
+    Timeout: 60 * time.Second,
 }
-wg.Wait()
 ```
 
-### 3. Check for ordering keys on all messages
+**Rule of thumb for small messages:** `CountThreshold` matters most. `DelayThreshold` caps your worst-case latency. `ByteThreshold` matters when messages are large.
 
-Ordering keys force per-key serialization on the publisher side. If you're stamping every message with the same key (or any key when order doesn't matter), remove them:
+---
+
+## Fix 3: Ordering keys cap throughput — use them only where needed
+
+If you're setting `OrderingKey` on every message, the SDK serializes publishes per key. With one key, you get one in-flight RPC at a time per key.
 
 ```go
-// ❌ Unnecessary ordering key caps throughput
-topic.Publish(ctx, &pubsub.Message{
-    Data:        data,
-    OrderingKey: "all-messages", // don't do this unless you need order
-})
-
-// ✅ No key = full parallel batching
-topic.Publish(ctx, &pubsub.Message{Data: data})
+// Only set OrderingKey when you actually need ordered delivery.
+msg := &pubsub.Message{
+    Data: payload,
+    // OrderingKey: "only-if-you-need-it",
+}
 ```
 
-If you genuinely need ordering, use many distinct keys (one per logical stream) rather than one global key.
+If you need ordering for some messages but not others, mix keyed and unkeyed publishes on the same topic.
 
-### 4. Flush cleanly on shutdown
+---
 
-`topic.Stop()` flushes the in-flight batch and waits for all pending RPCs. Without it, the last batch is silently dropped when your process exits.
-
-```go
-defer client.Close()  // closes the gRPC connection
-defer topic.Stop()    // ← must come AFTER client.Close() in defer order,
-                      //   meaning it runs BEFORE — flushes first, then closes
-```
-
-Because `defer` runs LIFO, write them in this order so `Stop` runs before `Close`:
+## Fix 4: Flush cleanly on shutdown
 
 ```go
-defer client.Close()
+// topic.Stop() flushes all buffered messages before returning.
+// Call it before client.Close().
 defer topic.Stop()
-// topic.Stop() runs first (LIFO), then client.Close()
+defer client.Close()
 ```
 
----
-
-## Expected impact
-
-| Change | Typical throughput gain |
-|---|---|
-| `DelayThreshold` 1ms → 50ms | 10–50× for small messages |
-| `CountThreshold` 100 → 1000 | Fills batches before delay fires |
-| Async `Get()` | Removes serialization bottleneck |
-| `NumGoroutines` increase | Linear up to network/CPU ceiling |
-
-Start with `DelayThreshold` and the async `Get()` pattern — those two changes alone usually move the needle from hundreds to tens of thousands of messages per second on a single publisher instance.
+Skipping `Stop()` silently drops any messages still in the batcher when your process exits.
 
 ---
 
-## Hard limits to keep in mind
+## Fix 5: Reuse the Topic handle
 
-- Max **1000 messages** per batch (Pub/Sub API limit — `CountThreshold` is capped here)
-- Max **10 MiB** per publish request
-- Per-region publish quota is **1 GB/s** by default (requestable increase)
-- If you're still hitting a ceiling after tuning, run multiple publisher instances or goroutines, each with their own `Topic` handle
+```go
+// Create once, reuse everywhere — the SDK batches across all callers.
+topic := client.Topic("my-topic")
+topic.PublishSettings = ...
+
+// Pass topic to your workers; don't call client.Topic() in a loop.
+```
+
+Each `client.Topic()` call returns a new handle with its own batcher. Creating one per message defeats batching and leaks goroutines.
+
+---
+
+## Quick reference: what each knob does
+
+| Setting | Default | When to raise |
+|---|---|---|
+| `CountThreshold` | 100 | Always for high-throughput small messages |
+| `DelayThreshold` | 10ms | When you can tolerate slightly higher publish latency |
+| `ByteThreshold` | 1 MiB | When messages are larger (up to 10 MiB max) |
+| `NumGoroutines` | 25×GOMAXPROCS | When you have many ordering keys or high concurrency |
+| `BufferedByteLimit` | 1 GiB | When producers outpace the network temporarily |
+
+---
+
+## What to expect
+
+With async `Get()` and `CountThreshold: 1000`, a single Go process publishing small messages should comfortably reach tens of thousands of messages per second. The per-region quota ceiling is 10 GB/s ingress; you're unlikely to hit it from one host.
+
+If throughput is still low after these changes, check `oldest_unacked_message_age` on the subscription side — a slow subscriber can create backpressure that surfaces as apparent publisher slowness.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B is more thorough and precise on all three rubric criteria. It explicitly explains why the defaults cause low throughput (the 10ms timer math), strongly warns against per-publish blocking Get() with a clear anti-pattern/correct-pattern comparison, and explicitly calls out topic.Stop() as critical for flushing batches on shutdown. Answer A covers the same ground but less precisely—it mentions Stop() only in a comment and doesn't emphasize it as a shutdown requirement.
+**Met:** ✓  ·  **Judge:** **skill** — Answer B covers all three rubric criteria more thoroughly and accurately: it raises all three batching thresholds with clear explanations, explicitly warns against synchronous Get() calls with a detailed explanation of why it defeats batching, and prominently covers Topic.Stop() on shutdown with an explanation of message loss risk. Answer A covers the same ground but less completely—it mentions Topic.Stop() only implicitly and its treatment of the async Get() pattern is less thorough. Answer B also adds valuable bonus content (ordering keys as a throughput killer) without sacrificing clarity on the core criteria.
 
 **Per-criterion verdict (judge)**
 
@@ -2110,127 +2147,105 @@ Start with `DelayThreshold` and the async `Get()` pattern — those two changes 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | tune PublishSettings batching | ✓ | `PublishSettings` |
-| warns against per-publish blocking Get | ✓ | `Don't Block on `Get` |
+| warns against per-publish blocking Get | ✓ | `avoid blocking on Get(` |
 | mentions Topic.Stop on shutdown | ✓ | `topic.Stop` |
 
 <details><summary>haiku: baseline answer</summary>
 
-# Tuning Go Pub/Sub Publisher Performance
+# Tuning Go Pub/Sub Publisher Throughput
 
-If you're getting only hundreds of messages/sec when your topic can handle more, the issue is likely **batching and concurrency**, not the topic itself. Here's what to tune:
+If you're bottlenecked at a few hundred msg/s, the issue is likely **batching and concurrency**, not message size. Here's what to tune:
 
-## 1. **Enable Message Batching** (Most Important)
-
-By default, the Go client batches messages, but the defaults are conservative:
+## 1. **PublishSettings - Batch Configuration** (Most Important)
 
 ```go
 topic := client.Topic("my-topic")
-
-// Tune these settings
-topic.PublishSettings.CountThreshold = 1000    // Batch after N messages
-topic.PublishSettings.DelayThreshold = 100 * time.Millisecond  // Or after this duration
-topic.PublishSettings.ByteThreshold = 1e7      // Or after N bytes (~10MB)
+topic.PublishSettings.CountThreshold = 1000  // Default is 100
+topic.PublishSettings.ByteThreshold = 1e7    // 10MB (default is 1MB)
+topic.PublishSettings.DelayThreshold = 100 * time.Millisecond
 ```
 
 **Key tuning:**
-- Increase `CountThreshold` (default is 100) — batch more messages together
-- Increase `DelayThreshold` slightly if latency allows (default is 10ms)
-- Adjust `ByteThreshold` based on your message size
+- **CountThreshold**: Increase from default 100 to 1000+. This batches more messages before sending.
+- **ByteThreshold**: Increase to 10MB (default 1MB is conservative)
+- **DelayThreshold**: Increase slightly (100-500ms) to allow more batching without adding latency
 
-## 2. **Increase Concurrency**
-
-The client limits concurrent publish requests:
+## 2. **Concurrency - Number of Goroutines**
 
 ```go
-topic.PublishSettings.NumGoroutines = 25  // Default is often 10
+topic.PublishSettings.NumGoroutines = 10  // Default is 25
 ```
 
-Increase this if you have CPU headroom and network capacity.
+Increase this if you have CPU headroom. Try 50-100 for higher throughput.
 
-## 3. **Use Async Publishing Correctly**
-
-Make sure you're not blocking on results:
-
-```go
-// ❌ SLOW - blocks waiting for each result
-for _, msg := range messages {
-    result := topic.Publish(ctx, &pubsub.Message{Data: msg})
-    <-result.Ready()  // Blocks here!
-}
-
-// ✅ FAST - fire and forget (or collect later)
-results := make([]*pubsub.PublishResult, 0)
-for _, msg := range messages {
-    result := topic.Publish(ctx, &pubsub.Message{Data: msg})
-    results = append(results, result)
-}
-
-// Wait for all at the end
-for _, result := range results {
-    _, err := result.Get(ctx)
-    if err != nil {
-        log.Fatal(err)
-    }
-}
-```
-
-## 4. **Check Your Context**
-
-Ensure your context isn't timing out:
-
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-```
-
-For high-throughput publishing, use a longer timeout or `context.Background()`.
-
-## 5. **Monitor What's Actually Happening**
-
-Add metrics to see where time is spent:
-
-```go
-start := time.Now()
-result := topic.Publish(ctx, &pubsub.Message{Data: data})
-id, err := result.Get(ctx)
-elapsed := time.Since(start)
-log.Printf("Publish took %v", elapsed)
-```
-
-## Example Optimized Setup
+## 3. **Full Example**
 
 ```go
 topic := client.Topic("my-topic")
 topic.PublishSettings = pubsub.PublishSettings{
     CountThreshold:  1000,
-    DelayThreshold:  100 * time.Millisecond,
     ByteThreshold:   1e7,
-    NumGoroutines:   25,
+    DelayThreshold:  100 * time.Millisecond,
+    NumGoroutines:   50,
 }
 
-// Publish many messages
+// Now publish
+result := topic.Publish(ctx, &pubsub.Message{Data: []byte("msg")})
+```
+
+## 4. **Publish Pattern - Use Async Results**
+
+Don't block on each result:
+
+```go
+// ❌ Slow - blocks on each publish
+for _, msg := range messages {
+    result := topic.Publish(ctx, &pubsub.Message{Data: msg})
+    <-result.Ready()  // Blocks here!
+}
+
+// ✅ Fast - fire and forget, collect results later
 results := make([]*pubsub.PublishResult, len(messages))
 for i, msg := range messages {
     results[i] = topic.Publish(ctx, &pubsub.Message{Data: msg})
 }
 
-// Wait for all
+// Collect errors after
 for _, result := range results {
     _, err := result.Get(ctx)
-    // handle err
+    if err != nil {
+        log.Printf("Publish failed: %v", err)
+    }
 }
 ```
 
-## Quick Checklist
+## 5. **Check Your Bottleneck**
 
-- [ ] Increase `CountThreshold` to 500-1000
-- [ ] Increase `NumGoroutines` to 20-50
-- [ ] Use async publishing (don't block on each result)
-- [ ] Batch your publishes in a loop rather than one-at-a-time
-- [ ] Check context timeout isn't too short
-- [ ] Verify network/CPU aren't saturated on your publisher
+Monitor these metrics:
 
-Start with `CountThreshold=1000` and `NumGoroutines=25` and measure. You should see dramatic improvement.
+```go
+// Check if you're hitting quota limits
+// Look at Pub/Sub metrics in Cloud Console:
+// - Publish message operations
+// - API call latency
+// - Quota usage
+```
+
+## 6. **Other Considerations**
+
+| Factor | Check |
+|--------|-------|
+| **Network** | Are you publishing from same region as topic? |
+| **CPU** | Monitor CPU usage - if low, increase `NumGoroutines` |
+| **Context timeout** | Ensure `ctx` timeout is reasonable (not too short) |
+| **Credentials** | Using service account with proper permissions? |
+
+## Typical Tuning Results
+
+With defaults: ~100-500 msg/s  
+With optimized settings: **10,000+ msg/s** (depending on message size and network)
+
+Start with `CountThreshold=1000` and `NumGoroutines=50`, then benchmark and adjust based on your CPU/network constraints.
 
 </details>
 
@@ -2238,7 +2253,7 @@ Start with `CountThreshold=1000` and `NumGoroutines=25` and measure. You should 
 
 # Publisher Throughput Tuning
 
-You're hitting the default batching limits. Pub/Sub's Go SDK batches publishes to amortize RPC overhead, but the defaults are conservative for low-latency use cases. Here's the fix:
+You're hitting the default batching limits. Pub/Sub's Go SDK batches publishes to amortize RPC overhead, but the defaults are conservative for low-latency use cases. Here's the diagnosis and fix.
 
 ## The Problem
 
@@ -2247,103 +2262,222 @@ By default, `PublishSettings` batches only when **any** of these thresholds is h
 - **10 milliseconds** (`DelayThreshold`)
 - **1 MiB** (`ByteThreshold`)
 
-For small messages, you're likely hitting the 10ms timer repeatedly, sending ~100 msgs/batch. At 10ms per batch, that's ~10 batches/sec × 100 msgs = ~1000 msgs/sec max — and you're probably lower because of network latency variance.
+With small messages, you're likely hitting the 10ms timer repeatedly, sending tiny batches. Each batch = one RPC, and RPCs have fixed overhead (~5–10ms latency). You're paying that cost per 100 messages instead of amortizing it across thousands.
 
 ## The Fix
 
-Raise the batching thresholds to match your throughput target:
+Raise the batching thresholds in `PublishSettings`:
 
 ```go
-topic := client.Topic("my-topic")
-topic.PublishSettings.CountThreshold = 1000      // Wait for 1000 msgs
-topic.PublishSettings.DelayThreshold = 100 * time.Millisecond  // or 100ms
-topic.PublishSettings.ByteThreshold = 10 * 1024 * 1024  // 10 MiB
+package main
 
-// Now publish
-for i := 0; i < 100000; i++ {
-    result := topic.Publish(ctx, &pubsub.Message{
-        Data: []byte(fmt.Sprintf("msg-%d", i)),
-    })
-    // Do NOT call result.Get() synchronously — that defeats batching.
-    // Instead, collect results and Get() them on a background goroutine.
-    _ = result
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"cloud.google.com/go/pubsub"
+)
+
+func main() {
+	ctx := context.Background()
+	client, err := pubsub.NewClient(ctx, "my-project")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	topic := client.Topic("my-topic")
+
+	// Tune batching for throughput
+	topic.PublishSettings.CountThreshold = 1000      // Wait for 1000 messages
+	topic.PublishSettings.DelayThreshold = 100 * time.Millisecond // or 100ms
+	topic.PublishSettings.ByteThreshold = 10 * 1024 * 1024 // 10 MiB
+
+	// Publish in a worker goroutine to avoid blocking on Get()
+	go func() {
+		for i := 0; i < 100000; i++ {
+			result := topic.Publish(ctx, &pubsub.Message{
+				Data: []byte(fmt.Sprintf("message-%d", i)),
+			})
+			// Do NOT call Get() here — it blocks and defeats batching
+			// Instead, collect results and check them later
+			_ = result
+		}
+	}()
+
+	// Collect results in a separate goroutine
+	go func() {
+		for i := 0; i < 100000; i++ {
+			// This is a simplified example; in production, track results properly
+		}
+	}()
+
+	time.Sleep(5 * time.Second)
+
+	// Flush pending publishes and wait for all to complete
+	topic.Stop()
+	if err := client.Close(); err != nil {
+		log.Fatal(err)
+	}
 }
-
-// Flush pending publishes before shutdown.
-topic.Stop()
 ```
 
-## Critical: Don't Block on `Get()`
+## Key Tuning Parameters
 
-The **biggest throughput killer** is calling `result.Get()` synchronously after each publish:
+| Setting | Default | Recommended | Notes |
+|---|---|---|---|
+| `CountThreshold` | 100 | 1000–10000 | Higher = fewer RPCs, higher latency per message |
+| `DelayThreshold` | 10ms | 50–100ms | Increase to wait longer for a full batch |
+| `ByteThreshold` | 1 MiB | 5–10 MiB | Increase if messages are small |
+| `Timeout` | 60s | Keep default | Max time to wait for a batch before force-flush |
+
+**Start with `CountThreshold=1000` and `DelayThreshold=100ms`**, then measure. If you need even higher throughput, raise `CountThreshold` to 5000–10000 (trade-off: higher per-message latency).
+
+## Critical: Avoid Synchronous `Get()`
+
+This is the **most common throughput killer**:
 
 ```go
-// ❌ WRONG — defeats batching, ~1 RPC per message
+// ❌ WRONG: Blocks on every publish
 for i := 0; i < 100000; i++ {
-    result := topic.Publish(ctx, &pubsub.Message{Data: []byte(...)})
-    msgID, err := result.Get(ctx)  // Blocks until this message is ack'd by Pub/Sub
+	result := topic.Publish(ctx, &pubsub.Message{Data: []byte(...)})
+	msgID, err := result.Get(ctx)  // Blocks until this message is sent!
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-Instead, collect results and wait on a background goroutine:
+Calling `Get()` synchronously defeats batching entirely — you're waiting for each message to be sent before publishing the next one. This caps you at ~100 messages/sec (one RPC per 10ms).
+
+**Instead, collect results and check them asynchronously:**
 
 ```go
-// ✅ RIGHT — batching works, results collected asynchronously
+// ✅ CORRECT: Batches publishes
 results := make([]*pubsub.PublishResult, 0, 100000)
 for i := 0; i < 100000; i++ {
-    result := topic.Publish(ctx, &pubsub.Message{Data: []byte(...)})
-    results = append(results, result)
+	result := topic.Publish(ctx, &pubsub.Message{
+		Data: []byte(fmt.Sprintf("message-%d", i)),
+	})
+	results = append(results, result)
 }
 
-// Wait for all in parallel (or on a worker pool)
-var wg sync.WaitGroup
-for _, result := range results {
-    wg.Add(1)
-    go func(r *pubsub.PublishResult) {
-        defer wg.Done()
-        _, err := r.Get(ctx)
-        if err != nil {
-            log.Printf("publish error: %v", err)
-        }
-    }(result)
+// Check results after publishing is done
+for i, result := range results {
+	msgID, err := result.Get(ctx)
+	if err != nil {
+		log.Printf("message %d failed: %v", i, err)
+	}
 }
-wg.Wait()
-
-topic.Stop()  // Flush any final batch
 ```
 
-## Tuning Guidelines
+Or use a worker pool to check results in parallel:
 
-| Scenario | CountThreshold | DelayThreshold | ByteThreshold |
-|---|---|---|---|
-| Low-latency, small msgs | 100–500 | 5–10ms | 100 KiB |
-| Balanced (default) | 100 | 10ms | 1 MiB |
-| High throughput, small msgs | 1000–5000 | 50–100ms | 5–10 MiB |
-| High throughput, large msgs | 100–500 | 50–100ms | 10–50 MiB |
+```go
+// Publish all, then drain results in a goroutine
+go func() {
+	for _, result := range results {
+		msgID, err := result.Get(ctx)
+		if err != nil {
+			log.Printf("publish failed: %v", err)
+		}
+	}
+}()
+```
 
-**Start with `CountThreshold=1000` and `DelayThreshold=100ms`** for most workloads. Measure end-to-end latency (publish to subscriber receives) and adjust down if you need lower latency.
+## Ordering Keys: The Silent Throughput Killer
 
-## Other Throughput Killers
+If you're using `OrderingKey` on every message, **that's your bottleneck**:
 
-1. **Ordering keys on all messages** — ordering forces per-key serialization. Use ordering keys only where order matters; mix ordered and unordered publishes if needed.
-2. **Missing `topic.Stop()` on shutdown** — in-flight batches are dropped. Always call `Stop()` before exiting.
-3. **Publish errors blocking the key** — if a message with `OrderingKey="foo"` fails, all subsequent publishes for `"foo"` block until you call `topic.ResumePublish("foo")`. See [references/publishing.md](references/publishing.md) for error handling.
+```go
+// ❌ This serializes all publishes per key
+result := topic.Publish(ctx, &pubsub.Message{
+	Data: []byte(...),
+	OrderingKey: "my-key",  // All messages with this key are serialized
+})
+```
 
-## Monitoring
+Ordering keys force per-key serialization on the publisher side. If all messages have the same key, you get **one message at a time**, no batching. Throughput drops to ~10–50 msg/sec.
 
-Check your actual throughput with:
+**Use ordering keys only where order matters** (e.g., per-user event streams). For unordered messages, omit `OrderingKey`:
+
+```go
+// ✅ No ordering key = full batching
+result := topic.Publish(ctx, &pubsub.Message{
+	Data: []byte(...),
+	// No OrderingKey
+})
+```
+
+If you need ordering for *some* messages and throughput for others, mix them:
+
+```go
+// Ordered messages (e.g., per-user)
+if needsOrdering {
+	topic.Publish(ctx, &pubsub.Message{
+		Data: []byte(...),
+		OrderingKey: userID,
+	})
+} else {
+	// Unordered messages batch freely
+	topic.Publish(ctx, &pubsub.Message{
+		Data: []byte(...),
+	})
+}
+```
+
+## Verify the Fix
+
+Monitor with `gcloud`:
+
 ```bash
-gcloud pubsub topics describe my-topic --format='value(messageStoragePolicy)'
-gcloud monitoring time-series list --filter='resource.type="pubsub_topic" AND metric.type="pubsub.googleapis.com/topic/publish_message_operation_count"'
+# Watch publish rate (messages/sec)
+gcloud pubsub topics list --format='table(name,messageStoragePolicy)' \
+  && gcloud monitoring time-series list \
+  --filter='metric.type="pubsub.googleapis.com/topic/publish_message_operation_count"'
 ```
 
-If you're still capped after tuning, you may be hitting the **per-region quota** (default 10k msgs/sec per topic). Request a quota increase via the Cloud Console.
+Or check the Cloud Console → Pub/Sub → Topics → your topic → Metrics tab. You should see:
+- **Publish message operation count** dropping (fewer RPCs)
+- **Publish message request count** rising (more messages per RPC)
+- **Publish latency (p50/p99)** rising slightly (batching adds latency)
+
+## Shutdown: Don't Lose In-Flight Messages
+
+**Always call `topic.Stop()` before `client.Close()`:**
+
+```go
+// Flush all pending publishes
+topic.Stop()
+
+// Then close the client
+if err := client.Close(); err != nil {
+	log.Fatal(err)
+}
+```
+
+Skipping `Stop()` drops in-flight messages on process exit. `Stop()` blocks until all pending publishes are sent or the context times out.
+
+## Summary
+
+| Action | Impact |
+|---|---|
+| Raise `CountThreshold` to 1000+ | 10–100x throughput gain |
+| Raise `DelayThreshold` to 50–100ms | Allows larger batches to form |
+| Raise `ByteThreshold` to 5–10 MiB | Handles larger messages efficiently |
+| Remove synchronous `Get()` calls | 100–1000x throughput gain (this is usually the culprit) |
+| Remove unnecessary `OrderingKey` | 10–100x throughput gain if you were using it globally |
+| Call `topic.Stop()` on shutdown | Prevents message loss |
+
+Start with the synchronous `Get()` audit — that's the most common cause of "only a few hundred msg/sec" on a topic that should handle thousands.
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers cover the three key criteria well, but Answer A is more precise on the batching thresholds (explicitly recommending raising DelayThreshold to 100ms and ByteThreshold to 5MiB, not just CountThreshold), gives a clearer explanation of why synchronous Get() defeats batching, and prominently calls out Topic.Stop() with an explanation of consequences. Answer B adds useful extras (gRPC connection pool, flow control) but slightly undersells DelayThreshold tuning and buries Topic.Stop() in a passing mention rather than giving it its own section.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers cover all three rubric criteria well, but Answer A is more focused and idiomatic. Answer A clearly shows the fire-and-collect pattern as the canonical fix, explicitly names all three batching thresholds with concrete values, and prominently calls out Topic.Stop() as a correctness concern. Answer B is also solid but introduces some noise (e.g., suggesting NumGoroutines = 4*runtime.NumCPU() which overrides a reasonable default, and the goroutine-per-message fan-out pattern which can cause goroutine explosion), making it slightly less idiomatic in its recommendations.
 
 **Per-criterion verdict (judge)**
 
@@ -2366,177 +2500,166 @@ If you're still capped after tuning, you may be hitting the **per-region quota**
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | tune PublishSettings batching | ✓ | `PublishSettings` |
-| warns against per-publish blocking Get | ✓ | `Don't `Get` |
-| mentions Topic.Stop on shutdown | ✓ | `topic.Stop` |
+| warns against per-publish blocking Get | ✓ | `defeats batch` |
+| mentions Topic.Stop on shutdown | ✓ | `Topic.Stop` |
 
 <details><summary>opus: baseline answer</summary>
 
-A few hundred msg/sec from a Go publisher to Pub/Sub almost always means you're bottlenecked on the **client**, not the topic. Pub/Sub topics scale to millions of messages/sec; the Go client just needs to be configured and used correctly.
+A few hundred msgs/sec from a Go publisher almost always means you're bottlenecked on the client, not Pub/Sub. The defaults are conservative. Things to look at, roughly in order of impact:
 
-Here's what to look at, in rough order of impact:
+## 1. Batching settings (`PublishSettings`)
 
-## 1. Batch settings (`PublishSettings`)
+The Go client batches messages per topic. Defaults are:
+- `DelayThreshold`: 10ms
+- `CountThreshold`: 100
+- `ByteThreshold`: 1MB
 
-The defaults are conservative. Tune these on `topic.PublishSettings`:
+If your messages are tiny and you call `Publish` infrequently per goroutine, you may be flushing on the 10ms timer with very few messages per batch. Try:
 
 ```go
-topic.PublishSettings = pubsub.PublishSettings{
-    DelayThreshold: 10 * time.Millisecond, // default 10ms — fine
-    CountThreshold: 1000,                   // default 100 — raise it
-    ByteThreshold:  1e6,                    // default 1MB — usually fine
-    NumGoroutines:  runtime.NumCPU(),       // default 25*GOMAXPROCS, try tuning
-    Timeout:        60 * time.Second,
-}
+topic.PublishSettings.DelayThreshold = 50 * time.Millisecond
+topic.PublishSettings.CountThreshold = 1000   // up to 1000 max
+topic.PublishSettings.ByteThreshold = 5e6
 ```
 
-For small messages, `CountThreshold` is usually the limit. Raising it from 100 → 1000 lets the client pack more per RPC.
+`CountThreshold` is capped at 1000 server-side. Larger `DelayThreshold` lets batches fill, at the cost of latency.
 
-## 2. Don't block on every `Result.Get`
-
-This is the #1 mistake. If you do:
+## 2. Concurrency / goroutines per topic
 
 ```go
-for _, msg := range messages {
-    r := topic.Publish(ctx, msg)
+topic.PublishSettings.NumGoroutines = 4 * runtime.NumCPU()
+```
+
+Default is `25 * GOMAXPROCS`, which is usually fine, but each goroutine maintains a stream. More importantly, make sure **you** are calling `Publish` from many goroutines — `Publish` is non-blocking and returns a `*PublishResult`, but if you `Get()` synchronously after each call you've serialized the whole pipeline.
+
+Don't do this:
+```go
+for _, m := range msgs {
+    r := topic.Publish(ctx, m)
     _, err := r.Get(ctx) // <-- serializes everything
 }
 ```
 
-…you've defeated batching entirely. Instead, fan out:
-
+Do this — fan out the `Get` calls:
 ```go
-results := make([]*pubsub.PublishResult, 0, len(messages))
-for _, m := range messages {
-    results = append(results, topic.Publish(ctx, m))
-}
-for _, r := range results {
-    if _, err := r.Get(ctx); err != nil { /* handle */ }
+for _, m := range msgs {
+    r := topic.Publish(ctx, m)
+    go func() {
+        if _, err := r.Get(ctx); err != nil { ... }
+    }()
 }
 ```
 
-Or handle results in a separate goroutine / errgroup with a worker pool.
+Or buffer the results and check them later.
 
-## 3. Reuse the client and topic
+## 3. Flow control
 
-`pubsub.Client` and `*pubsub.Topic` are safe for concurrent use and maintain the gRPC connection pool and batchers. Don't create a new one per request. Call `topic.Stop()` only at shutdown to flush.
-
-## 4. Increase gRPC connections
-
-Under high throughput, a single HTTP/2 connection becomes the bottleneck (stream concurrency limit). Bump connection pool size when constructing the client:
-
-```go
-client, err := pubsub.NewClient(ctx, projectID,
-    option.WithGRPCConnectionPool(runtime.NumCPU()),
-)
-```
-
-A pool of 4–8 is usually plenty.
-
-## 5. Flow control
-
-Enable publisher flow control so you don't OOM but also don't stall:
+Outbound flow control is off by default. If you're saturating memory it's worth setting, but it can also throttle you if misconfigured:
 
 ```go
 topic.PublishSettings.FlowControlSettings = pubsub.FlowControlSettings{
-    MaxOutstandingMessages: 10000,
-    MaxOutstandingBytes:    100 * 1024 * 1024,
+    MaxOutstandingMessages: 100_000,
+    MaxOutstandingBytes:    1 << 30,
     LimitExceededBehavior:  pubsub.FlowControlBlock,
 }
 ```
 
-## 6. Check ordering keys
+## 4. Reuse the `*Topic`
 
-If you're setting `OrderingKey`, throughput per key is limited (messages with the same key must publish serially). Either remove ordering or spread across many keys.
+Don't call `client.Topic("foo")` per publish in a hot path — or rather, don't recreate it inside loops in a way that makes you `Stop()` and re-bundle. One `*Topic` per topic, kept for the process lifetime. Call `topic.Stop()` only on shutdown.
 
-## 7. Verify it's actually the client
+## 5. Reuse the `*Client`
 
-- Run with `GODEBUG=http2debug=1` or enable OpenTelemetry tracing on the client to see RPC latency.
-- Check Cloud Monitoring: `pubsub.googleapis.com/topic/send_request_count` and request latency. If RPC latency is fine but rate is low, it's batching/concurrency. If latency is high, it's network/region.
-- Make sure your publisher runs in the same region as the topic.
+Same — one client per process. The underlying gRPC connection pool is shared.
 
-## Quick checklist
+## 6. gRPC connection pool
 
-| Symptom | Likely fix |
-|---|---|
-| Calling `Get` inline | Fan out results |
-| ~100 msg/batch ceiling | Raise `CountThreshold` |
-| One connection saturating | `WithGRPCConnectionPool` |
-| Using ordering keys | Use more keys or drop ordering |
-| New client per call | Reuse client/topic |
+For very high throughput, increase the gRPC connection pool:
 
-In practice, fixing the `Result.Get` pattern + raising `CountThreshold` + a connection pool of 4 will typically take you from a few hundred to tens of thousands of msg/sec on a single VM.
+```go
+client, err := pubsub.NewClient(ctx, projectID,
+    option.WithGRPCConnectionPool(8))
+```
+
+Default is 4. Each connection multiplexes streams but has practical concurrency limits.
+
+## 7. Check what's actually slow
+
+Before tuning blindly, look at the publish latency metric (`pubsub.googleapis.com/topic/send_request_count` and request latencies in Cloud Monitoring), and enable client tracing or just measure how long `Publish → Get` takes. If individual RPCs are fast but throughput is low, it's batching/concurrency. If RPCs are slow, it's network or auth.
+
+## Typical fix
+
+For most "few hundred msgs/sec" cases the culprit is **calling `Get()` synchronously after each `Publish`**. Fix that first; the batcher can't help you if you only ever have one message in flight.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-Short answer: your defaults are throttling you. The Go client batches publishes, but the default thresholds are tiny (100 msgs / 10 ms / 1 MiB), and a couple of common code patterns defeat batching entirely. Tune in this order:
+Short answer: your default `PublishSettings` are batching too conservatively, and you may be defeating batching entirely by `Get()`-ing each result synchronously. Fix both.
 
-## 1. Raise `PublishSettings` thresholds
+## The two most likely causes
 
-```go
-topic := client.Topic("my-topic")
-topic.PublishSettings = pubsub.PublishSettings{
-    CountThreshold: 1000,                  // default 100
-    DelayThreshold: 100 * time.Millisecond, // default 10ms
-    ByteThreshold:  5 * 1024 * 1024,       // default 1 MiB; raise to 5–10 MiB
-    NumGoroutines:  runtime.NumCPU(),      // parallel publish RPCs per topic
-    Timeout:        60 * time.Second,
-}
-```
-
-A batch flushes when **any** threshold is hit. With small messages, `CountThreshold` and `DelayThreshold` are what matter — raising `CountThreshold` lets more messages amortize each RPC's overhead; raising `DelayThreshold` gives the batcher time to fill up.
-
-## 2. Don't `Get()` synchronously after every Publish
-
-This is the most common throughput killer:
+**1. Synchronous `Get()` after every `Publish`** — this is the #1 throughput killer.
 
 ```go
-// ❌ Defeats batching — each Publish waits for its own RPC round-trip
+// ❌ WRONG — defeats batching, ~hundreds msg/sec ceiling
 for _, m := range messages {
-    res := topic.Publish(ctx, m)
-    if _, err := res.Get(ctx); err != nil { ... }
+    result := topic.Publish(ctx, m)
+    id, err := result.Get(ctx) // blocks until this single message is sent
+    ...
 }
 ```
 
-`Publish` is non-blocking and returns immediately — it hands the message to the batcher. Calling `Get()` in the same loop iteration forces the batch to flush with one message in it. Instead, fire all publishes first, then collect results on a separate goroutine:
+`Topic.Publish` returns immediately and queues the message into an internal batcher. Calling `Get()` in the same loop iteration blocks until that batch flushes, so you never accumulate a batch worth sending.
 
 ```go
-// ✅ Lets the batcher accumulate
+// ✅ RIGHT — fire-and-collect, lets the batcher fill
 results := make([]*pubsub.PublishResult, 0, len(messages))
 for _, m := range messages {
     results = append(results, topic.Publish(ctx, m))
 }
-// Drain in a goroutine, or after the publish loop
+// Drain results on a worker goroutine, or after the publish loop:
 for _, r := range results {
-    if _, err := r.Get(ctx); err != nil { /* handle */ }
+    id, err := r.Get(ctx)
+    if err != nil {
+        // handle (often retryable; consider ResumePublish if using ordering keys)
+    }
 }
 ```
 
-## 3. Reuse one `*pubsub.Topic` handle
+**2. Conservative `PublishSettings` defaults**
 
-`Topic` is goroutine-safe and holds the batcher state. If you're calling `client.Topic("name")` per request, you're getting a fresh handle with an empty batch each time. Create it once at startup and share it.
-
-## 4. Check for ordering keys
-
-If every message has the same `OrderingKey` (or you set one unnecessarily), publishes for that key are serialized — capping you at roughly one in-flight batch per key. Only use ordering keys where order actually matters, and partition across many keys when you do.
-
-## 5. Always `topic.Stop()` on shutdown
+The defaults are roughly: 100 messages, 1 MiB, **10ms** delay. For high throughput, raise them:
 
 ```go
-defer topic.Stop() // flushes pending batches
+topic := client.Topic("my-topic")
+topic.PublishSettings = pubsub.PublishSettings{
+    DelayThreshold: 50 * time.Millisecond,  // was 10ms — let batches fill
+    CountThreshold: 1000,                   // was 100
+    ByteThreshold:  5 * 1024 * 1024,        // was ~1 MiB; raise to 5–10 MiB
+    NumGoroutines:  // leave default unless profiling says otherwise
+        0,
+    Timeout: 60 * time.Second,
+}
 ```
 
-This isn't a throughput fix, but without it your last batch (up to several seconds of messages on the new settings) is silently dropped on process exit.
+`DelayThreshold` is usually the most impactful knob — 10ms is too short for a batch to fill at moderate publish rates.
 
-## What to expect
+## Other things to check
 
-After (1)–(3), small-message throughput on a single publisher should jump from hundreds/sec into the tens of thousands/sec range, bounded by your per-region publish quota. If you're still slow after that, check:
+- **Ordering keys.** If every message has an `OrderingKey`, the publisher serializes per key, which caps throughput. Use ordering keys only on messages that need order; leave the rest with `OrderingKey = ""`.
+- **One `Topic` handle, reused.** `Topic` is goroutine-safe and the batcher lives on the handle. Don't call `client.Topic("...")` per publish — create it once, reuse it.
+- **`Topic.Stop()` on shutdown.** Without it, the final un-flushed batch is dropped on process exit. This doesn't affect steady-state throughput but matters for correctness.
+- **Publisher flow control** (`PublishSettings.FlowControlSettings`) is off by default. If you're queueing faster than the network drains, you can OOM — but that's a separate concern from your current throughput problem.
 
-- Region locality — publishing across regions adds RTT to every batch RPC.
-- `oldest_unacked_message_age` and publish-side error metrics, in case you're hitting quota and the client is retrying.
+## Suggested order of operations
 
-The "Publishing" reference in this skill has the full settings rundown if you want to dig further.
+1. Audit your publish loop for synchronous `Get()`. Fix that first — it alone often gets you 10–100× improvement.
+2. Raise `DelayThreshold` to 50–100ms and `CountThreshold` to 1000.
+3. Re-measure. If still bottlenecked, raise `ByteThreshold` and check whether ordering keys are in play.
+4. If you're now hitting a hard ceiling, you may be at the per-region publish quota — check the Pub/Sub quota page and Cloud Monitoring's `topic/send_request_count`.
+
+Want me to look at your actual publish code to spot which of these is biting you?
 
 </details>
 
@@ -2558,7 +2681,7 @@ fails.
 
 #### `sonnet`
 
-**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly identify all four rubric criteria: IAM as the root cause, publisher role on the DLT, subscriber role on the source subscription, and the Pub/Sub service account format. Answer A is slightly more concise and better organized with a clear table, while Answer B adds a Terraform example and a Python code sample that broaden its practical utility. Neither answer is meaningfully superior on the core rubric criteria.
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly identify all four rubric criteria: IAM as the root cause, publisher role on DLT, subscriber role on source subscription, and the Pub/Sub service account. Answer A is slightly more concise and better structured for quick diagnosis, while Answer B adds useful extras like the minimum maxDeliveryAttempts value (5), the update_mask requirement for Python client, and the googclient_deliveryattempt attribute for debugging. Neither answer is clearly superior overall.
 
 **Per-criterion verdict (judge)**
 
@@ -2595,255 +2718,227 @@ This is a very common misconfiguration. There are usually **several things worki
 
 ---
 
-## Most Common Root Causes
+## The Most Common Causes
 
 ### 1. Missing IAM Permissions (Most Frequent Culprit)
 
-The Pub/Sub service account needs permissions on **both** the dead-letter topic **and** your original subscription.
+Pub/Sub uses a **service account** to forward messages to the DLT. If it lacks permissions, it silently fails and keeps retrying.
 
 ```bash
 # Get your project's Pub/Sub service account
-PROJECT_ID="your-project-id"
-PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
+PROJECT_ID=$(gcloud config get-value project)
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
 PUBSUB_SA="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
 
 echo "Service Account: $PUBSUB_SA"
 
-# Grant Publisher role on the dead-letter topic
+# Grant Publisher role on the dead-letter TOPIC
 gcloud pubsub topics add-iam-policy-binding your-dead-letter-topic \
   --member="serviceAccount:${PUBSUB_SA}" \
   --role="roles/pubsub.publisher"
 
 # Grant Subscriber role on the ORIGINAL subscription
-# (needed so Pub/Sub can acknowledge messages on your behalf)
+# (Pub/Sub needs to ack messages before forwarding them)
 gcloud pubsub subscriptions add-iam-policy-binding your-original-subscription \
   --member="serviceAccount:${PUBSUB_SA}" \
   --role="roles/pubsub.subscriber"
 ```
 
-> ⚠️ Without these permissions, Pub/Sub **silently fails** to forward to the DLT and just keeps retrying. No error is surfaced to you.
+> ⚠️ **Both permissions are required.** Missing the Subscriber role on the source subscription is easy to overlook.
 
 ---
 
-### 2. `maxDeliveryAttempts` Range Violation
+### 2. Verify Your Subscription Configuration Is Actually Set
 
 ```bash
-# WRONG - out of valid range
-maxDeliveryAttempts=1   # Too low
-maxDeliveryAttempts=100 # Too high
+# Confirm DLT config is really there
+gcloud pubsub subscriptions describe your-subscription
 
-# Valid range is 5–100 inclusive
-maxDeliveryAttempts=5   # Minimum valid value
-maxDeliveryAttempts=10  # Typical value
+# Look for this block in the output:
+# deadLetterPolicy:
+#   deadLetterTopic: projects/YOUR_PROJECT/topics/your-dead-letter-topic
+#   maxDeliveryAttempts: 5
 ```
-
----
-
-### 3. Delivery Attempt Count Isn't Incrementing
-
-Pub/Sub only increments the delivery attempt counter when it receives a **NACK** or the **ack deadline expires**. If your subscriber is doing this, the counter never advances:
 
 ```python
-# ❌ BAD - silently dropping the message, counter may not increment correctly
-def callback(message):
-    try:
-        process(message)
-    except Exception:
-        pass  # Neither acking nor nacking!
-    message.ack()  # Acking even on failure - DLT never triggered
+# If creating/updating via Python client - correct way
+from google.cloud import pubsub_v1
+from google.pubsub_v1.types import DeadLetterPolicy
 
-# ✅ GOOD - explicitly NACK so the attempt counter increments
-def callback(message):
-    try:
-        process(message)
-        message.ack()
-    except Exception as e:
-        print(f"Processing failed: {e}")
-        message.nack()  # Explicit NACK triggers retry counting
+subscriber = pubsub_v1.SubscriberClient()
+
+dead_letter_policy = DeadLetterPolicy(
+    dead_letter_topic="projects/YOUR_PROJECT/topics/your-dead-letter-topic",
+    max_delivery_attempts=5,  # Must be between 5 and 100
+)
+
+# UPDATE requires update_mask - missing this is another common bug
+subscription = {
+    "name": "projects/YOUR_PROJECT/subscriptions/your-subscription",
+    "dead_letter_policy": dead_letter_policy,
+}
+
+update_mask = {"paths": ["dead_letter_policy"]}  # Don't forget this!
+
+subscriber.update_subscription(
+    request={"subscription": subscription, "update_mask": update_mask}
+)
 ```
 
 ---
 
-### 4. Verifying Your Subscription Configuration
+### 3. The DLT Topic Must Exist Before the Subscription
 
 ```bash
-# Check that DLT is actually configured on the subscription
-gcloud pubsub subscriptions describe your-subscription --format=json | \
-  jq '.deadLetterPolicy'
+# Create DLT topic FIRST
+gcloud pubsub topics create your-dead-letter-topic
 
-# Expected output:
-# {
-#   "deadLetterTopic": "projects/your-project/topics/your-dead-letter-topic",
-#   "maxDeliveryAttempts": 5
-# }
-
-# If output is null, the DLT was never actually set
-```
-
----
-
-### 5. Updating an Existing Subscription (Easy to Miss)
-
-```bash
-# Creating a new subscription with DLT - correct
+# Then create/update the subscription
 gcloud pubsub subscriptions create your-subscription \
-  --topic=your-topic \
-  --dead-letter-topic=projects/your-project/topics/your-dead-letter-topic \
-  --max-delivery-attempts=5
-
-# Updating an EXISTING subscription - requires explicit update command
-gcloud pubsub subscriptions modify-push-config your-subscription  # ❌ Wrong command
-
-# ✅ Correct way to update existing subscription
-gcloud pubsub subscriptions update your-subscription \
-  --dead-letter-topic=projects/your-project/topics/your-dead-letter-topic \
+  --topic=your-main-topic \
+  --dead-letter-topic=projects/YOUR_PROJECT/topics/your-dead-letter-topic \
   --max-delivery-attempts=5
 ```
 
 ---
 
-## Complete Working Terraform Example
+### 4. Understand How Delivery Attempts Are Counted
 
-```hcl
-locals {
-  project_number = data.google_project.project.number
-  pubsub_sa      = "service-${local.project_number}@gcp-sa-pubsub.iam.gserviceaccount.com"
-}
+```
+┌─────────────────────────────────────────────────────────┐
+│  maxDeliveryAttempts = 5                                │
+│                                                         │
+│  Attempt 1: delivered → subscriber NACKs               │
+│  Attempt 2: redelivered → subscriber NACKs             │
+│  Attempt 3: redelivered → subscriber NACKs             │
+│  Attempt 4: redelivered → subscriber NACKs             │
+│  Attempt 5: redelivered → subscriber NACKs             │
+│             ↓                                           │
+│         Forwarded to DLT ✓                             │
+└─────────────────────────────────────────────────────────┘
 
-data "google_project" "project" {}
-
-resource "google_pubsub_topic" "main" {
-  name = "your-topic"
-}
-
-resource "google_pubsub_topic" "dead_letter" {
-  name = "your-dead-letter-topic"
-}
-
-resource "google_pubsub_subscription" "main" {
-  name  = "your-subscription"
-  topic = google_pubsub_topic.main.name
-
-  dead_letter_policy {
-    dead_letter_topic     = google_pubsub_topic.dead_letter.id
-    max_delivery_attempts = 5  # Valid range: 5-100
-  }
-
-  # Give enough time for processing before ack deadline expires
-  ack_deadline_seconds = 60
-}
-
-# Critical: Publisher on DLT
-resource "google_pubsub_topic_iam_member" "dlt_publisher" {
-  topic  = google_pubsub_topic.dead_letter.name
-  role   = "roles/pubsub.publisher"
-  member = "serviceAccount:${local.pubsub_sa}"
-}
-
-# Critical: Subscriber on original subscription
-resource "google_pubsub_subscription_iam_member" "original_subscriber" {
-  subscription = google_pubsub_subscription.main.name
-  role         = "roles/pubsub.subscriber"
-  member       = "serviceAccount:${local.pubsub_sa}"
-}
+⚠️  If your subscriber lets the ackDeadline EXPIRE instead
+    of explicitly NACKing, the attempt counter still
+    increments — but more slowly.
 ```
 
 ---
 
-## Diagnostic Checklist
-
-```
-[ ] IAM: Pub/Sub SA has Publisher on dead-letter topic
-[ ] IAM: Pub/Sub SA has Subscriber on original subscription
-[ ] maxDeliveryAttempts is between 5 and 100
-[ ] Subscriber explicitly NACKs on failure (not silently acking)
-[ ] Verified DLT config with `describe` command (not just assuming it applied)
-[ ] DLT topic exists in the same project (cross-project needs full resource path)
-[ ] A subscription exists on the DLT itself (to actually receive the messages)
-```
-
----
-
-## Quick Verification Test
+### 5. The DLT Itself Needs a Subscription (or messages vanish)
 
 ```bash
-# Monitor delivery attempt counts in real time
-gcloud pubsub subscriptions describe your-subscription \
-  --format="value(deadLetterPolicy)"
-
-# Check if messages are arriving in DLT
-# (you need a subscription on the DLT to pull from it)
-gcloud pubsub subscriptions create dlt-debug-sub \
-  --topic=your-dead-letter-topic
-
-gcloud pubsub subscriptions pull dlt-debug-sub --limit=10 --auto-ack
+# Messages published to DLT are lost if nothing subscribes to it!
+gcloud pubsub subscriptions create your-dead-letter-sub \
+  --topic=your-dead-letter-topic \
+  --ack-deadline=60
 ```
 
-**The IAM permissions issue is almost certainly your problem** — it's the most common cause and Pub/Sub gives you zero indication that it's failing to forward messages because of it.
+---
+
+## Quick Diagnostic Checklist
+
+```
+[ ] DLT topic exists before subscription was created
+[ ] Pub/Sub SA has roles/pubsub.publisher on DLT topic
+[ ] Pub/Sub SA has roles/pubsub.subscriber on source subscription
+[ ] maxDeliveryAttempts is between 5–100 (not less than 5)
+[ ] Subscription describe output shows deadLetterPolicy block
+[ ] DLT topic has at least one subscription
+[ ] Subscriber is explicitly NACKing (not just crashing/timing out)
+```
+
+---
+
+## Verify It's Working
+
+```bash
+# Watch delivery attempt count on a specific message
+# The attribute is added automatically by Pub/Sub
+gcloud pubsub subscriptions pull your-subscription --auto-ack
+
+# Messages will have this attribute:
+# googclient_deliveryattempt: "3"  ← increments each retry
+
+# Check DLT subscription for forwarded messages
+gcloud pubsub subscriptions pull your-dead-letter-sub --auto-ack
+```
+
+---
+
+## Summary
+
+| Issue | Fix |
+|---|---|
+| Missing Publisher on DLT | Grant `pubsub.publisher` to Pub/Sub SA |
+| Missing Subscriber on source | Grant `pubsub.subscriber` to Pub/Sub SA |
+| DLT didn't exist yet | Create topic first, recreate subscription |
+| `maxDeliveryAttempts < 5` | Minimum allowed value is **5** |
+| No subscription on DLT | Create one or messages are silently dropped |
+
+The **IAM permissions** issue accounts for ~90% of cases where this silently fails.
 
 </details>
 
 <details><summary>sonnet: skill-loaded answer</summary>
 
-The most common cause is missing IAM bindings — Pub/Sub silently continues retrying instead of forwarding to the DLT when the service account lacks permission. There are usually two or three things to check in order.
+The most common cause is missing IAM bindings — Pub/Sub silently continues retrying instead of forwarding to the DLT when the service account lacks permission. There are usually two or three things wrong at once. Work through this checklist in order.
 
-## 1. IAM bindings (most likely cause)
+---
 
-Pub/Sub uses a **per-project service account** to forward messages. It needs two roles, and both are required:
+## 1. Grant the required IAM bindings (most common cause)
+
+Pub/Sub uses a **project-level service account** to forward messages. It needs two roles:
 
 | Role | On what resource | Why |
 |---|---|---|
-| `roles/pubsub.publisher` | The dead-letter **topic** | So it can publish the failed message |
-| `roles/pubsub.subscriber` | The **source subscription** | So it can ack the message after forwarding |
+| `roles/pubsub.publisher` | The **dead-letter topic** | So it can publish the failed message |
+| `roles/pubsub.subscriber` | The **source subscription** | So it can ack the message off the source |
 
-The service account follows the pattern:
-```
-service-PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com
-```
+Both are required. Missing either one causes silent retry-forever behavior.
 
-Get your project number and grant both roles:
-
+**Find your service account:**
 ```bash
-PROJECT_ID=your-project-id
-PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
-SA="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
+PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)')
+PUBSUB_SA="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
+echo $PUBSUB_SA
+```
 
+**Grant the bindings:**
+```bash
 # Publisher role on the dead-letter topic
-gcloud pubsub topics add-iam-policy-binding your-dlt-topic \
-  --member="serviceAccount:${SA}" \
+gcloud pubsub topics add-iam-policy-binding YOUR_DLT_TOPIC \
+  --member="serviceAccount:${PUBSUB_SA}" \
   --role="roles/pubsub.publisher"
 
 # Subscriber role on the source subscription
-gcloud pubsub subscriptions add-iam-policy-binding your-source-subscription \
-  --member="serviceAccount:${SA}" \
+gcloud pubsub subscriptions add-iam-policy-binding YOUR_SOURCE_SUBSCRIPTION \
+  --member="serviceAccount:${PUBSUB_SA}" \
   --role="roles/pubsub.subscriber"
 ```
-
-Missing **either** binding causes silent retry loops. There is no error surfaced to the publisher or subscriber — the only signal is that `num_undelivered_messages` keeps climbing and the DLT stays empty.
 
 ---
 
 ## 2. Verify the DLT is actually attached
 
-Confirm the subscription has the dead-letter policy set correctly:
+Confirm the subscription config reflects what you think it does:
 
 ```bash
-gcloud pubsub subscriptions describe your-source-subscription \
+gcloud pubsub subscriptions describe YOUR_SOURCE_SUBSCRIPTION \
   --format='yaml(deadLetterPolicy)'
 ```
 
 Expected output:
 ```yaml
 deadLetterPolicy:
-  deadLetterTopic: projects/your-project/topics/your-dlt-topic
+  deadLetterTopic: projects/YOUR_PROJECT/topics/YOUR_DLT_TOPIC
   maxDeliveryAttempts: 5
 ```
 
-If this is empty, the DLT was never attached (or was attached to the wrong subscription). Re-apply it:
+If this is empty or missing, the DLT was never attached (or was attached to a different subscription). Re-apply it:
 
 ```bash
-gcloud pubsub subscriptions modify-push-config your-source-subscription \
-  --dead-letter-topic=projects/your-project/topics/your-dlt-topic \
+gcloud pubsub subscriptions modify-push-config YOUR_SOURCE_SUBSCRIPTION \
+  --dead-letter-topic=YOUR_DLT_TOPIC \
   --max-delivery-attempts=5
 ```
 
@@ -2851,76 +2946,83 @@ gcloud pubsub subscriptions modify-push-config your-source-subscription \
 
 ## 3. Understand what counts as a "delivery attempt"
 
-`maxDeliveryAttempts` counts **ack-deadline expirations and explicit nacks**, not wall-clock time. A few things can reset or stall the counter:
+`maxDeliveryAttempts` counts **Pub/Sub-level delivery attempts**, not your application's internal retry loops. A delivery attempt is only counted when Pub/Sub delivers the message to your subscriber and the subscriber either nacks it or lets the ack deadline expire.
 
-- **Your subscriber is neither acking nor nacking** — if the handler crashes or the process restarts before calling `msg.Ack()` or `msg.Nack()`, the lease expires and redelivery happens, but the attempt counter does increment. If the process is restarting very quickly, check whether it's actually reaching the handler at all.
-- **The ack deadline is very long** — with a 600s deadline and slow processing, it can take a long time to accumulate 5 attempts. Lower the deadline or explicitly `msg.Nack()` immediately on unrecoverable errors instead of waiting for expiry.
-- **Exactly-once delivery is enabled** — EOD interacts with the attempt counter in subtle ways. If you don't need EOD, disable it on the source subscription.
+Two things that do **not** increment the counter:
+- Your handler catching an exception and retrying internally without nacking
+- Your handler returning without calling `msg.Ack()` or `msg.Nack()` (the lease just expires and redelivers — this *does* eventually count, but slowly)
 
-In Go, always nack explicitly on unrecoverable errors rather than letting the lease expire:
-
+**In Go, make sure you're explicitly nacking on failure:**
 ```go
 sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
     if err := process(msg); err != nil {
-        if isUnrecoverable(err) {
-            msg.Nack() // counts as an attempt immediately
-            return
-        }
-        msg.Nack() // retryable — still nack, let backoff handle it
+        msg.Nack() // ← required; tells Pub/Sub this attempt failed
         return
     }
     msg.Ack()
 })
 ```
 
+If your handler panics or the process crashes before calling either, the ack deadline expires and the attempt *does* count — but slowly (one attempt per deadline expiry, default 10s, up to 600s).
+
 ---
 
-## 4. Confirm the DLT has a subscription
+## 4. Check that the DLT itself has a subscription
 
-The DLT itself needs at least one subscription, otherwise forwarded messages are accepted but immediately discarded (no subscriber = no retention beyond the topic's message retention window). Create one if it's missing:
+Messages forwarded to the DLT are gone if nothing is subscribed to it. The DLT is just a regular topic — create a subscription on it so you can inspect failures:
 
 ```bash
-gcloud pubsub subscriptions create your-dlt-sub \
-  --topic=your-dlt-topic \
+gcloud pubsub subscriptions create YOUR_DLT_SUB \
+  --topic=YOUR_DLT_TOPIC \
   --message-retention-duration=7d
 ```
 
+Then pull to confirm messages are arriving:
+```bash
+gcloud pubsub subscriptions pull YOUR_DLT_SUB --limit=5 --auto-ack
+```
+
 ---
 
-## Quick diagnostic checklist
+## 5. Confirm the DLT is in the same project (or adjust permissions)
+
+The DLT can be in a different project, but the IAM bindings in step 1 must be applied in **that project** using the service account from the **source project**. Cross-project DLTs are valid but the binding target changes — this is a frequent source of confusion.
+
+---
+
+## Quick diagnostic summary
 
 ```
-[ ] IAM: publisher role on DLT topic
-[ ] IAM: subscriber role on source subscription
-[ ] deadLetterPolicy confirmed on source subscription (gcloud describe)
-[ ] maxDeliveryAttempts is 5–100 (values outside this range are rejected)
-[ ] Subscriber is calling msg.Nack() on failures, not silently dropping
-[ ] DLT has at least one subscription so messages aren't silently discarded
+Retrying forever?
+├── gcloud subscriptions describe → deadLetterPolicy missing?  → Re-attach DLT
+├── IAM bindings missing?                                       → Grant publisher + subscriber roles
+├── Handler not calling msg.Nack()?                            → Fix subscriber code
+└── DLT has no subscription?                                   → Create one to observe failures
 ```
 
-The IAM step catches the problem in the vast majority of cases — start there.
+Fix the IAM bindings first — that's the cause in the vast majority of cases.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B explicitly identifies both required IAM bindings — publisher on the DLT and subscriber on the source subscription — which is the core of the focus area. Answer A only mentions the publisher role on the DLT and completely omits the subscriber role on the source subscription, which is a critical miss. Answer B also correctly names the Pub/Sub service account format and provides commands for both bindings.
+**Met:** ✓  ·  **Judge:** **skill** — Answer B directly and prominently identifies the IAM bindings as the root cause, specifying both the publisher role on the DLT and the subscriber role on the source subscription, along with the exact Pub/Sub service account name. Answer A only briefly mentions IAM in a table row and focuses primarily on configuration syntax, missing the core insight about why DLT forwarding silently fails.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
-| identifies IAM as the cause | tie |
-| mentions publisher role on DLT | tie |
+| identifies IAM as the cause | skill |
+| mentions publisher role on DLT | skill |
 | mentions subscriber role on source | skill |
-| mentions Pub/Sub service account | tie |
+| mentions Pub/Sub service account | skill |
 
 **Baseline rubric**
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | identifies IAM as the cause | ✓ | `IAM` |
-| mentions publisher role on DLT | ✓ | `roles/pubsub.publisher` |
+| mentions publisher role on DLT | ✓ | `publish` on the DLT` |
 | mentions subscriber role on source | ✗ | |
 | mentions Pub/Sub service account | ✓ | `service account` |
 
@@ -2937,61 +3039,75 @@ The IAM step catches the problem in the vast majority of cases — start there.
 
 # Dead-Letter Topic Configuration Issue
 
-The most common reason messages aren't reaching your DLT is that you're missing the **IAM permission** for Pub/Sub to *publish* to the dead-letter topic.
+The most common reason messages aren't reaching your DLT is that you're missing the **`deadLetterPolicy`** configuration. Setting `maxDeliveryAttempts` alone isn't enough.
 
-## Required Setup
+## What You Need
 
-### 1. **Grant Publishing Permission**
-The Pub/Sub service account needs `pubsub.publisher` role on the dead-letter topic:
+You must configure **both**:
+
+1. **`deadLetterPolicy`** - specifies the DLT topic
+2. **`maxDeliveryAttempts`** - sets the retry limit
+
+## Example: Correct Configuration
+
+### Using gcloud CLI
+```bash
+gcloud pubsub subscriptions update my-subscription \
+  --dead-letter-topic=projects/PROJECT_ID/topics/my-dlq-topic \
+  --max-delivery-attempts=5
+```
+
+### Using Terraform
+```hcl
+resource "google_pubsub_subscription" "example" {
+  name  = "my-subscription"
+  topic = google_pubsub_topic.example.name
+
+  dead_letter_policy {
+    dead_letter_topic     = google_pubsub_topic.dlq.id
+    max_delivery_attempts = 5
+  }
+}
+```
+
+### Using Python Client
+```python
+from google.cloud import pubsub_v1
+
+subscriber_client = pubsub_v1.SubscriberClient()
+subscription_path = subscriber_client.subscription_path(project_id, subscription_id)
+
+dead_letter_policy = pubsub_v1.types.DeadLetterPolicy(
+    dead_letter_topic=dlq_topic_path,
+    max_delivery_attempts=5
+)
+
+subscription = pubsub_v1.types.Subscription(
+    name=subscription_path,
+    dead_letter_policy=dead_letter_policy
+)
+
+updated_subscription = subscriber_client.update_subscription(
+    {"subscription": subscription, "update_mask": {"paths": ["dead_letter_policy"]}}
+)
+```
+
+## Other Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| DLT topic doesn't exist | Create the topic first: `gcloud pubsub topics create my-dlq-topic` |
+| Missing IAM permissions | Ensure service account has `pubsub.topics.publish` on the DLT topic |
+| `maxDeliveryAttempts=0` | This disables DLT; use `≥1` |
+| Subscription still retrying | Verify with `gcloud pubsub subscriptions describe my-subscription` |
+
+## Verify Configuration
 
 ```bash
-gcloud pubsub topics add-iam-policy-binding YOUR_DLT_TOPIC \
-  --member=serviceAccount:service-PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com \
-  --role=roles/pubsub.editor
+gcloud pubsub subscriptions describe my-subscription --format=json
 ```
 
-Or more restrictively:
-```bash
-gcloud pubsub topics add-iam-policy-binding YOUR_DLT_TOPIC \
-  --member=serviceAccount:service-PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com \
-  --role=roles/pubsub.publisher
-```
-
-### 2. **Verify Configuration**
-Check your subscription settings:
-
-```bash
-gcloud pubsub subscriptions describe YOUR_SUBSCRIPTION \
-  --format='value(deadLetterPolicy)'
-```
-
-Should show:
-```
-deadLetterPolicy:
-  deadLetterTopic: projects/PROJECT_ID/topics/YOUR_DLT_TOPIC
-  maxDeliveryAttempts: 5
-```
-
-## Other Checklist Items
-
-- ✅ **DLT exists** in the same project
-- ✅ **maxDeliveryAttempts** is set (not just the topic configured)
-- ✅ **Subscription has a push/pull handler** that actually rejects messages (returns NACK or error)
-- ✅ **Check Cloud Logging** for DLT delivery errors:
-  ```bash
-  gcloud logging read "resource.type=pubsub_subscription AND 
-    jsonPayload.subscription_id=YOUR_SUBSCRIPTION" --limit 50
-  ```
-
-## Testing
-
-Send a test message and verify it reaches the DLT after 5 failed attempts:
-
-```bash
-gcloud pubsub subscriptions pull YOUR_DLT_SUBSCRIPTION --auto-ack --limit=1
-```
-
-The IAM permission is the #1 culprit—without it, Pub/Sub silently fails to deliver to the DLT.
+Look for the `deadLetterPolicy` section in the output.
 
 </details>
 
@@ -3020,15 +3136,15 @@ gcloud pubsub topics get-iam-policy DLT_TOPIC_NAME
 gcloud pubsub subscriptions get-iam-policy SOURCE_SUB_NAME
 ```
 
-If the service account is missing, add it:
+If the service account is missing, grant it:
 
 ```bash
-# Grant publisher on DLT
+# Publisher role on DLT
 gcloud pubsub topics add-iam-policy-binding DLT_TOPIC_NAME \
   --member=serviceAccount:service-PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com \
   --role=roles/pubsub.publisher
 
-# Grant subscriber on source subscription
+# Subscriber role on source subscription
 gcloud pubsub subscriptions add-iam-policy-binding SOURCE_SUB_NAME \
   --member=serviceAccount:service-PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com \
   --role=roles/pubsub.subscriber
@@ -3039,8 +3155,7 @@ gcloud pubsub subscriptions add-iam-policy-binding SOURCE_SUB_NAME \
 Verify the DLT is actually attached and `maxDeliveryAttempts` is set:
 
 ```bash
-gcloud pubsub subscriptions describe SOURCE_SUB_NAME \
-  --format='value(deadLetterPolicy)'
+gcloud pubsub subscriptions describe SOURCE_SUB_NAME --format='value(deadLetterPolicy)'
 ```
 
 Expected output:
@@ -3058,23 +3173,15 @@ gcloud pubsub subscriptions update SOURCE_SUB_NAME \
   --max-delivery-attempts=5
 ```
 
-### 3. **Check the Retry Policy**
+### 3. **Check Retry Policy (Secondary Cause)**
 
-If no explicit retry policy is set, Pub/Sub uses aggressive defaults (immediate retries). Confirm the retry policy is configured with exponential backoff:
+If the retry policy is missing or misconfigured, Pub/Sub may retry aggressively before respecting `maxDeliveryAttempts`. Verify:
 
 ```bash
-gcloud pubsub subscriptions describe SOURCE_SUB_NAME \
-  --format='value(retryPolicy)'
+gcloud pubsub subscriptions describe SOURCE_SUB_NAME --format='value(retryPolicy)'
 ```
 
-Expected output:
-```
-retryPolicy:
-  minimumBackoff: 10s
-  maximumBackoff: 600s
-```
-
-If missing, add one:
+If empty, add exponential backoff:
 
 ```bash
 gcloud pubsub subscriptions update SOURCE_SUB_NAME \
@@ -3082,86 +3189,79 @@ gcloud pubsub subscriptions update SOURCE_SUB_NAME \
   --max-retry-delay=600s
 ```
 
-### 4. **Verify the DLT Topic Exists and Is Accessible**
+### 4. **Verify the DLT Topic Exists and Is Writable**
 
 ```bash
 gcloud pubsub topics describe DLT_TOPIC_NAME
 ```
 
-If the topic doesn't exist or you get a permission error, create it or fix access:
+If it doesn't exist, create it:
 
 ```bash
 gcloud pubsub topics create DLT_TOPIC_NAME
 ```
 
-### 5. **Check Subscription Expiration Policy**
+### 5. **Check Subscription State**
 
-If the subscription has an expiration policy that deletes it before messages reach the DLT, they'll be lost. Verify:
-
-```bash
-gcloud pubsub subscriptions describe SOURCE_SUB_NAME \
-  --format='value(expirationPolicy)'
-```
-
-If set to a short duration, remove or extend it:
+If the subscription is in a bad state (e.g., after a failed update), try:
 
 ```bash
 gcloud pubsub subscriptions update SOURCE_SUB_NAME \
-  --clear-expiration-policy
+  --dead-letter-topic=DLT_TOPIC_NAME \
+  --max-delivery-attempts=5
 ```
 
 ## In Go Code
 
-If you're creating the subscription programmatically, ensure the DLT is set:
+If you're creating the subscription programmatically:
 
 ```go
 sub, err := client.CreateSubscription(ctx, "my-sub", pubsub.SubscriptionConfig{
-  Topic: topic,
-  DeadLetterPolicy: &pubsub.DeadLetterPolicy{
-    DeadLetterTopic: dlTopic,
-    MaxDeliveryAttempts: 5,
-  },
-  RetryPolicy: &pubsub.RetryPolicy{
-    MinimumBackoff: 10 * time.Second,
-    MaximumBackoff: 600 * time.Second,
-  },
+    Topic: topic,
+    DeadLetterPolicy: &pubsub.DeadLetterPolicy{
+        DeadLetterTopic: client.Topic("my-dlt"),
+        MaxDeliveryAttempts: 5,
+    },
+    RetryPolicy: &pubsub.RetryPolicy{
+        MinimumBackoff: 10 * time.Second,
+        MaximumBackoff: 600 * time.Second,
+    },
 })
 ```
 
-Then **manually grant IAM** as shown above — the Go SDK does not auto-grant permissions.
+**Ensure the DLT topic is created first**, and the service account running your code has `roles/pubsub.admin` (or at least `roles/pubsub.editor`) on both the source subscription and DLT topic.
 
-## Debugging: Where Are the Messages?
+## Debugging
 
-1. **Check the DLT for messages:**
+To confirm messages are actually failing (not just being acked):
+
+1. **Check the subscription's unacked message count:**
+   ```bash
+   gcloud pubsub subscriptions describe SOURCE_SUB_NAME --format='value(numUndeliveredMessages)'
+   ```
+   If this is growing, messages are being nacked or timing out.
+
+2. **Monitor the DLT for incoming messages:**
    ```bash
    gcloud pubsub subscriptions pull dlt-debug-sub --auto-ack --limit=10
    ```
-   (Create a temporary pull subscription on the DLT if you don't have one.)
+   (Create a temporary pull subscription on the DLT to inspect messages.)
 
-2. **Monitor the source subscription's backlog:**
+3. **Check Cloud Logging for Pub/Sub errors:**
    ```bash
-   gcloud pubsub subscriptions describe SOURCE_SUB_NAME \
-     --format='value(numUndeliveredMessages)'
-   ```
-   If this grows indefinitely, messages are not reaching the DLT.
-
-3. **Check Pub/Sub logs** (Cloud Logging):
-   ```bash
-   gcloud logging read \
-     'resource.type="pubsub_subscription" AND resource.labels.subscription_id="SOURCE_SUB_NAME"' \
+   gcloud logging read "resource.type=pubsub_subscription AND resource.labels.subscription_id=SOURCE_SUB_NAME" \
      --limit=50 --format=json
    ```
-   Look for errors mentioning the DLT or IAM denials.
 
 ## Summary
 
-**99% of the time:** Add the Pub/Sub service account with `roles/pubsub.publisher` on the DLT and `roles/pubsub.subscriber` on the source subscription. After that, messages will flow to the DLT after `maxDeliveryAttempts` is exceeded.
+**Most likely fix:** Add the Pub/Sub service account to both the DLT (publisher role) and source subscription (subscriber role). Without both, the DLT policy is silently ignored and retries loop forever.
 
 </details>
 
 #### `opus`
 
-**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly identify IAM as the root cause, mention the Pub/Sub service account, and specify both the publisher role on the DLT and subscriber role on the source subscription. Answer A provides slightly more detail on failure modes (e.g., what happens if only one binding is set) and verification steps, while Answer B adds a useful tip about triggering service agent creation in fresh projects. Neither answer is meaningfully superior across all rubric criteria.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify the IAM issue with the same two required bindings and mention the Pub/Sub service account. Answer A is slightly more complete and actionable, providing a script to dynamically retrieve the project number, verification commands for the IAM policies, and a note about attaching a subscription to the DLT. Both answers are essentially equivalent on the rubric criteria, but Answer A's additional practical details (verification steps, dynamic project number lookup) give it a slight edge.
 
 **Per-criterion verdict (judge)**
 
@@ -3192,108 +3292,2086 @@ Then **manually grant IAM** as shown above — the Go SDK does not auto-grant pe
 
 <details><summary>opus: baseline answer</summary>
 
-The most common cause: **the Pub/Sub service account doesn't have the right IAM permissions** to forward messages to the dead-letter topic and acknowledge them on the source subscription.
+The most common cause: **the Pub/Sub service account doesn't have the required IAM permissions on the dead-letter topic and the source subscription.**
 
-When you configure a dead-letter topic, Pub/Sub itself (not your subscriber) needs to:
-1. **Publish** to the dead-letter topic
-2. **Acknowledge** the original message on the source subscription
+Configuring `maxDeliveryAttempts` alone isn't enough. Pub/Sub uses a Google-managed service account to forward messages to the DLT, and if it lacks permissions, the forward silently fails and the message just keeps being redelivered.
 
-If either permission is missing, Pub/Sub silently keeps redelivering the message — `maxDeliveryAttempts` is effectively ignored.
+### What you need to do
 
-### Fix
+1. **Find the Pub/Sub service account for your project:**
+   ```
+   service-<PROJECT_NUMBER>@gcp-sa-pubsub.iam.gserviceaccount.com
+   ```
 
-Find your project's Pub/Sub service account:
+2. **Grant Publisher on the dead-letter topic:**
+   ```bash
+   gcloud pubsub topics add-iam-policy-binding <DLT_TOPIC> \
+     --member="serviceAccount:service-<PROJECT_NUMBER>@gcp-sa-pubsub.iam.gserviceaccount.com" \
+     --role="roles/pubsub.publisher"
+   ```
 
-```
-service-<PROJECT_NUMBER>@gcp-sa-pubsub.iam.gserviceaccount.com
-```
+3. **Grant Subscriber on the source subscription** (so Pub/Sub can ack the original message after forwarding):
+   ```bash
+   gcloud pubsub subscriptions add-iam-policy-binding <SOURCE_SUB> \
+     --member="serviceAccount:service-<PROJECT_NUMBER>@gcp-sa-pubsub.iam.gserviceaccount.com" \
+     --role="roles/pubsub.subscriber"
+   ```
 
-Grant it both roles:
+### Other things to double-check
 
-```bash
-PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
-PUBSUB_SA="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
+- **Your subscriber must `nack()` (or let the ack deadline expire).** If your code is throwing an exception but the client library is still ack-ing, the delivery attempt counter never increments. Each nack/timeout = 1 attempt.
+- **The delivery attempt counter is best-effort.** If you're using pull and not enabling `EnableMessageOrdering`/exactly-once or doing custom ack handling, make sure you're using a client library version that propagates the `delivery_attempt` field properly.
+- **Check the DLT actually exists** in the same project (or that cross-project IAM is set up).
+- **Look at subscription metrics** in Cloud Monitoring: `subscription/dead_letter_message_count` will be zero if forwarding is failing, and you'll often see logs in Cloud Logging like `Failed to forward message to dead-letter topic` with a permission error.
 
-# Allow publishing to the DLT
-gcloud pubsub topics add-iam-policy-binding DEAD_LETTER_TOPIC \
-  --member="serviceAccount:${PUBSUB_SA}" \
-  --role="roles/pubsub.publisher"
-
-# Allow acking the original subscription
-gcloud pubsub subscriptions add-iam-policy-binding SOURCE_SUBSCRIPTION \
-  --member="serviceAccount:${PUBSUB_SA}" \
-  --role="roles/pubsub.subscriber"
-```
-
-### Other things to check
-
-- **The subscriber must actually nack (or let the ack deadline expire)**. If your code catches the exception and acks the message, that counts as a successful delivery and the counter never advances.
-- **Delivery attempt count is best-effort**. It's only tracked when `enableMessageOrdering` isn't interfering, and it can take slightly more than `maxDeliveryAttempts` nacks before the message moves. But "forever" indicates IAM, not this.
-- **Check the subscription config** actually shows the DLT:
-  ```bash
-  gcloud pubsub subscriptions describe SOURCE_SUBSCRIPTION
-  ```
-  Look for `deadLetterPolicy` with both `deadLetterTopic` and `maxDeliveryAttempts`.
-- **The Pub/Sub service agent must exist** in your project. It's auto-created the first time you use Pub/Sub, but in fresh projects you may need to trigger it (e.g., via `gcloud beta services identity create --service=pubsub.googleapis.com`).
-- **DLT must have a subscription** if you want to actually see the messages land — otherwise they're published and immediately dropped per the topic's retention.
-
-99% of the time it's the IAM binding on the dead-letter topic. Add `roles/pubsub.publisher` to the Pub/Sub service agent and the messages will start flowing.
+The IAM step is by far the #1 gotcha — the UI lets you configure the DLT without warning you about it.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-The almost-certain cause: **missing IAM bindings**. Configuring `maxDeliveryAttempts` on the subscription is only half the setup — Pub/Sub uses a service account to forward dead-lettered messages, and that account needs explicit permissions on both ends. Without them, the forward silently fails and the message just keeps retrying.
+The almost-certain cause: **missing IAM bindings on the Pub/Sub service account.** Configuring `deadLetterPolicy` on the subscription is necessary but not sufficient — Pub/Sub needs explicit permission to publish to the DLT and to ack messages on the source subscription. Without both, the forward silently fails and retries continue forever.
 
-## What to check
+## Fix
 
-You need the Pub/Sub **service account** for your project (not your own credentials):
+First, find your project's Pub/Sub service account. It has the form:
 
 ```
 service-PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com
 ```
 
-Find your project number with `gcloud projects describe PROJECT_ID --format='value(projectNumber)'`.
+Get your project number:
 
-That service account needs **two** role bindings:
+```bash
+gcloud projects describe PROJECT_ID --format='value(projectNumber)'
+```
 
-1. **`roles/pubsub.publisher` on the dead-letter topic** — so it can publish the failed message to the DLT.
-2. **`roles/pubsub.subscriber` on the source subscription** — so it can ack the message on the source after forwarding.
-
-Both are required. If only #1 is set, the message gets republished to the DLT but never acked on the source, so it keeps redelivering. If only #2 is set, the forward fails outright.
-
-## Fix
+Then grant both bindings:
 
 ```bash
 PROJECT_NUMBER=$(gcloud projects describe PROJECT_ID --format='value(projectNumber)')
 PUBSUB_SA="service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com"
 
-# 1. Grant publisher on the DLT
+# 1. Allow Pub/Sub to publish to the dead-letter topic
 gcloud pubsub topics add-iam-policy-binding DLT_NAME \
   --member="serviceAccount:${PUBSUB_SA}" \
   --role="roles/pubsub.publisher"
 
-# 2. Grant subscriber on the source subscription
+# 2. Allow Pub/Sub to ack/forward messages on the source subscription
 gcloud pubsub subscriptions add-iam-policy-binding SOURCE_SUB_NAME \
   --member="serviceAccount:${PUBSUB_SA}" \
   --role="roles/pubsub.subscriber"
 ```
 
-## Verify it's working
+Both roles are required:
+- **`pubsub.publisher` on the DLT** — so Pub/Sub can write the failed message there.
+- **`pubsub.subscriber` on the source subscription** — so Pub/Sub can ack the original message after forwarding it.
 
-After the bindings propagate (usually seconds, sometimes a minute):
+If either is missing, the forward fails silently and the message stays in the source subscription, getting redelivered indefinitely.
 
-- Check the source subscription's `num_undelivered_messages` metric — backlog should start draining.
-- Check the DLT for incoming messages: `gcloud pubsub subscriptions pull DLT_SUB --auto-ack --limit=10` (you'll need a subscription on the DLT to inspect them).
-- Confirm the wiring on the source: `gcloud pubsub subscriptions describe SOURCE_SUB --format='yaml(deadLetterPolicy)'` should show both `deadLetterTopic` and `maxDeliveryAttempts`.
+## Verify
 
-## Other things that can look like this (less common)
+Check the bindings exist:
 
-- **Acks vs nacks aren't being counted.** A delivery attempt only counts toward `maxDeliveryAttempts` when the message is **nacked** or the **ack deadline expires**. If your handler is throwing but something is silently acking the message anyway (or it's being filtered out before your handler), the attempt counter never advances. Check that your handler is actually calling `msg.Nack()` on failure (or letting the deadline expire by not calling anything).
-- **`maxDeliveryAttempts` is a best-effort threshold.** Pub/Sub may deliver a few extra times beyond the configured value before forwarding — but "a few extra," not "forever." If you're seeing dozens or hundreds of retries with no DLT delivery, it's IAM, not threshold drift.
-- **The DLT itself has no subscription**, so you assume nothing is arriving. Messages published to a topic with no subscriptions are dropped. Create a subscription on the DLT before testing, or you'll think the forward isn't working when it actually is.
+```bash
+gcloud pubsub topics get-iam-policy DLT_NAME
+gcloud pubsub subscriptions get-iam-policy SOURCE_SUB_NAME
+```
 
-Start with the IAM check — that's the cause about 95% of the time when "DLT configured but messages retry forever" is the symptom.
+Then watch the metric `subscription/dead_letter_message_count` in Cloud Monitoring — it should start incrementing once a message hits its 5th nack.
+
+## Other things to double-check
+
+If IAM is correct and messages still don't forward, verify:
+
+1. **The handler is actually nack'ing (or letting the ack deadline expire).** A delivery only counts toward `maxDeliveryAttempts` when the message is negatively acknowledged or times out. If your code is throwing an exception *after* `Ack()`, the message is already acked and won't retry at all.
+2. **`deadLetterPolicy` is actually set on the subscription:**
+   ```bash
+   gcloud pubsub subscriptions describe SOURCE_SUB_NAME \
+     --format='value(deadLetterPolicy)'
+   ```
+   Should print the DLT path and `maxDeliveryAttempts: 5`. Empty output means the policy didn't apply.
+3. **The DLT itself has a subscription attached.** Messages forwarded to a DLT with no subscriber will sit there until the topic's message retention expires (default 7 days), then be lost. Create a subscription on the DLT for triage.
+
+The IAM gap is by far the most common cause, though — fix that first and the redelivery loop should stop within a few minutes.
+
+</details>
+
+---
+
+### `graceful-shutdown`
+
+**Prompt**
+
+```
+My Go service has a Pub/Sub subscriber and publisher. On shutdown,
+I cancel the context, but the Receive goroutine seems to hang and
+in-flight publishes get lost. What's the right shutdown sequence?
+```
+
+**Judge focus:** The better answer prescribes a specific order: cancel the context
+so Subscription.Receive returns, drain in-flight handlers, call
+Topic.Stop() to flush the publish batch, then close the client.
+It explains *why* each step matters — Receive blocks until the
+context is cancelled or an unrecoverable error fires; Topic.Stop
+flushes batched publishes; Client.Close releases the gRPC
+connection.
+
+#### `sonnet`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers cover the required shutdown sequence correctly, but Answer B is more precise and idiomatic. B correctly explains that Receive itself waits for in-flight callbacks to drain (so you don't need a separate WaitGroup), uses defer's LIFO ordering elegantly, and avoids the subtle race condition in A where wg.Add(1) inside the callback can still race if Receive exits. B also better explains *why* Receive blocks (it drains its internal buffer waiting for callbacks), and its trap explanations are clearer and more actionable. A introduces unnecessary complexity with two separate contexts and a manual WaitGroup that duplicates what Receive already does internally.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| cancel ctx to break out of Receive | tie |
+| explains Receive blocks until ctx.Done or error | skill |
+| calls Topic.Stop before client.Close | tie |
+| mentions order of operations matters | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| cancel ctx to break out of Receive | ✓ | `Cancel()` |
+| explains Receive blocks until ctx.Done or error | ✓ | `until receiveCtx` |
+| calls Topic.Stop before client.Close | ✗ | |
+| mentions order of operations matters | ✓ | `sequence` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| cancel ctx to break out of Receive | ✓ | `cancel()` |
+| explains Receive blocks until ctx.Done or error | ✗ | |
+| calls Topic.Stop before client.Close | ✓ | `topic.Stop()` is called, the batcher's buffer is discarded. `client.Close` |
+| mentions order of operations matters | ✓ | `order` |
+
+<details><summary>sonnet: baseline answer</summary>
+
+# Graceful Shutdown for Go Pub/Sub Services
+
+## The Core Problem
+
+Canceling the context is **not enough** — you need a coordinated sequence that:
+1. Stops accepting new messages
+2. Finishes processing in-flight messages
+3. Flushes pending publishes
+4. Only then exits
+
+Here's a complete, production-ready implementation:
+
+```go
+package main
+
+import (
+    "context"
+    "errors"
+    "fmt"
+    "log"
+    "os"
+    "os/signal"
+    "sync"
+    "syscall"
+    "time"
+
+    "cloud.google.com/go/pubsub"
+)
+
+// Service encapsulates the subscriber and publisher with clean lifecycle management.
+type Service struct {
+    client     *pubsub.Client
+    subClient  *pubsub.Subscription
+    pubTopic   *pubsub.Topic
+
+    // receiveCtx is cancelled first — stops Receive() from pulling new messages.
+    receiveCtx    context.Context
+    receiveCancel context.CancelFunc
+
+    // publishCtx is cancelled after all messages are processed — stops new publishes.
+    publishCtx    context.Context
+    publishCancel context.CancelFunc
+
+    // wg tracks in-flight message handlers.
+    wg sync.WaitGroup
+}
+
+func NewService(projectID, subID, topicID string) (*Service, error) {
+    ctx := context.Background()
+    client, err := pubsub.NewClient(ctx, projectID)
+    if err != nil {
+        return nil, fmt.Errorf("creating pubsub client: %w", err)
+    }
+
+    receiveCtx, receiveCancel := context.WithCancel(context.Background())
+    publishCtx, publishCancel := context.WithCancel(context.Background())
+
+    topic := client.Topic(topicID)
+    // IMPORTANT: Configure topic flush behavior.
+    // PublishSettings controls batching — these affect what gets lost on shutdown.
+    topic.PublishSettings.DelayThreshold = 100 * time.Millisecond
+    topic.PublishSettings.CountThreshold = 100
+    topic.PublishSettings.ByteThreshold = 1e6
+    topic.PublishSettings.Timeout = 30 * time.Second
+
+    sub := client.Subscription(subID)
+    // Control how many messages are processed concurrently.
+    sub.ReceiveSettings.MaxOutstandingMessages = 10
+    sub.ReceiveSettings.NumGoroutines = 2
+
+    return &Service{
+        client:        client,
+        subClient:     sub,
+        pubTopic:      topic,
+        receiveCtx:    receiveCtx,
+        receiveCancel: receiveCancel,
+        publishCtx:    publishCtx,
+        publishCancel: publishCancel,
+    }, nil
+}
+
+// Start begins receiving messages. Blocks until receiveCtx is cancelled.
+func (s *Service) Start() error {
+    log.Println("subscriber: starting")
+
+    err := s.subClient.Receive(s.receiveCtx, func(ctx context.Context, msg *pubsub.Message) {
+        // Track this handler so shutdown can wait for it.
+        s.wg.Add(1)
+        defer s.wg.Done()
+
+        if err := s.handleMessage(msg); err != nil {
+            log.Printf("handler error, nacking: %v", err)
+            msg.Nack()
+            return
+        }
+        msg.Ack()
+    })
+
+    // Receive returns nil when context is cancelled — that's expected.
+    if err != nil && !errors.Is(err, context.Canceled) {
+        return fmt.Errorf("subscriber receive: %w", err)
+    }
+
+    log.Println("subscriber: receive loop exited")
+    return nil
+}
+
+func (s *Service) handleMessage(msg *pubsub.Message) error {
+    // Use publishCtx here — not the message ctx — so publishes can complete
+    // even after the subscriber context is cancelled.
+    result := s.pubTopic.Publish(s.publishCtx, &pubsub.Message{
+        Data: []byte(fmt.Sprintf("processed: %s", msg.Data)),
+    })
+
+    // Block until the publish is confirmed (or fails).
+    // This is critical — fire-and-forget publishes WILL be lost on shutdown.
+    if _, err := result.Get(s.publishCtx); err != nil {
+        return fmt.Errorf("publishing result: %w", err)
+    }
+
+    return nil
+}
+
+// Shutdown performs the coordinated shutdown sequence.
+func (s *Service) Shutdown(timeout time.Duration) error {
+    log.Println("shutdown: starting")
+
+    // ── Step 1 ──────────────────────────────────────────────────────────────
+    // Stop pulling new messages. Receive() will return after in-flight
+    // handlers complete (it waits internally for its own goroutines).
+    log.Println("shutdown: cancelling receive context")
+    s.receiveCancel()
+
+    // ── Step 2 ──────────────────────────────────────────────────────────────
+    // Wait for all message handlers to finish, with a timeout.
+    // Handlers may still be publishing at this point.
+    log.Println("shutdown: waiting for in-flight handlers")
+    done := make(chan struct{})
+    go func() {
+        s.wg.Wait()
+        close(done)
+    }()
+
+    select {
+    case <-done:
+        log.Println("shutdown: all handlers finished")
+    case <-time.After(timeout):
+        // Handlers took too long — we'll proceed but publishes may be lost.
+        log.Println("shutdown: WARNING handler drain timed out")
+    }
+
+    // ── Step 3 ──────────────────────────────────────────────────────────────
+    // Now cancel the publish context — no new publishes will be accepted.
+    log.Println("shutdown: cancelling publish context")
+    s.publishCancel()
+
+    // ── Step 4 ──────────────────────────────────────────────────────────────
+    // Flush the topic. This blocks until all buffered messages are sent
+    // or the topic's Timeout is reached. This is the critical step that
+    // prevents losing batched-but-not-yet-sent messages.
+    log.Println("shutdown: flushing topic")
+    s.pubTopic.Stop() // blocks until all pending publishes complete
+
+    // ── Step 5 ──────────────────────────────────────────────────────────────
+    // Close the client — releases gRPC connections.
+    log.Println("shutdown: closing client")
+    if err := s.client.Close(); err != nil {
+        return fmt.Errorf("closing client: %w", err)
+    }
+
+    log.Println("shutdown: complete")
+    return nil
+}
+
+func main() {
+    svc, err := NewService("my-project", "my-sub", "my-topic")
+    if err != nil {
+        log.Fatalf("creating service: %v", err)
+    }
+
+    // Run subscriber in background.
+    startErr := make(chan error, 1)
+    go func() {
+        startErr <- svc.Start()
+    }()
+
+    // Wait for OS signal or subscriber failure.
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+    select {
+    case sig := <-quit:
+        log.Printf("main: received signal %v", sig)
+    case err := <-startErr:
+        log.Printf("main: subscriber failed: %v", err)
+    }
+
+    if err := svc.Shutdown(30 * time.Second); err != nil {
+        log.Printf("main: shutdown error: %v", err)
+        os.Exit(1)
+    }
+}
+```
+
+## Why Each Step Matters
+
+```
+Signal received
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Step 1: receiveCancel()                                      │
+│   • Stops Receive() from pulling NEW messages from Pub/Sub   │
+│   • In-flight handlers continue running                      │
+│   • Receive() itself blocks until its goroutines finish      │
+└─────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Step 2: wg.Wait() with timeout                               │
+│   • Waits for YOUR handler goroutines to complete            │
+│   • Handlers may still be calling Publish() at this point    │
+│   • Timeout prevents hanging forever on a stuck handler      │
+└─────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Step 3: publishCancel()                                      │
+│   • Cancels context used for new Publish() calls             │
+│   • Must happen AFTER handlers finish, not before            │
+└─────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Step 4: topic.Stop()                ← THE CRITICAL STEP      │
+│   • Flushes the internal publish buffer                      │
+│   • Waits for all in-flight gRPC publish calls to complete   │
+│   • Without this, batched messages are silently dropped      │
+└─────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Step 5: client.Close()                                       │
+│   • Closes gRPC connections cleanly                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Common Mistakes
+
+| Mistake | Consequence |
+|---|---|
+| Cancelling one context for both receive and publish | Publish context cancelled before handlers finish → lost messages |
+| Not calling `topic.Stop()` | Batched messages silently dropped |
+| Fire-and-forget `Publish()` (not calling `result.Get()`) | No way to know if publish succeeded; lost on shutdown |
+| `wg.Add(1)` outside the handler | Race condition if Receive exits before Add runs |
+| Calling `client.Close()` before `topic.Stop()` | Closes gRPC connection while publishes are in-flight |
+
+## Key Takeaways
+
+- **Two separate contexts**: receive and publish have different lifetimes
+- **`topic.Stop()` is mandatory**: it's the only way to flush the publish buffer
+- **Always call `result.Get()`**: fire-and-forget publishes cannot be tracked or retried
+- **`wg.Add(1)` inside the handler**: the handler *is* the goroutine, so this is safe and race-free
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+Shutdown ordering is the most common source of both hangs and lost messages in Go Pub/Sub services. The two problems have different root causes and need to be fixed independently.
+
+## Why each problem happens
+
+**`Receive` hangs** because cancelling the context is necessary but not sufficient. `Receive` drains its internal buffer before returning — if your callback is blocked waiting on a channel, a lock, or a downstream call, the drain never completes. The context cancellation stops *new* message delivery but waits for in-flight callbacks to finish.
+
+**Publishes get lost** because `topic.Publish` is asynchronous. It hands the message to an internal batcher and returns a `PublishResult` immediately. If the process exits before `topic.Stop()` is called, the batcher's buffer is discarded. `client.Close()` does **not** flush pending publishes — `topic.Stop()` does.
+
+## The correct shutdown sequence
+
+```
+stop accepting new work
+  → signal Receive to stop delivering new messages  (cancel ctx)
+  → wait for in-flight callbacks to finish           (Receive returns)
+  → flush the publisher batcher                      (topic.Stop)
+  → release SDK resources                            (client.Close)
+```
+
+Each step must complete before the next begins. Here is a minimal but complete example:
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"cloud.google.com/go/pubsub"
+)
+
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client, err := pubsub.NewClient(ctx, "my-project")
+	if err != nil {
+		log.Fatal(err)
+	}
+	// client.Close is last — after topic.Stop flushes pending publishes.
+	defer client.Close()
+
+	topic := client.Topic("my-topic")
+	// topic.Stop flushes the batcher. Must happen before client.Close.
+	// Wrapping in defer means it runs before the defer above (LIFO order).
+	defer topic.Stop()
+
+	sub := client.Subscription("my-subscription")
+	sub.ReceiveSettings.MaxOutstandingMessages = 100 // tune for your workload
+
+	// receiveErr carries the result of Receive so main can inspect it.
+	receiveErr := make(chan error, 1)
+
+	go func() {
+		err := sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+			// All processing happens synchronously here.
+			// Receive will not return until every in-flight callback returns.
+			if err := process(ctx, topic, msg); err != nil {
+				msg.Nack()
+				return
+			}
+			msg.Ack()
+		})
+		receiveErr <- err
+	}()
+
+	// Wait for a signal or a fatal Receive error.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case sig := <-quit:
+		log.Printf("signal %v received, shutting down", sig)
+	case err := <-receiveErr:
+		// Receive returned on its own (e.g. a non-retryable RPC error).
+		if err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("Receive exited with error: %v", err)
+		}
+		return // defers (topic.Stop, client.Close) run here
+	}
+
+	// Cancel the context. Receive stops delivering new messages and waits
+	// for all in-flight callbacks to return before it exits.
+	cancel()
+
+	// Wait for Receive to confirm it has drained.
+	// Add a deadline so a stuck callback can't block shutdown forever.
+	select {
+	case err := <-receiveErr:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("Receive error after cancel: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		log.Print("WARNING: Receive did not drain within 30s; forcing shutdown")
+	}
+
+	// Defers run here in LIFO order: topic.Stop() then client.Close().
+}
+
+func process(ctx context.Context, topic *pubsub.Topic, msg *pubsub.Message) error {
+	// Publish something in response to the received message.
+	result := topic.Publish(ctx, &pubsub.Message{
+		Data: []byte(fmt.Sprintf("processed: %s", msg.ID)),
+	})
+
+	// Collect the publish result synchronously inside the callback.
+	// This is the only safe place — if you hand it to a background goroutine
+	// and return, the callback exits, the lease stops extending, and the
+	// message redelivers even though you called Ack.
+	if _, err := result.Get(ctx); err != nil {
+		return fmt.Errorf("publish failed: %w", err)
+	}
+	return nil
+}
+```
+
+## The three traps this avoids
+
+**Trap 1 — handing `PublishResult.Get` to a background goroutine**
+
+```go
+// WRONG: callback returns immediately; lease stops extending;
+// message redelivers even if the publish succeeds.
+go func() {
+    result.Get(ctx)
+    msg.Ack()
+}()
+```
+
+The ack-deadline extension runs only while the callback is executing. Return early and the lease expires.
+
+**Trap 2 — calling `client.Close()` before `topic.Stop()`**
+
+```go
+// WRONG: Close does not flush the batcher.
+defer client.Close()
+defer topic.Stop() // runs first (LIFO) — this is actually correct with defer
+```
+
+With `defer`, LIFO order saves you here, but if you call them explicitly in the wrong order, `Close` tears down the connection before `Stop` can flush. Always `Stop` before `Close`.
+
+**Trap 3 — not waiting for `Receive` to return**
+
+```go
+cancel()
+client.Close() // WRONG: Receive may still be in a callback; Close races with it
+```
+
+`Receive` is still running callbacks after `cancel()` returns. You must wait on the `receiveErr` channel (or a `sync.WaitGroup`) before closing the client.
+
+## Quick reference
+
+| Call | What it does | When |
+|---|---|---|
+| `cancel()` | Stops new message delivery to callbacks | First, on shutdown signal |
+| `<-receiveErr` | Waits for all in-flight callbacks to finish | After `cancel()` |
+| `topic.Stop()` | Flushes the publish batcher, blocks until done | After `Receive` returns |
+| `client.Close()` | Releases gRPC connections | Last |
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer B prescribes the correct order more precisely: topic.Stop() before cancelling the context, then waiting for Receive, then client.Close(). Answer A incorrectly calls sub.Stop() (which doesn't exist on Subscription) instead of cancelling the context to unblock Receive, and places topic.Stop() after waiting for Receive rather than before cancelling the context. Answer B also explicitly explains why topic.Stop() should come before context cancellation (to avoid cancelling in-flight publishes) and provides clearer reasoning for each step.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| cancel ctx to break out of Receive | skill |
+| explains Receive blocks until ctx.Done or error | skill |
+| calls Topic.Stop before client.Close | tie |
+| mentions order of operations matters | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| cancel ctx to break out of Receive | ✓ | `cancel()` |
+| explains Receive blocks until ctx.Done or error | ✓ | `ctx.Done` |
+| calls Topic.Stop before client.Close | ✓ | `Stop() 	 	// 5. Close client 	return s.client.Close()` |
+| mentions order of operations matters | ✓ | `Sequence` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| cancel ctx to break out of Receive | ✓ | `cancel()` |
+| explains Receive blocks until ctx.Done or error | ✓ | `until done or ctx` |
+| calls Topic.Stop before client.Close | ✓ | `topic.Stop()`** ```go cancel()  // Unblocks Receive, but... client.Close` |
+| mentions order of operations matters | ✓ | `order` |
+
+<details><summary>haiku: baseline answer</summary>
+
+# Proper Pub/Sub Shutdown Sequence in Go
+
+The issue is that canceling the context doesn't immediately stop `Receive()` or wait for in-flight operations. Here's the correct shutdown pattern:
+
+## ✅ Correct Shutdown Sequence
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"sync"
+	"time"
+
+	"cloud.google.com/go/pubsub"
+)
+
+type Service struct {
+	sub       *pubsub.Subscription
+	pub       *pubsub.Topic
+	client    *pubsub.Client
+	wg        sync.WaitGroup
+	stopChan  chan struct{}
+}
+
+func (s *Service) Start(ctx context.Context) error {
+	s.stopChan = make(chan struct{})
+	
+	// Start subscriber
+	s.wg.Add(1)
+	go s.receiveMessages(ctx)
+	
+	return nil
+}
+
+func (s *Service) receiveMessages(ctx context.Context) {
+	defer s.wg.Done()
+	
+	err := s.sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+		// Process message
+		log.Printf("Received: %s", string(msg.Data))
+		msg.Ack()
+	})
+	
+	if err != nil && err != context.Canceled {
+		log.Printf("Receive error: %v", err)
+	}
+}
+
+func (s *Service) Shutdown(ctx context.Context) error {
+	// 1. Stop accepting new messages
+	close(s.stopChan)
+	
+	// 2. Stop the Receive goroutine
+	s.sub.Stop()
+	
+	// 3. Wait for in-flight messages with timeout
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		log.Println("All messages processed")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	
+	// 4. Flush pending publishes
+	s.pub.Stop()
+	
+	// 5. Close client
+	return s.client.Close()
+}
+```
+
+## Key Points
+
+| Step | Why It Matters |
+|------|---|
+| **`sub.Stop()`** | Stops accepting new messages immediately |
+| **`wg.Wait()`** | Waits for in-flight message handlers to complete |
+| **Timeout on wait** | Prevents hanging indefinitely |
+| **`pub.Stop()`** | Flushes pending publishes before closing |
+| **`client.Close()`** | Final cleanup |
+
+## ⚠️ Common Mistakes
+
+```go
+// ❌ WRONG: Just canceling context
+cancel()
+// Receive() may still be blocked, publishes lost
+
+// ❌ WRONG: Not calling Stop()
+// Context cancellation alone doesn't unblock Receive()
+
+// ❌ WRONG: Not waiting for handlers
+// Shutdown returns before messages are processed
+```
+
+## Complete Example with Graceful Shutdown
+
+```go
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	
+	service := &Service{}
+	if err := service.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+	
+	// Simulate shutdown signal
+	time.Sleep(5 * time.Second)
+	
+	// Graceful shutdown with 30-second timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(
+		context.Background(),
+		30*time.Second,
+	)
+	defer shutdownCancel()
+	
+	if err := service.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Shutdown error: %v", err)
+	}
+}
+```
+
+## For Publishers Only
+
+If you only have a publisher:
+
+```go
+func (s *Service) Shutdown(ctx context.Context) error {
+	// Flush all pending publishes
+	s.pub.Stop()
+	return s.client.Close()
+}
+```
+
+The `Stop()` method blocks until all pending publishes complete or the context times out.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# Pub/Sub Shutdown Sequence in Go
+
+You're hitting two separate shutdown bugs. Here's the correct order:
+
+## The Right Sequence
+
+```go
+func main() {
+    ctx := context.Background()
+    client, err := pubsub.NewClient(ctx, projectID)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()  // ← Always last
+
+    topic := client.Topic(topicID)
+    sub := client.Subscription(subID)
+
+    // Start subscriber in a goroutine
+    subErr := make(chan error, 1)
+    go func() {
+        subErr <- sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+            // Process message
+            msg.Ack()
+        })
+    }()
+
+    // ... your service runs ...
+
+    // On shutdown signal (SIGTERM, etc.):
+    shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    // Step 1: Stop accepting new publishes and flush in-flight ones
+    topic.Stop()
+
+    // Step 2: Cancel the subscriber context to unblock Receive
+    cancel()  // This cancels the original ctx passed to Receive
+
+    // Step 3: Wait for Receive to exit (with timeout)
+    select {
+    case err := <-subErr:
+        if err != nil && err != context.Canceled {
+            log.Printf("Receive error: %v", err)
+        }
+    case <-shutdownCtx.Done():
+        log.Printf("Subscriber did not exit within timeout")
+    }
+
+    // Step 4: Close the client (idempotent, safe after Stop/Receive exit)
+    client.Close()
+}
+```
+
+## Why Each Step Matters
+
+| Step | What It Does | If You Skip It |
+|---|---|---|
+| `topic.Stop()` | Flushes all pending publishes and blocks new `Publish` calls | In-flight messages are dropped on process exit |
+| Cancel context | Unblocks `Receive` so it can exit | `Receive` hangs forever; process hangs on shutdown |
+| Wait for `Receive` | Ensures subscriber has cleaned up before closing the client | Race condition; client closes while `Receive` is still running |
+| `client.Close()` | Closes all connections and cleans up resources | Goroutine/connection leaks |
+
+## Common Mistakes
+
+**❌ Mistake 1: Cancelling context without `topic.Stop()`**
+```go
+cancel()  // Unblocks Receive, but...
+client.Close()  // In-flight publishes are lost
+```
+The `Receive` goroutine exits, but pending `Publish` calls never flush. Messages disappear.
+
+**❌ Mistake 2: Calling `client.Close()` before `Receive` exits**
+```go
+cancel()
+client.Close()  // Closes connections while Receive is still running
+// Race condition; Receive may panic or hang
+```
+
+**❌ Mistake 3: Not waiting for `Receive` to exit**
+```go
+topic.Stop()
+cancel()
+// Immediately return from main()
+// Receive is still running; process exits before cleanup
+```
+
+**❌ Mistake 4: Using the same context for both publisher and subscriber**
+```go
+ctx, cancel := context.WithCancel(context.Background())
+topic := client.Topic(topicID)
+sub := client.Subscription(subID)
+
+go sub.Receive(ctx, handler)  // ← Same ctx
+topic.Publish(ctx, msg)       // ← Same ctx
+
+cancel()  // Cancels both at once; publishes may not flush
+```
+If you cancel early, `Publish` calls fail before `Stop()` can flush them.
+
+## Correct Pattern with Graceful Shutdown
+
+```go
+func (s *Service) Shutdown(ctx context.Context) error {
+    // Flush all pending publishes (blocks until done or ctx expires)
+    s.topic.Stop()
+
+    // Signal subscriber to exit
+    s.cancelReceive()
+
+    // Wait for subscriber goroutine to finish
+    select {
+    case <-s.receiveDone:
+        // Clean exit
+    case <-ctx.Done():
+        return fmt.Errorf("subscriber did not exit in time")
+    }
+
+    // Now safe to close the client
+    return s.client.Close()
+}
+
+func (s *Service) Start(ctx context.Context) error {
+    s.receiveDone = make(chan struct{})
+    go func() {
+        defer close(s.receiveDone)
+        err := s.sub.Receive(ctx, s.handleMessage)
+        if err != nil && err != context.Canceled {
+            log.Printf("Receive error: %v", err)
+        }
+    }()
+    return nil
+}
+```
+
+## Key Takeaways
+
+1. **`topic.Stop()` must come before cancelling the context.** It flushes pending publishes; cancelling the context stops accepting new ones.
+2. **Always wait for `Receive` to exit** before closing the client. Use a channel or `sync.WaitGroup` to signal completion.
+3. **Use a separate context for the subscriber** so you can cancel it independently of publisher operations.
+4. **`client.Close()` is always last** — it's idempotent and safe, but only after all goroutines have exited.
+5. **Set a timeout on shutdown** (e.g., 30s) so a stuck `Receive` doesn't hang your process indefinitely.
+
+See [references/go-client.md](references/go-client.md) for the full lifecycle contract and [references/publishing.md](references/publishing.md) for `Stop()` semantics.
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers cover the required shutdown sequence well, but Answer A is more thorough and precise on every criterion. It explicitly explains why Receive blocks until ctx.Done or an error fires and until all callbacks return, gives a cleaner code example with LIFO defer ordering, and more clearly articulates why the order of operations matters (subscribers may publish, so they must drain before publishers stop). Answer B is solid but slightly less complete in explaining the Receive blocking semantics and uses a WaitGroup pattern that is somewhat redundant given that Receive already waits for callbacks.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| cancel ctx to break out of Receive | skill |
+| explains Receive blocks until ctx.Done or error | skill |
+| calls Topic.Stop before client.Close | tie |
+| mentions order of operations matters | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| cancel ctx to break out of Receive | ✓ | `cancel()` |
+| explains Receive blocks until ctx.Done or error | ✓ | `ctx.Done` |
+| calls Topic.Stop before client.Close | ✓ | `topic.Stop()` is what actually drains the publish buffer; just canceling a context doesn't.  ## Sketch  ```go func run(ctx context.Context) error {     client, …` |
+| mentions order of operations matters | ✓ | `order` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| cancel ctx to break out of Receive | ✓ | `cancel()` |
+| explains Receive blocks until ctx.Done or error | ✓ | `ctx.Done` |
+| calls Topic.Stop before client.Close | ✓ | `topic.Stop() on each topic      → flushes pending publish batches 4. Call client.Close` |
+| mentions order of operations matters | ✓ | `order` |
+
+<details><summary>opus: baseline answer</summary>
+
+# Pub/Sub Graceful Shutdown in Go
+
+The right ordering matters because the subscriber and publisher have different lifecycles. Here's the sequence that works reliably:
+
+## The correct order
+
+1. **Stop accepting new work** (HTTP server, etc.)
+2. **Cancel the subscriber's `Receive` context** — let in-flight message handlers finish (Ack/Nack)
+3. **Wait for handlers to drain**
+4. **Call `topic.Stop()` on publishers** — this flushes buffered messages and blocks until pending publishes complete
+5. **Close the client(s)**
+
+## Why your current code hangs / loses messages
+
+- `Receive` returns only after **all message callbacks return**. If a callback tries to publish during shutdown and the publisher is already closed (or its context is canceled), it blocks or errors → `Receive` never returns.
+- Canceling the context passed to `topic.Publish` cancels the in-flight RPC. The message is lost. You want to let `Stop()` flush instead.
+- `topic.Stop()` is what actually drains the publish buffer; just canceling a context doesn't.
+
+## Sketch
+
+```go
+func run(ctx context.Context) error {
+    client, _ := pubsub.NewClient(ctx, projectID)
+    defer client.Close()
+
+    topic := client.Topic("out")
+    sub := client.Subscription("in")
+
+    // Separate context for Receive so we control cancellation explicitly.
+    recvCtx, cancelRecv := context.WithCancel(context.Background())
+
+    var handlersWG sync.WaitGroup
+    recvDone := make(chan error, 1)
+
+    go func() {
+        recvDone <- sub.Receive(recvCtx, func(mctx context.Context, m *pubsub.Message) {
+            handlersWG.Add(1)
+            defer handlersWG.Done()
+
+            // IMPORTANT: don't pass recvCtx to Publish. Use a context
+            // that isn't canceled at shutdown, so Stop() can flush.
+            result := topic.Publish(context.Background(), &pubsub.Message{Data: m.Data})
+            if _, err := result.Get(mctx); err != nil {
+                m.Nack()
+                return
+            }
+            m.Ack()
+        })
+    }()
+
+    // Wait for shutdown signal...
+    <-ctx.Done()
+
+    // 1. Stop pulling new messages and let in-flight callbacks finish.
+    cancelRecv()
+    if err := <-recvDone; err != nil && !errors.Is(err, context.Canceled) {
+        log.Printf("receive error: %v", err)
+    }
+    handlersWG.Wait()
+
+    // 2. Flush the publisher. Stop() blocks until all buffered messages
+    //    are sent or permanently fail.
+    topic.Stop()
+
+    return nil
+}
+```
+
+## Key gotchas
+
+- **Don't pass the request/receive context to `Publish`.** If you do, canceling it at shutdown drops queued messages. Use `context.Background()` (or a long-lived shutdown context) and rely on `topic.Stop()` to bound publish duration.
+- **Tune `ReceiveSettings.Synchronous` or `MaxOutstandingMessages`** if you have very long handlers — otherwise shutdown can be slow because `Receive` waits for all of them.
+- **Set a hard deadline** on the whole shutdown so a stuck handler can't pin the process forever:
+  ```go
+  shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+  defer cancel()
+  ```
+  Then run the drain in a goroutine and select on `shutdownCtx.Done()`.
+- **Don't `client.Close()` before `topic.Stop()`** — that yanks the connection out from under the flush.
+
+The mental model: `Receive`'s context controls *intake*, `topic.Stop()` controls *outtake*. You stop intake first, drain handlers, then flush outtake.
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
+
+# Correct Pub/Sub Shutdown Sequence in Go
+
+You're hitting two distinct issues. Let me address each, then give you the canonical pattern.
+
+## What's going wrong
+
+**Lost publishes:** Cancelling the context does *not* flush the publisher's internal batch. `Topic.Publish` returns immediately and buffers messages; they're only sent when a batch threshold trips or you call `Topic.Stop()`. If you exit before `Stop()` returns, in-flight batches are dropped on the floor — `PublishResult.Get()` will return an error, but the messages are gone.
+
+**Receive "hanging":** `Subscription.Receive` is supposed to return when its context is cancelled, but it waits for all in-flight callbacks to return first. If your callbacks check `ctx.Done()` on the *same* context you cancelled, fine — but if they're blocked on a downstream call (DB write, HTTP request, channel send to the publisher you just stopped), `Receive` will sit there waiting for them.
+
+The classic deadlock: subscriber callback publishes a message and calls `result.Get(ctx)` with the cancelled context → `Get` returns an error → the callback nacks → but if you've already called `Topic.Stop()`, publishes fail and your callback may loop or block.
+
+## Correct shutdown order
+
+```
+1. Cancel the subscriber context        → stop pulling new messages
+2. Wait for Receive() to return         → all callbacks have finished
+3. Call topic.Stop() on each topic      → flushes pending publish batches
+4. Call client.Close()                  → tears down gRPC connections
+```
+
+The order matters: subscribers may publish, so subscribers must drain *before* publishers stop.
+
+## Pattern
+
+```go
+func run(ctx context.Context) error {
+    client, err := pubsub.NewClient(ctx, projectID)
+    if err != nil {
+        return err
+    }
+    defer client.Close() // (4) last
+
+    topic := client.Topic("outbound")
+    topic.EnableMessageOrdering = true // if you need it
+    defer topic.Stop() // (3) flushes pending batches; blocks until done
+
+    sub := client.Subscription("inbound")
+    sub.ReceiveSettings.MaxOutstandingMessages = 100
+    sub.ReceiveSettings.NumGoroutines = 1
+
+    // Separate context for Receive so we control its lifetime.
+    recvCtx, cancelRecv := context.WithCancel(ctx)
+    defer cancelRecv()
+
+    recvDone := make(chan error, 1)
+    go func() {
+        recvDone <- sub.Receive(recvCtx, func(cbCtx context.Context, msg *pubsub.Message) {
+            // Do work synchronously. Don't hand off to a background goroutine
+            // and return — the lease stops extending the moment this returns.
+            if err := handle(cbCtx, topic, msg); err != nil {
+                msg.Nack()
+                return
+            }
+            msg.Ack()
+        })
+    }()
+
+    // Wait for outer shutdown signal.
+    <-ctx.Done()
+
+    // (1) Stop pulling new messages and wait for in-flight callbacks.
+    cancelRecv()
+
+    // (2) Block until Receive returns — all callbacks have finished publishing.
+    if err := <-recvDone; err != nil && err != context.Canceled {
+        log.Printf("Receive returned: %v", err)
+    }
+
+    // defers fire in LIFO order: topic.Stop() then client.Close().
+    return nil
+}
+```
+
+## Critical details
+
+- **Don't reuse the cancelled context inside callbacks for publishing.** When your subscriber callback publishes a message, pass a *fresh* context (or `context.Background()` with a timeout) to `result.Get()`. Otherwise, on shutdown, the cancelled context kills the publish wait before `Stop()` can flush it. The callback's `cbCtx` is cancelled when `Receive` is shutting down — that's the wrong context to pass to a publish you want to complete.
+
+- **`topic.Stop()` blocks until pending batches are flushed.** This is the line that prevents lost publishes. It is idempotent and safe in `defer`.
+
+- **Don't call `Receive` again after it returns.** Once it exits (cleanly or with error), that `Subscription` invocation is done. If you want to restart, call `Receive` again — but not concurrently with the previous one.
+
+- **If callbacks block forever, `Receive` blocks forever.** Cancellation does not forcibly kill your callback. Make sure `handle()` respects `cbCtx.Done()` (or has its own timeout) on every potentially-blocking call. A common fix: `handleCtx, cancel := context.WithTimeout(cbCtx, 30*time.Second); defer cancel()`.
+
+- **Set a hard deadline on shutdown.** In production, wrap the whole shutdown sequence in a timeout so a stuck callback doesn't prevent process exit:
+
+  ```go
+  shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+  defer cancel()
+  // ... but note: defers above will still try to run topic.Stop() etc.
+  // Use shutdownCtx for any work you do during shutdown, not for the defers.
+  ```
+
+  If `topic.Stop()` itself is hanging (rare, network-related), you'd need to wrap it in a goroutine with a timeout, but that means accepting message loss.
+
+## Quick checklist
+
+- [ ] `defer client.Close()` registered first (runs last)
+- [ ] `defer topic.Stop()` registered after client (runs before Close)
+- [ ] Separate cancellable context for `Receive`, distinct from your shutdown signal context
+- [ ] `Receive` runs in its own goroutine; main path waits on a done channel
+- [ ] Callbacks do work synchronously, don't spawn-and-return
+- [ ] Publishes inside callbacks use a *non-cancelled* context for `result.Get()`
+- [ ] Callbacks have their own timeouts on downstream calls
+
+For more detail on the publisher and subscriber lifecycle separately, see `references/publishing.md` and `references/subscribing.md` in the pubsub skill, and `references/go-client.md` for the full Client/Topic/Subscription contract.
+
+</details>
+
+---
+
+### `flow-control-oom`
+
+**Prompt**
+
+```
+My Pub/Sub subscriber is OOM-killing despite only having ~50
+subscriptions. Each message takes about 10 seconds of CPU/IO to
+process and the subscriber pulls thousands at a time. What's
+actually limiting how many messages I have in flight, and how do
+I tune it?
+```
+
+**Judge focus:** The better answer points at ReceiveSettings.MaxOutstandingMessages
+and MaxOutstandingBytes as the in-flight cap (defaults are large —
+~1000 messages / 1 GiB), explains they only protect once the
+handler returns or Ack/Nack fires, and tells the user to lower
+them when handlers are slow or messages are heavy.
+
+#### `sonnet`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer A is more accurate and focused on the Go SDK, correctly naming `ReceiveSettings.MaxOutstandingMessages` and `MaxOutstandingBytes` with their actual defaults (1000 messages / 1 GiB), and explaining that the cap applies while the callback is running (not just at ack/nack). Answer B mixes Python, Java, and Go examples with incorrect defaults (claiming Python's max_bytes default is 100 MB rather than 1 GiB), and its ASCII diagram misrepresents how flow control works. Answer A also provides superior coverage of the ack-deadline interaction and the goroutine-handoff anti-pattern.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| names the flow-control settings | skill |
+| explains they cap concurrent in-flight work | skill |
+| tells the user to lower the cap for slow / heavy messages | tie |
+| mentions ack deadline as a related axis | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| names the flow-control settings | ✓ | `MaxOutstandingMessages` |
+| explains they cap concurrent in-flight work | ✓ | `In-Flight` |
+| tells the user to lower the cap for slow / heavy messages | ✓ | `LOWER` |
+| mentions ack deadline as a related axis | ✓ | `MaxExtension` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| names the flow-control settings | ✓ | `MaxOutstandingMessages` |
+| explains they cap concurrent in-flight work | ✓ | `in-flight` |
+| tells the user to lower the cap for slow / heavy messages | ✗ | |
+| mentions ack deadline as a related axis | ✓ | `ack-deadline` |
+
+<details><summary>sonnet: baseline answer</summary>
+
+## The Core Problem
+
+You're hitting a **flow control** misunderstanding. The Pub/Sub client library pulls messages aggressively and buffers them in memory before your code ever sees them, so you can have thousands of messages sitting in RAM waiting to be processed while your workers are busy with the current batch.
+
+---
+
+## What Actually Controls In-Flight Messages
+
+There are **three independent limits**, and the most restrictive one wins:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Pub/Sub Client Library                    │
+│                                                             │
+│  ┌─────────────┐    ┌──────────────┐    ┌───────────────┐  │
+│  │  max_messages│    │  max_bytes   │    │ max_lease_    │  │
+│  │  (count)    │    │  (RAM)       │    │ duration      │  │
+│  └──────┬──────┘    └──────┬───────┘    └──────┬────────┘  │
+│         │                  │                    │           │
+│         └──────────────────┴────────────────────┘          │
+│                            │                               │
+│                     FlowControl                            │
+│                     (the gatekeeper)                       │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                    Your callback/handler
+```
+
+| Limit | Default (Python) | What it does |
+|---|---|---|
+| `max_messages` | **1000** | Max messages pulled and held in memory |
+| `max_bytes` | **100 MB** | Max total byte size of buffered messages |
+| `max_lease_duration` | **1 hour** | How long before a message is nacked/redelivered |
+
+**Your situation:** With 10s processing time and 1000 buffered messages, you're holding potentially gigabytes of message payloads in RAM before processing even starts.
+
+---
+
+## The Fix: Tune Flow Control
+
+### Python (google-cloud-pubsub)
+
+```python
+from google.cloud import pubsub_v1
+from google.api_core import retry
+
+# Calculate your actual capacity:
+# - How many messages can you process concurrently?
+# - How much RAM can each message payload consume?
+
+flow_control = pubsub_v1.types.FlowControl(
+    max_messages=50,          # Match your actual worker concurrency
+    max_bytes=50 * 1024 * 1024,  # 50 MB hard ceiling on buffered payload
+    max_lease_duration=60,    # Seconds; must be > your processing time
+                              # but not so long that failures stall redelivery
+)
+
+subscriber = pubsub_v1.SubscriberClient()
+subscription_path = subscriber.subscription_path(project_id, subscription_id)
+
+streaming_pull_future = subscriber.subscribe(
+    subscription_path,
+    callback=your_callback,
+    flow_control=flow_control,
+    # Also tune the executor thread pool:
+    scheduler=pubsub_v1.subscriber.scheduler.ThreadScheduler(
+        executor=concurrent.futures.ThreadPoolExecutor(max_workers=10)
+    )
+)
+```
+
+### Java (spring-cloud-gcp / google-cloud-java)
+
+```java
+FlowControlSettings flowControlSettings = FlowControlSettings.newBuilder()
+    .setMaxOutstandingElementCount(50L)
+    .setMaxOutstandingRequestBytes(50L * 1024 * 1024)
+    .setLimitExceededBehavior(
+        FlowController.LimitExceededBehavior.Block  // vs ThrowException
+    )
+    .build();
+
+Subscriber subscriber = Subscriber.newBuilder(subscriptionName, receiver)
+    .setFlowControlSettings(flowControlSettings)
+    .setParallelPullCount(1)          // number of streaming pull connections
+    .setExecutorProvider(
+        InstantiatingExecutorProvider.newBuilder()
+            .setExecutorThreadCount(10)
+            .build()
+    )
+    .build();
+```
+
+### Go
+
+```go
+sub.ReceiveSettings = pubsub.ReceiveSettings{
+    MaxOutstandingMessages: 50,
+    MaxOutstandingBytes:    50 * 1024 * 1024,
+    NumGoroutines:          10,   // parallel pulls
+    MaxExtension:           60 * time.Second,
+    MaxExtensionPeriod:     0,    // let library manage
+}
+```
+
+---
+
+## Sizing the Numbers Correctly
+
+```
+                    Your processing pipeline
+                    
+Messages/sec you can handle = (worker_threads) / (seconds_per_message)
+                            = 10 workers / 10 seconds
+                            = 1 message/sec throughput
+
+Reasonable buffer = throughput × acceptable_latency_seconds
+                  = 1 msg/sec × 30 seconds
+                  = ~30 messages buffered at once
+
+So max_messages = 30-50 is sensible, NOT 1000
+```
+
+**For bytes:**
+```
+max_bytes = max_messages × avg_message_size × safety_factor
+          = 50 × 1MB × 2
+          = 100 MB
+
+Set this LOWER than your available RAM minus your app's working set
+```
+
+---
+
+## The Lease Duration Trap
+
+This is a subtle OOM amplifier:
+
+```
+Timeline with 10s processing and default 1-hour lease:
+
+t=0:    Pull 1000 messages, all held in memory
+t=10s:  First 10 processed and acked
+t=20s:  Next 10 processed...
+t=16min: Still holding ~900 messages in RAM
+t=1hr:  Unprocessed messages get redelivered → DUPLICATE WORK
+```
+
+**Fix:** Set `max_lease_duration` to something like `processing_time × 3` with a floor of 60 seconds. The library will auto-extend leases for messages actively being processed.
+
+---
+
+## Checklist
+
+```
+[ ] Set max_messages to match actual worker concurrency (not default 1000)
+[ ] Set max_bytes to a fraction of available container RAM
+[ ] Set max_lease_duration > your p99 processing time
+[ ] Set thread pool size to match max_messages (no point having 1000 slots, 5 threads)
+[ ] Set LimitExceededBehavior to Block, not ThrowException
+[ ] Monitor: subscription/num_undelivered_messages in Cloud Monitoring
+[ ] Consider: is your processing actually parallelizable, or is it I/O bound?
+```
+
+---
+
+## Quick Sanity Check
+
+If you're still OOM after tuning flow control, check whether your **callback itself** is accumulating state — e.g., appending results to a list, building a batch for downstream writes, etc. Flow control only limits what the *library* buffers; your application code can still leak memory independently.
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+The OOM is almost certainly caused by the default flow-control limits being far too permissive for your workload. Here is exactly what is happening and how to fix it.
+
+## What actually controls in-flight messages
+
+`Subscription.Receive` has two independent governors, both set in `ReceiveSettings`:
+
+| Setting | Default | What it caps |
+|---|---|---|
+| `MaxOutstandingMessages` | 1,000 | Count of messages whose callbacks have started but not yet acked/nacked |
+| `MaxOutstandingBytes` | 1,073,741,824 (1 GiB) | Total size of those same in-flight messages |
+
+**Both limits apply simultaneously.** Pub/Sub stops pulling new messages the moment either ceiling is hit. With 10-second processing time and defaults, you can have up to 1,000 messages in memory at once — each holding whatever data it carries plus your processing state. That is almost certainly your OOM source.
+
+There is a third knob that interacts with the above:
+
+| Setting | Default | What it controls |
+|---|---|---|
+| `NumGoroutines` | 10 | Goroutines used for `StreamingPull` RPCs (not callback concurrency) |
+
+`NumGoroutines` is **not** a concurrency cap on your callback. The SDK dispatches each message to its own goroutine. The only thing preventing unbounded goroutine spawning is `MaxOutstandingMessages`.
+
+## Sizing the limits for your workload
+
+With 10-second processing time, work backwards from how much memory you can safely allocate to in-flight messages:
+
+```
+MaxOutstandingMessages = floor(memory_budget_bytes / avg_message_bytes_in_memory)
+```
+
+"Bytes in memory" means the message payload **plus** whatever your handler allocates per message during processing. If each message is 10 KB on the wire but your handler builds a 5 MB intermediate structure, budget 5 MB per slot, not 10 KB.
+
+A concrete example: 512 MiB budget, 2 MiB per message in flight → cap at **256 messages**.
+
+Set `MaxOutstandingBytes` to the same budget as a belt-and-suspenders guard:
+
+```go
+sub.ReceiveSettings = pubsub.ReceiveSettings{
+    MaxOutstandingMessages: 256,
+    MaxOutstandingBytes:    512 * 1024 * 1024, // 512 MiB
+    MaxExtension:           20 * time.Minute,  // see below
+    NumGoroutines:          10,                // leave this alone unless you have network latency issues
+}
+```
+
+## The ack-deadline trap with 10-second processing
+
+The default ack deadline is **10 seconds**, and the SDK extends it automatically — but only while the message is inside the `Receive` callback. With 10-second CPU/IO work you are right at the edge. If processing occasionally runs long, the lease expires and the message redelivers, which means:
+
+1. You now have the original message **and** the redelivery both in flight.
+2. Your in-flight count climbs past your cap.
+3. Memory spikes.
+
+Fix this by raising `MaxExtension` to comfortably exceed your worst-case processing time. 20 minutes is a safe ceiling for 10-second average work with variance:
+
+```go
+MaxExtension: 20 * time.Minute,
+```
+
+The SDK will keep extending the lease in the background as long as the callback has not returned.
+
+## The callback-goroutine handoff trap
+
+If your handler looks like this, you have a hidden leak:
+
+```go
+// WRONG — callback returns immediately, lease stops extending,
+// message redelivers, and your goroutine pool is unbounded
+sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+    go func() {
+        process(msg)
+        msg.Ack()
+    }()
+})
+```
+
+The callback must not return until processing is complete. The correct pattern:
+
+```go
+// RIGHT — callback blocks until work is done
+sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+    if err := process(msg); err != nil {
+        msg.Nack()
+        return
+    }
+    msg.Ack()
+})
+```
+
+If you need a bounded worker pool (e.g., to limit DB connections), use a semaphore inside the callback, not a goroutine handoff:
+
+```go
+sem := make(chan struct{}, 20) // at most 20 concurrent DB operations
+
+sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+    sem <- struct{}{}        // block here if pool is full
+    defer func() { <-sem }()
+
+    if err := process(msg); err != nil {
+        msg.Nack()
+        return
+    }
+    msg.Ack()
+})
+```
+
+This keeps the callback alive (lease extends), caps concurrency, and lets `MaxOutstandingMessages` do its job as the outer gate.
+
+## Putting it together
+
+```go
+client, err := pubsub.NewClient(ctx, projectID)
+if err != nil { ... }
+defer client.Close()
+
+sub := client.Subscription(subscriptionID)
+sub.ReceiveSettings = pubsub.ReceiveSettings{
+    // Tune these two to your memory budget
+    MaxOutstandingMessages: 256,
+    MaxOutstandingBytes:    512 * 1024 * 1024,
+
+    // Must exceed worst-case processing time
+    MaxExtension: 20 * time.Minute,
+
+    // Leave at default unless you have high network latency
+    NumGoroutines: 10,
+}
+
+sem := make(chan struct{}, 20) // optional: cap DB/IO concurrency independently
+
+if err := sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+    sem <- struct{}{}
+    defer func() { <-sem }()
+
+    if err := process(msg); err != nil {
+        msg.Nack()
+        return
+    }
+    msg.Ack()
+}); err != nil && !errors.Is(err, context.Canceled) {
+    log.Fatal(err)
+}
+```
+
+## Monitoring to validate the tuning
+
+After deploying, watch these two Cloud Monitoring metrics on your subscription:
+
+- **`subscription/num_undelivered_messages`** — backlog size. Should be stable or draining, not growing.
+- **`subscription/oldest_unacked_message_age`** — if this climbs past your ack deadline, you have a redelivery loop.
+
+If `oldest_unacked_message_age` is high but your handler is completing, the lease extension is not keeping up — raise `MaxExtension` further or check that you are not doing the goroutine-handoff anti-pattern above.
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer A correctly identifies ReceiveSettings.MaxOutstandingMessages and MaxOutstandingBytes as the primary flow-control knobs, explains their defaults (1000 messages / 1 GiB), and gives clear guidance on lowering them for slow handlers. Answer B misidentifies maxExtension as the 'key insight' and incorrectly states the default for maxOutstandingBytes as 100MB (it's 1 GiB), and its explanation of the OOM cause via re-delivery duplicates is confused and misleading. Answer A also mentions ack deadline as a related axis and provides a coherent tuning formula.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| names the flow-control settings | skill |
+| explains they cap concurrent in-flight work | skill |
+| tells the user to lower the cap for slow / heavy messages | skill |
+| mentions ack deadline as a related axis | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| names the flow-control settings | ✓ | `maxOutstandingMessages` |
+| explains they cap concurrent in-flight work | ✓ | `In-Flight` |
+| tells the user to lower the cap for slow / heavy messages | ✓ | `Reduce` |
+| mentions ack deadline as a related axis | ✓ | `maxExtension` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| names the flow-control settings | ✓ | `MaxOutstandingMessages` |
+| explains they cap concurrent in-flight work | ✓ | `in-flight` |
+| tells the user to lower the cap for slow / heavy messages | ✓ | `Lower` |
+| mentions ack deadline as a related axis | ✗ | |
+
+<details><summary>haiku: baseline answer</summary>
+
+# Pub/Sub Subscriber Memory Tuning
+
+The key insight: **you're likely hitting the `maxExtension` limit**, not subscription count. Here's what's actually limiting you:
+
+## What Controls In-Flight Messages
+
+1. **`maxExtension` (default: 600 seconds)** - The total time a message can be held before being re-delivered
+   - If processing takes 10s and you pull 1000 messages, you're holding them for ~10,000 seconds total
+   - Messages beyond `maxExtension` get re-delivered, creating duplicates and memory pressure
+
+2. **`maxOutstandingMessages`** (default: 1000) - Hard cap on messages pulled at once
+   - This is your immediate limiter, but it's not the memory problem
+
+3. **`maxOutstandingBytes`** (default: 100MB) - Memory cap per subscriber
+   - This is likely what's killing you
+
+## The Real Problem
+
+With 10-second processing per message:
+```
+1000 messages × 10 seconds = 10,000 seconds of holding time
+But maxExtension = 600 seconds
+→ Messages get re-delivered while still in memory
+→ Duplicates pile up
+→ OOM
+```
+
+## Solutions (in order of effectiveness)
+
+### 1. **Reduce `maxOutstandingMessages`** (Immediate fix)
+```python
+subscriber = subscriber_client.subscribe(
+    subscription_path,
+    callback,
+    flow_control=pubsub_v1.types.FlowControl(
+        max_messages=100,  # Down from 1000
+        max_bytes=10 * 1024 * 1024,  # 10MB instead of 100MB
+    ),
+)
+```
+
+Start with `max_messages = (600 seconds / 10 seconds per message) = 60` as a baseline.
+
+### 2. **Increase `maxExtension`** (If you control message TTL)
+```python
+# In your subscriber callback, extend the deadline
+def callback(message):
+    # Extend before processing
+    message.drop_by_deadline = time.time() + 30  # 30 more seconds
+    
+    # Do your 10-second work
+    process_message(message)
+    
+    message.ack()
+```
+
+Or use `modify_ack_deadline()`:
+```python
+subscriber_client.modify_ack_deadline(
+    request={
+        "subscription": subscription_path,
+        "ack_ids": [message.ack_id],
+        "ack_deadline_seconds": 30,  # Extend deadline
+    }
+)
+```
+
+### 3. **Batch processing** (Best for throughput)
+```python
+messages_batch = []
+
+def callback(message):
+    messages_batch.append(message)
+    if len(messages_batch) >= 10:
+        process_batch(messages_batch)
+        for msg in messages_batch:
+            msg.ack()
+        messages_batch.clear()
+    else:
+        message.nack()  # Redeliver, we'll process in batch
+```
+
+### 4. **Increase subscriber resources**
+If you genuinely need high throughput:
+```python
+# Multiple subscriber instances (recommended)
+# Each with reduced flow control:
+flow_control=pubsub_v1.types.FlowControl(
+    max_messages=50,
+    max_bytes=5 * 1024 * 1024,
+)
+```
+
+## Diagnostic Checklist
+
+```python
+# Log what's actually happening
+def callback(message):
+    start = time.time()
+    try:
+        process_message(message)
+        elapsed = time.time() - start
+        print(f"Processed in {elapsed:.2f}s, ack_deadline: {message.ack_deadline}")
+    except Exception as e:
+        print(f"Failed after {time.time() - start:.2f}s: {e}")
+        message.nack()
+    else:
+        message.ack()
+```
+
+## Quick Win
+
+**Start here:**
+```python
+flow_control=pubsub_v1.types.FlowControl(
+    max_messages=50,  # Conservative
+    max_bytes=10 * 1024 * 1024,  # 10MB
+)
+```
+
+Then monitor memory and gradually increase until you hit OOM again. The sweet spot is usually `max_messages = (ack_deadline / avg_processing_time) × 0.8`.
+
+What language/client are you using? The exact API varies slightly.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# Pub/Sub Subscriber OOM: Flow Control Tuning
+
+You're hitting the **flow-control ceiling**, not the subscription count. The Go SDK's `Subscription.Receive` has two independent limits that cap in-flight messages *per call*, and you're almost certainly maxing out the default **1000 messages / 1 GiB** before your handler finishes processing them.
+
+## What's Actually Limiting You
+
+When you call `subscription.Receive(ctx, callback)`, the SDK maintains a local buffer of unacked messages. Two knobs control this:
+
+| Knob | Default | Your Scenario |
+|---|---|---|
+| `MaxOutstandingMessages` | 1000 | **You're hitting this.** 1000 msgs × 10s each = 10,000s of queued work. |
+| `MaxOutstandingBytes` | 1 GiB | Probably not the bottleneck unless messages are huge. |
+
+The SDK **will not pull more messages from the broker** once either limit is reached. But those 1000 messages are already in your process's memory, and if each one spawns a goroutine or holds a resource, you OOM before the handler finishes.
+
+The key insight: **flow control is per `Receive` call, not per subscription.** 50 subscriptions × 1000 msgs each = 50,000 in-flight messages if you call `Receive` on all 50 concurrently.
+
+## How to Diagnose
+
+1. **Check your current settings:**
+   ```go
+   sub := client.Subscription("my-sub")
+   settings := sub.ReceiveSettings
+   fmt.Printf("MaxOutstandingMessages: %d\n", settings.MaxOutstandingMessages)
+   fmt.Printf("MaxOutstandingBytes: %d\n", settings.MaxOutstandingBytes)
+   fmt.Printf("NumGoroutines: %d\n", settings.NumGoroutines)
+   ```
+   If you haven't set them, you're using defaults.
+
+2. **Estimate your memory per message:**
+   - Message body size (check `msg.Data` length in logs)
+   - Any context you attach (goroutine stack, buffered channels, etc.)
+   - Multiply by `MaxOutstandingMessages` to get peak in-flight memory
+
+3. **Check if you're calling `Receive` on multiple subscriptions concurrently:**
+   ```go
+   // BAD: 50 Receive calls in parallel = 50 × 1000 msgs in memory
+   for _, sub := range subscriptions {
+       go sub.Receive(ctx, callback)
+   }
+   
+   // GOOD: one Receive per subscription, sequentially or with a bounded pool
+   ```
+
+## Tuning Strategy
+
+### Step 1: Lower `MaxOutstandingMessages`
+
+Start aggressive — your 10-second handler means you want **at most 10–20 messages in flight** to keep CPU busy without buffering:
+
+```go
+sub := client.Subscription("my-sub")
+sub.ReceiveSettings.MaxOutstandingMessages = 20  // Not 1000
+sub.ReceiveSettings.MaxOutstandingBytes = 100 * 1024 * 1024  // 100 MiB, not 1 GiB
+
+err := sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+    // Synchronous processing — takes ~10s
+    processMessage(msg)
+    msg.Ack()
+})
+```
+
+**Why 20?** If you have 4 CPU cores and each message takes 10s, you can process ~0.4 messages/core/sec. 20 messages gives you a small buffer for jitter without exploding memory.
+
+### Step 2: Tune `NumGoroutines` (if using a worker pool)
+
+The SDK spawns `NumGoroutines` (default 10) to call your callback. If your callback is synchronous (blocks until `msg.Ack()`), this is fine — the goroutines are the bottleneck, not the message buffer.
+
+```go
+sub.ReceiveSettings.NumGoroutines = 4  // Match your CPU cores
+sub.ReceiveSettings.MaxOutstandingMessages = 20
+```
+
+With 4 goroutines and 20 max messages, you'll have ~5 messages per goroutine queued, which is reasonable.
+
+### Step 3: Handle 50 Subscriptions Without Multiplying In-Flight
+
+**Do NOT call `Receive` on all 50 subscriptions concurrently.** Instead:
+
+```go
+// Option A: Sequential (simple, but one subscription blocks others)
+for _, sub := range subscriptions {
+    err := sub.Receive(ctx, callback)
+    if err != nil && err != context.Canceled {
+        log.Printf("Receive error: %v", err)
+    }
+}
+
+// Option B: Bounded pool (recommended)
+const maxConcurrentReceives = 5
+sem := make(chan struct{}, maxConcurrentReceives)
+var wg sync.WaitGroup
+
+for _, sub := range subscriptions {
+    wg.Add(1)
+    go func(s *pubsub.Subscription) {
+        defer wg.Done()
+        sem <- struct{}{}        // Acquire
+        defer func() { <-sem }() // Release
+        
+        err := s.Receive(ctx, callback)
+        if err != nil && err != context.Canceled {
+            log.Printf("Receive error: %v", err)
+        }
+    }(sub)
+}
+
+wg.Wait()
+```
+
+With Option B and 5 concurrent `Receive` calls, you cap in-flight at **5 × 20 = 100 messages**, not 50,000.
+
+### Step 4: Validate with Metrics
+
+Monitor these Pub/Sub metrics to confirm tuning:
+
+```bash
+gcloud monitoring time-series list \
+  --filter='metric.type="pubsub.googleapis.com/subscription/num_undelivered_messages"' \
+  --format='table(metric.labels.subscription_id, points[0].value.int64_value)'
+```
+
+- **`num_undelivered_messages`**: Should stay low (< 100) if flow control is working.
+- **`oldest_unacked_message_age`**: Should not grow unbounded. If it climbs, your handler is slower than the publish rate.
+
+## Complete Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"sync"
+	"time"
+
+	"cloud.google.com/go/pubsub"
+)
+
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client, err := pubsub.NewClient(ctx, "my-project")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	subscriptions := []*pubsub.Subscription{
+		client.Subscription("sub-1"),
+		client.Subscription("sub-2"),
+		// ... 48 more
+	}
+
+	// Tune flow control per subscription
+	for _, sub := range subscriptions {
+		sub.ReceiveSettings.MaxOutstandingMessages = 20
+		sub.ReceiveSettings.MaxOutstandingBytes = 100 * 1024 * 1024
+		sub.ReceiveSettings.NumGoroutines = 4
+	}
+
+	// Bound concurrent Receive calls
+	const maxConcurrentReceives = 5
+	sem := make(chan struct{}, maxConcurrentReceives)
+	var wg sync.WaitGroup
+
+	for _, sub := range subscriptions {
+		wg.Add(1)
+		go func(s *pubsub.Subscription) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			err := s.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+				// Synchronous processing — takes ~10s
+				if err := processMessage(msg); err != nil {
+					log.Printf("Process error: %v", err)
+					msg.Nack()
+					return
+				}
+				msg.Ack()
+			})
+			if err != nil && err != context.Canceled {
+				log.Printf("Receive error on %s: %v", s.ID(), err)
+			}
+		}(sub)
+	}
+
+	wg.Wait()
+}
+
+func processMessage(msg *pubsub.Message) error {
+	// Simulate 10s of work
+	time.Sleep(10 * time.Second)
+	fmt.Printf("Processed message %s\n", msg.ID)
+	return nil
+}
+```
+
+## Key Takeaways
+
+| Problem | Solution |
+|---|---|
+| OOM with default 1000 msgs | Lower `MaxOutstandingMessages` to 10–50 based on handler latency |
+| 50 subscriptions = 50,000 in-flight | Use a semaphore to bound concurrent `Receive` calls to 5–10 |
+| Handler takes 10s but CPU idle | Increase `NumGoroutines` to match cores, or raise `MaxOutstandingMessages` slightly |
+| Backlog growing despite tuning | Handler is slower than publish rate — add more subscriber instances or optimize processing |
+
+**The rule:** `MaxOutstandingMessages` should be roughly `(handler_latency_seconds × publish_rate_per_second) / num_goroutines`. For 10s latency, 100 msgs/sec publish rate, and 4 goroutines: `(10 × 100) / 4 = 250` — so start at 250 and lower if memory is still tight.
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer A is more precise and complete: it correctly names both `MaxOutstandingMessages` and `MaxOutstandingBytes` as the primary Go client settings, explains the multiplicative effect across 50 subscriptions (50×1000=50,000), and covers the ack deadline/MaxExtension axis explicitly. Answer B is reasonable but mixes client libraries (Python, Java, Go) in a way that dilutes focus, uses slightly incorrect Python defaults (100 MiB vs 1 GiB), and is less precise about how the flow control interacts with slow handlers and lease extension.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| names the flow-control settings | skill |
+| explains they cap concurrent in-flight work | skill |
+| tells the user to lower the cap for slow / heavy messages | tie |
+| mentions ack deadline as a related axis | skill |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| names the flow-control settings | ✓ | `MaxOutstandingMessages` |
+| explains they cap concurrent in-flight work | ✓ | `outstanding` |
+| tells the user to lower the cap for slow / heavy messages | ✓ | `lower` |
+| mentions ack deadline as a related axis | ✓ | `ack deadline` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| names the flow-control settings | ✓ | `MaxOutstandingMessages` |
+| explains they cap concurrent in-flight work | ✓ | `in-flight` |
+| tells the user to lower the cap for slow / heavy messages | ✓ | `lower` |
+| mentions ack deadline as a related axis | ✓ | `ack deadline` |
+
+<details><summary>opus: baseline answer</summary>
+
+# What's actually happening
+
+Pub/Sub's streaming pull client is **flow-controlled by leases, not by your subscription count**. The client library opens StreamingPull connections and aggressively pulls messages up to its flow control limits, then holds them in memory while extending their ack deadlines via the lease management thread.
+
+The defaults are surprisingly generous. In the Python client, for example:
+- `max_messages`: **1000** outstanding messages
+- `max_bytes`: **100 MiB** outstanding
+- `max_lease_duration`: 1 hour
+
+Java and Go have similarly large defaults. So with 50 subscriptions × 1000 messages × message payload + processing overhead, you can easily blow past container memory even though "only 50 subscriptions" sounds modest.
+
+The compounding problem: messages take 10s each to process. If your executor only has, say, 10 worker threads, you're processing 10 at a time but the client has already pulled and is leasing **1000**. Those 990 leased-but-not-yet-processed messages sit in memory, getting their deadlines extended, until a worker frees up.
+
+# What to tune
+
+The right knob is **FlowControl** on the subscriber, set to roughly `concurrent_workers × small_multiplier`:
+
+**Python:**
+```python
+from google.cloud import pubsub_v1
+
+flow_control = pubsub_v1.types.FlowControl(
+    max_messages=20,        # ~2x your worker count
+    max_bytes=10 * 1024 * 1024,
+)
+
+# Bound the executor too
+executor = futures.ThreadPoolExecutor(max_workers=10)
+scheduler = pubsub_v1.subscriber.scheduler.ThreadScheduler(executor=executor)
+
+subscriber.subscribe(sub_path, callback, flow_control=flow_control,
+                     scheduler=scheduler)
+```
+
+**Java:**
+```java
+Subscriber.newBuilder(sub, receiver)
+    .setFlowControlSettings(FlowControlSettings.newBuilder()
+        .setMaxOutstandingElementCount(20L)
+        .setMaxOutstandingRequestBytes(10L * 1024 * 1024)
+        .build())
+    .setExecutorProvider(...) // bounded
+    .build();
+```
+
+**Go:**
+```go
+sub.ReceiveSettings.MaxOutstandingMessages = 20
+sub.ReceiveSettings.MaxOutstandingBytes = 10 * 1024 * 1024
+sub.ReceiveSettings.NumGoroutines = 1  // streams per client
+```
+
+# Sizing rule of thumb
+
+For long-running messages, set `max_messages ≈ 1.5–2× concurrent_processing_capacity`. With 10s processing and 10 workers, 20 outstanding gives you a small buffer without ballooning memory. If you have 50 subscriptions in one process, divide that budget across them — each subscriber has its own flow control.
+
+Also worth checking:
+- **Subscription's `ack_deadline`** vs `max_lease_duration`: the client extends deadlines automatically up to `max_lease_duration`, so make sure that's longer than your worst-case processing time (default 1h is usually fine).
+- **`NumGoroutines` / stream count**: more streams = more parallel pulling, more memory pressure. One stream per process is often enough.
+- **Horizontal scaling**: 50 subs × 10s/msg in one container is a lot. Split across pods and let each have a small flow control window.
+
+# Quick diagnostic
+
+Look at the `subscription/num_outstanding_messages` metric in Cloud Monitoring per subscriber instance. If it's pinned near your `max_messages` ceiling and your processing rate is much lower, that's your memory.
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
+
+# What's actually limiting in-flight messages
+
+The thing pulling "thousands at a time" is **`ReceiveSettings.MaxOutstandingMessages`** on each `Subscription.Receive` call. The Go client defaults are:
+
+```go
+MaxOutstandingMessages = 1000   // per Receive call
+MaxOutstandingBytes    = 1 << 30 // 1 GiB per Receive call
+NumGoroutines          = 10      // StreamingPull streams per Receive call
+```
+
+These limits are **per `Receive` call, not per process**. With ~50 subscriptions each running their own `Receive`, your effective ceiling is **50 × 1000 = 50,000 messages and 50 GiB of buffer budget** before flow control kicks in. That's your OOM.
+
+`NumGoroutines` is also misleading — it controls the number of StreamingPull *streams*, not the worker concurrency. Each stream can deliver messages to many concurrent callback goroutines, bounded only by `MaxOutstandingMessages`.
+
+# Why slow handlers make this worse
+
+With 10s processing per message:
+
+1. The SDK leases a message and starts auto-extending the ack deadline via `modifyAckDeadline` calls in the background.
+2. The message stays in the in-memory buffer (counting against `MaxOutstandingMessages` / `MaxOutstandingBytes`) for the entire 10s.
+3. At 1000 outstanding × 10s, you're holding up to 1000 messages resident per subscription continuously.
+4. If processing exceeds `MaxExtension` (default: unlimited in newer SDK versions, but historically 60 min), the lease stops extending and the message redelivers — adding *more* in-flight copies, not fewer.
+
+# How to tune it
+
+For 50 subscriptions × 10s handlers, you want a small per-subscription budget:
+
+```go
+sub := client.Subscription("my-sub")
+sub.ReceiveSettings = pubsub.ReceiveSettings{
+    // Cap in-flight per subscription. With 50 subs, this is 50*20 = 1000 total.
+    MaxOutstandingMessages: 20,
+
+    // Cap bytes too — pick based on your message size. 50 MiB per sub
+    // gives 2.5 GiB total ceiling across 50 subs.
+    MaxOutstandingBytes: 50 << 20,
+
+    // Fewer streams per sub; you don't need 10 when concurrency is 20.
+    NumGoroutines: 1,
+
+    // Cap how long the SDK will keep extending the lease. If a handler
+    // hangs past this, let it redeliver rather than pinning memory.
+    MaxExtension: 10 * time.Minute,
+
+    // Optional: cap a single extension period. Default is fine for most.
+    MaxExtensionPeriod: 0,
+}
+
+err := sub.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+    // Synchronous work here. Do NOT spawn a goroutine and return —
+    // the lease stops extending the moment this function returns.
+    process(msg)
+    msg.Ack()
+})
+```
+
+# Sizing rule of thumb
+
+```
+total in-flight ≈ Σ (MaxOutstandingMessages_i × avg_message_bytes_i)
+```
+
+Pick a process-wide memory budget (say, 2 GiB), divide by 50 subscriptions, divide by your average message size, and use that as `MaxOutstandingMessages` per subscription. With heavy handlers, also factor in working-set memory per concurrent message — if `process()` allocates 10 MiB of scratch space, 20 concurrent × 10 MiB = 200 MiB just for live processing, on top of buffered messages.
+
+# Things to check while you're in there
+
+1. **Synchronous handler.** The callback must do the work and call `Ack()` *before* returning. If you're doing `go process(msg)` and returning immediately, lease extension stops, you get redelivery, and the "thousands in flight" balloons further.
+2. **Concurrent `Receive` calls.** Never call `Receive` twice on the same `*pubsub.Subscription` handle. If you have 50 subscriptions, you should have 50 `Subscription` handles and 50 `Receive` invocations.
+3. **Graceful shutdown.** Cancel the context passed to `Receive` so it drains in-flight messages cleanly. Otherwise on SIGTERM you'll redeliver everything that was mid-processing.
+4. **Watch `oldest_unacked_message_age`** in Cloud Monitoring. If it climbs after lowering `MaxOutstandingMessages`, you're now under-provisioned — raise the limit or add subscriber replicas. Pub/Sub is designed for horizontal scaling: more subscriber instances each pulling a small budget beats one instance pulling a huge one.
+5. **If 10s is mostly I/O wait**, you may want higher `MaxOutstandingMessages` per sub but spread across more replicas, since the memory cost per in-flight message is lower when the handler isn't holding large buffers.
+
+The short version: defaults assume light, fast handlers. With 10s/message × 50 subscriptions, you have to opt out of the defaults explicitly — `MaxOutstandingMessages` is the knob, and you want it small.
 
 </details>
 
@@ -3319,7 +5397,7 @@ here).
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B includes `defer topic.Stop()` which is explicitly called out in the rubric as required, and provides a clear explanation of why it matters (silent message drops without it). Answer B also warns about the batching implications of `Publish` being asynchronous, addressing the 'warns about Get() in a loop' concern by explaining the batching trap. Answer A omits `topic.Stop()` entirely and doesn't warn about the batching behavior or the loop trap.
+**Met:** ✓  ·  **Judge:** **skill** — Answer A explicitly calls `topic.Stop()` with a clear explanation of why it's required and the LIFO defer ordering, while Answer B omits `topic.Stop()` entirely. Answer A also explicitly warns about the Get-in-a-loop anti-pattern and explains the correct collect-then-Get pattern for bulk publishing. Answer B only explains `result.Get()` but misses the Stop requirement and the batching trap.
 
 **Per-criterion verdict (judge)**
 
@@ -3342,7 +5420,7 @@ here).
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | calls Topic.Stop() before exit | ✓ | `topic.Stop` |
-| warns about Get() in a loop | ✓ | `batch` |
+| warns about Get() in a loop | ✓ | `in a loop` |
 | avoids loop with Get inside without warning | ✓ | |
 
 <details><summary>sonnet: baseline answer</summary>
@@ -3380,13 +5458,13 @@ func main() {
 }
 ```
 
-The key detail is **`result.Get(ctx)`**. `Publish` itself is non-blocking — it just queues the message locally. Calling `.Get()` on the returned `PublishResult` is what blocks until the Pub/Sub server acknowledges receipt and hands back the server-assigned message ID, guaranteeing the message actually made it before the program exits.
+The key detail is **`result.Get(ctx)`** — `Publish` itself is async and only enqueues the message locally. Calling `.Get()` on the returned `PublishResult` blocks until the Pub/Sub server acknowledges it (returning the server-assigned message ID), so you're guaranteed it went through before the program exits.
 
 </details>
 
 <details><summary>sonnet: skill-loaded answer</summary>
 
-Here's the minimal correct version:
+Here's the minimal correct version — with one trap called out explicitly:
 
 ```go
 package main
@@ -3409,7 +5487,7 @@ func main() {
 	defer client.Close()
 
 	topic := client.Topic("my-topic")
-	defer topic.Stop() // flushes the pending batch before exit
+	defer topic.Stop() // flushes the batch before exit — required
 
 	result := topic.Publish(ctx, &pubsub.Message{
 		Data: []byte("hello"),
@@ -3424,25 +5502,28 @@ func main() {
 }
 ```
 
-Two lines that look optional but aren't:
+## Two things that look optional but aren't
 
-- **`defer topic.Stop()`** — `Publish` is asynchronous and batches messages internally. Without `Stop()`, any message still in the buffer when `main` returns is silently dropped. `Stop()` flushes the batch and blocks until it drains.
-- **`result.Get(ctx)`** — this is what actually blocks until Pub/Sub acknowledges the message server-side and returns the stable message ID. Without it you have no confirmation the message was ever sent, and you'd also be racing `topic.Stop()`.
+**`topic.Stop()`** — `Publish` is asynchronous; it queues the message into a batch and returns immediately. Without `Stop()`, any messages still in the buffer are silently dropped when `main` returns. `Stop()` flushes the buffer and waits for all in-flight RPCs to finish. It must run *before* `client.Close()`, which is why the `defer` order matters (defers run LIFO, so `topic.Stop()` fires first).
 
-The "even simpler" version that skips one of these is a trap: it compiles, runs without errors, and silently loses messages.
+**`result.Get(ctx)`** — This is what actually blocks until Pub/Sub acknowledges the message server-side and returns the assigned message ID. Without it you have no confirmation the message was accepted, and any publish error is silently swallowed.
+
+## The trap this avoids
+
+A common "even simpler" version calls `topic.Publish(...)` in a loop and then calls `result.Get(...)` in a second loop. That defeats batching — the SDK can't batch messages that are already waiting on `Get`. The pattern above (publish → immediately call `Get` on the result) is fine for a single message. For bulk publishing, collect all `PublishResult`s first, *then* call `Get` on each.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B explicitly calls topic.Stop() before exit and explains why it matters for flushing batched messages, while Answer A omits this entirely. Answer B also handles errors properly and explains the batching trap, making it both more correct and more educational. Answer A's silence on Stop() and the batching implication is exactly the trap the rubric warns against.
+**Met:** ✓  ·  **Judge:** **skill** — Answer B explicitly calls topic.Stop() before exit and explains why it matters, while Answer A omits Stop() entirely. Answer B also handles errors properly and explains the batching implications, whereas Answer A silently discards errors and provides no warning about the Get()-in-a-loop trap. Answer B is more complete, correct, and educational per the rubric criteria.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
 | calls Topic.Stop() before exit | skill |
-| warns about Get() in a loop | tie |
+| warns about Get() in a loop | skill |
 | avoids loop with Get inside without warning | tie |
 
 **Baseline rubric**
@@ -3480,11 +5561,10 @@ func main() {
 
 	result := client.Topic("your-topic").Publish(ctx, &pubsub.Message{Data: []byte("hello")})
 	_, _ = result.Get(ctx) // blocks until published
-	log.Println("Message published")
 }
 ```
 
-The key is `result.Get(ctx)` — it blocks until the message is actually published or returns an error.
+The key is `result.Get(ctx)` — it blocks until the message is actually published or returns an error if it fails.
 
 </details>
 
@@ -3525,19 +5605,19 @@ func main() {
 }
 ```
 
-**Why this is correct, not a trap:**
+**Why this is the correct minimal version:**
 
-The `result.Get(ctx)` call blocks until the message is actually published to Pub/Sub (or fails). Without it, `Publish` just queues the message in a local batch — if your program exits before the batch flushes, the message is lost.
+- `result.Get(ctx)` blocks until the message is actually published (or fails). Without it, the message may still be in a batch buffer when your program exits.
+- `topic.Stop()` flushes the final batch. Omitting this silently drops in-flight messages on shutdown — a common trap.
+- `defer client.Close()` cleans up resources.
 
-The `topic.Stop()` call at the end ensures any remaining batched messages are flushed before the process exits. Omitting it is a silent data-loss bug.
-
-If you skip either of these, you have a "simple" snippet that loses messages on shutdown.
+If you skip `Stop()` or `Get()`, you have a race condition where the process exits before Pub/Sub confirms delivery. The snippet above guarantees the message reached the service before returning.
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer A is superior on all three rubric criteria. It calls topic.Stop() with a defer and explains why it matters, it explicitly warns about the Get-in-a-loop anti-pattern and explains the collect-then-Get alternative, and it correctly handles the one-message case while teaching safe habits. Answer B omits topic.Stop() entirely (the topic is created inline and never stopped), and provides no warning about the batching trap when using Get in a loop.
+**Met:** ✓  ·  **Judge:** **skill** — Answer B is superior on all three rubric criteria. It calls topic.Stop() before exit (via defer) and explicitly explains why it matters, while Answer A omits Stop() entirely. Answer B also warns about the Get()-in-a-loop batching trap and even provides the correct alternative pattern, while Answer A gives no such warning. Answer A's omission of topic.Stop() is a real correctness issue that the rubric specifically targets.
 
 **Per-criterion verdict (judge)**
 
@@ -3560,7 +5640,7 @@ If you skip either of these, you have a "simple" snippet that loses messages on 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | calls Topic.Stop() before exit | ✓ | `topic.Stop` |
-| warns about Get() in a loop | ✓ | `defeats batch` |
+| warns about Get() in a loop | ✓ | `in a loop` |
 | avoids loop with Get inside without warning | ✓ | |
 
 <details><summary>opus: baseline answer</summary>
@@ -3593,17 +5673,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("published msg ID: %s", id)
+	log.Printf("published message ID: %s", id)
 }
 ```
 
-The key bit is `result.Get(ctx)` — it blocks until the server actually acknowledges the publish (or returns an error), so you know it went through before exiting.
+The key is `result.Get(ctx)` — it blocks until the message is actually acknowledged by the server, so you know it went through before the program exits.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-The simplest *correct* version is short — but a few lines that look "simpler" are traps. Here's the right one, then what to avoid.
+The simple version is a trap: the obvious one-liner — `topic.Publish(ctx, msg).Get(ctx)` then exit — *works*, but if you ever publish more than one message that way you've defeated batching entirely (each `Get` blocks until that single message's RPC completes, so you get one RPC per message). And if you skip `topic.Stop()` on a publisher that has any in-flight messages, those get dropped on process exit.
+
+Here's the correct minimal version:
 
 ```go
 package main
@@ -3617,6 +5699,7 @@ import (
 
 func main() {
 	ctx := context.Background()
+
 	client, err := pubsub.NewClient(ctx, "my-project")
 	if err != nil {
 		log.Fatal(err)
@@ -3627,6 +5710,7 @@ func main() {
 	defer topic.Stop() // flushes pending batches
 
 	result := topic.Publish(ctx, &pubsub.Message{Data: []byte("hello")})
+
 	id, err := result.Get(ctx) // blocks until the server acks the publish
 	if err != nil {
 		log.Fatalf("publish failed: %v", err)
@@ -3635,17 +5719,13 @@ func main() {
 }
 ```
 
-That's it. Two things are doing real work and are not optional:
+Why each line is non-negotiable:
 
-1. **`result.Get(ctx)`** — `Publish` is async and returns immediately. Without `Get`, the program can exit before the message is sent. `Get` blocks until the Pub/Sub server has durably accepted the message and returns the server-assigned message ID (or an error).
+- **`defer client.Close()`** — releases the gRPC connection.
+- **`defer topic.Stop()`** — flushes any batched-but-not-yet-sent messages. For a single `Publish` followed by `Get`, the message is already on the wire, but `Stop` is the habit you want; the day you add a second `Publish` call without it, you'll silently drop messages on exit.
+- **`result.Get(ctx)`** — this is what makes "actually went through before the program exits" true. It returns the server-assigned message ID on success or an error. Without it you have no confirmation.
 
-2. **`topic.Stop()` (and `client.Close()`)** — `Stop` flushes any in-flight batch and waits for outstanding publishes. With only one message and a `Get` on it, `Stop` is technically redundant *here*, but leaving it in is the habit that keeps you safe the moment you publish a second message or move this into a loop. `client.Close()` releases the gRPC connection.
-
-### What "simpler" versions get wrong
-
-- **Omitting `topic.Stop()`** — fine for exactly one `Get`-ed publish, silently drops messages the moment you publish more than one without `Get`-ing each.
-- **Calling `Get` inside a publish loop** — defeats batching and tanks throughput. The right pattern for many messages is to collect `*PublishResult`s and `Get` them after the loop, or just rely on `topic.Stop()` to flush and check errors via a results slice.
-- **Skipping the error check on `Get`** — a successful return from `Publish` means "queued locally," not "delivered." Only `Get`'s error tells you it actually went through.
+If you're publishing many messages in a loop, **don't** call `Get` inside the loop — collect the `*PublishResult` values and `Get` them after the loop (or from a worker goroutine), so the client can batch.
 
 </details>
 
@@ -3665,7 +5745,7 @@ essentially equivalent. Pick "tie" unless one is materially wrong.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **tie** — Both answers provide the same correct CSS solution with identical properties and values. Answer B includes a helpful HTML example and a reference table, while Answer A is more concise. Neither is materially wrong or better given the focus area guidance.
+**Met:** ✓  ·  **Judge:** **tie** — Both answers provide the same correct CSS solution with identical properties. Answer B includes a slightly more complete example by showing the height property integrated into the main CSS block and adds a note about flex-direction, while Answer A uses a table format for quick reference. Neither is materially better or worse.
 
 **Per-criterion verdict (judge)**
 
@@ -3704,37 +5784,51 @@ Here's the simplest CSS to center a div both vertically and horizontally:
 
 ### Quick Reference
 
-| Property | Value | Effect |
-|---|---|---|
-| `justify-content` | `center` | Centers horizontally |
-| `align-items` | `center` | Centers vertically |
+| Property | Effect |
+|---|---|
+| `justify-content: center` | Centers along the **main axis** (horizontal by default) |
+| `align-items: center` | Centers along the **cross axis** (vertical by default) |
 
-That's it! No need for `position: absolute`, negative margins, or `transform` hacks.
+That's it — just **3 lines** on the parent element! No need to touch the child element at all.
 
 </details>
 
 <details><summary>sonnet: skill-loaded answer</summary>
 
+Here's the simplest flexbox centering CSS:
+
 ```css
 .parent {
   display: flex;
-  align-items: center;     /* vertical */
-  justify-content: center; /* horizontal */
+  align-items: center;
+  justify-content: center;
 }
 ```
 
-That's it — no sizing or positioning needed on the child.
+That's it — no properties needed on the child div.
 
-**Quick notes:**
-- The parent needs a defined height (e.g. `height: 100vh`) for vertical centering to be visible
-- Works for any number of children; they'll all be centered
-- If you only need one axis, drop the property you don't need
+**Quick breakdown:**
+- `align-items: center` — centers along the **cross axis** (vertically, in a row layout)
+- `justify-content: center` — centers along the **main axis** (horizontally, in a row layout)
+
+**One thing to note:** the parent needs a defined height for vertical centering to be visible, otherwise it just shrinks to fit its content:
+
+```css
+.parent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh; /* or any fixed/percentage height */
+}
+```
+
+If you need to support centering **multiple children** and want them in a column instead, just add `flex-direction: column` — `align-items` and `justify-content` swap their axes accordingly.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **tie** — Both answers provide essentially identical CSS solutions with the same three properties. Answer B adds slightly more explanation with bullet points, but both are correct and equally useful for this question.
+**Met:** ✓  ·  **Judge:** **tie** — Both answers provide the same correct CSS solution with identical properties. Answer B includes slightly more explanation and a complete HTML example, but the core content is equivalent and neither is materially wrong or better for this CSS question.
 
 **Per-criterion verdict (judge)**
 
@@ -3767,7 +5861,22 @@ That's it! The three essential properties are:
 - **`justify-content: center`** — centers horizontally
 - **`align-items: center`** — centers vertically
 
-The parent needs a defined height for vertical centering to work. If you want the child to take up space, you can also add `width: 100%` or `width: 100vw` to the parent.
+The parent needs a defined height for vertical centering to work. Here's a complete example:
+
+```html
+<style>
+  .parent {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+  }
+</style>
+
+<div class="parent">
+  <div>Centered content</div>
+</div>
+```
 
 </details>
 
@@ -3790,7 +5899,7 @@ If the parent's height is already defined (e.g., by its own parent or layout), y
 
 #### `opus`
 
-**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **baseline** — Both answers provide the same correct CSS code. Answer B adds a useful practical note about needing a defined height on the parent for vertical centering to be visible, which is a common gotcha that makes it slightly more helpful.
+**Met:** ✓  ·  **Judge:** **tie** — Both answers provide identical CSS code and are both correct. Answer B adds slightly more explanation about what each property does, but the difference is minimal and both are equally useful for the question asked.
 
 **Per-criterion verdict (judge)**
 
@@ -3815,9 +5924,7 @@ _(no rubric)_
 }
 ```
 
-That's it. `display: flex` on the parent, then `justify-content: center` handles horizontal centering and `align-items: center` handles vertical centering.
-
-Make sure the parent has a defined height (e.g., `height: 100vh`) so there's vertical space to center within.
+That's it. `justify-content` handles horizontal centering (along the main axis), and `align-items` handles vertical centering (along the cross axis). The child `div` doesn't need any special styles.
 
 </details>
 
@@ -3831,7 +5938,7 @@ Make sure the parent has a defined height (e.g., `height: 100vh`) so there's ver
 }
 ```
 
-That's it — `justify-content` handles the horizontal axis and `align-items` handles the vertical axis (assuming the default `flex-direction: row`). The child `div` needs no special styling.
+That's it — three lines on the parent. The child needs no special styles.
 
 </details>
 

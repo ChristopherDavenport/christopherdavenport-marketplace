@@ -126,6 +126,103 @@
         - 'dynamic.{0,15}import'
       why: 'practical resolution'
 
+- id: style-hooks-for-overrides
+  prompt: |
+    I need to override the background color of just one `jh-button`
+    in my Jack Henry app — not all buttons. I don't want to change
+    an alias token because that would affect every button. What's
+    the right pattern?
+  judge_focus: |
+    The better answer reaches for the **style-hook** tier — per-
+    component CSS custom properties exposed by the component (e.g.
+    `--jh-button-background-color` or similar) which you can set on
+    a single instance. It contrasts this with alias tokens (which
+    are app-wide) and global tokens (which are internal). Bonus for
+    pointing at custom-elements.json as the source of truth for
+    which style hooks the component exposes.
+  rubric:
+    - name: names the style-hook tier
+      kind: any_of
+      patterns:
+        - 'style[\s-]?hook'
+        - 'component[\s-]?level\s+token'
+        - 'per[-\s]?component'
+      why: 'the specific tier in the JH model'
+    - name: shows a per-instance CSS custom property override
+      kind: any_of
+      patterns:
+        - '--jh-button'
+        - 'jh-button\s*\{'
+        - 'jh-button\[.*\]'
+        - 'jh-button\..*\{'
+      why: 'concrete syntax for overriding one element'
+    - name: contrasts with alias tokens being app-wide
+      kind: any_of
+      patterns:
+        - 'alias.{0,30}(app[-\s]?wide|every|all|global)'
+        - 'change.{0,30}all'
+        - 'every.{0,15}button'
+        - 'app[-\s]?wide'
+      why: 'must explain why alias tier is the wrong tool here'
+    - name: mentions custom-elements.json or component docs as source
+      kind: any_of
+      patterns:
+        - 'custom-elements\.json'
+        - 'component.{0,15}docs?'
+        - 'CSS custom propert'
+        - 'documented hooks'
+      why: 'how to discover what style hooks each component exposes'
+
+- id: microcopy-voice-and-terminology
+  prompt: |
+    I'm writing the label for a "save changes" button and the error
+    text for an empty required field in a Jack Henry app. Are there
+    JH guidelines on the brand voice and on standard terminology
+    (e.g. "account" vs "profile") I should follow?
+  judge_focus: |
+    The better answer points to the JH content guidelines — voice and
+    style (active voice, conversational but professional, contractions
+    are OK), UX writing patterns for buttons and errors (action-first
+    button labels, plain-language errors that say what to do), and
+    the terminology / vocabulary page for standardized financial
+    terms. It does not just give generic UX-writing advice.
+  rubric:
+    - name: mentions JH content guidelines / content section
+      kind: any_of
+      patterns:
+        - 'content guidelines'
+        - 'voice and style'
+        - 'JH.{0,30}content'
+        - 'content.{0,15}page'
+        - 'jackhenry\.design.{0,30}content'
+      why: 'must point at the actual JH resource, not generic advice'
+    - name: addresses voice (active, plain, contractions)
+      kind: any_of
+      patterns:
+        - 'active voice'
+        - 'plain.{0,15}language'
+        - 'contractions?'
+        - 'conversational'
+        - 'concise'
+      why: 'specific JH voice traits'
+    - name: mentions terminology / vocabulary discipline
+      kind: any_of
+      patterns:
+        - 'terminology'
+        - 'vocabulary'
+        - 'standard.{0,15}term'
+        - 'glossary'
+      why: 'the standardized-term axis the user explicitly asks about'
+    - name: gives action-first / pattern guidance for the button label
+      kind: any_of
+      patterns:
+        - 'action[-\s]?first'
+        - 'verb'
+        - 'imperative'
+        - 'what.{0,15}happen'
+        - 'specific.{0,15}action'
+      why: 'the UX-writing pattern for button labels'
+
 # ---------- Adversarial case ----------
 
 - id: invent-component

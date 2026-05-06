@@ -34,24 +34,24 @@ Each plugin's `SKILL.md` contains the full reference; the per-plugin `references
 
 Every plugin ships with an automated eval that compares Claude's answers with and without the skill loaded across three models — Haiku 4.5, Sonnet 4.6, and Opus 4.7. For each (case × model) the harness calls the model twice via the SDK at `temperature=0` (Sonnet/Haiku) — once with no system prompt, once with the plugin's `SKILL.md` injected — grades both answers with deterministic rubric checks, and asks `claude-sonnet-4-6` to pick the better answer head-to-head with anonymized A/B labels. See [`evals/README.md`](evals/README.md) for full mechanics.
 
-Latest results — judge wins per model (`skill / baseline / tie` out of 6 or 8 cases):
+Latest results — judge wins per model (`skill / baseline / tie` out of 8–10 cases):
 
 | Plugin | Haiku | Sonnet | Opus¹ | Result |
 | --- | --- | --- | --- | --- |
-| [`go`](evals/go/result.md) | **7 / 0 / 1** | **7 / 0 / 1** | 4 / 0 / 4 | [report](evals/go/result.md) |
-| [`sqlite`](evals/sqlite/result.md) | 5 / 1 / 0 | **5 / 0 / 1** | **5 / 0 / 1** | [report](evals/sqlite/result.md) |
-| [`spanner`](evals/spanner/result.md) | 5 / 1 / 0 | **4 / 0 / 2** | **5 / 0 / 1** | [report](evals/spanner/result.md) |
-| [`pubsub`](evals/pubsub/result.md) | **5 / 0 / 1** | **4 / 0 / 2** | 4 / 1 / 1 | [report](evals/pubsub/result.md) |
-| [`typescript`](evals/typescript/result.md) | **6 / 0 / 0** | **3 / 0 / 3** | **5 / 0 / 1** | [report](evals/typescript/result.md) |
-| [`lit`](evals/lit/result.md) | 4 / 1 / 1 | **3 / 0 / 3** | **4 / 0 / 2** | [report](evals/lit/result.md) |
-| [`lit-router`](evals/lit-router/result.md) | **5 / 0 / 1** | 4 / 1 / 1 | 4 / 1 / 1 | [report](evals/lit-router/result.md) |
-| [`jh-design-system`](evals/jh-design-system/result.md) | 5 / 1 / 0 | **5 / 0 / 1** | **5 / 0 / 1** | [report](evals/jh-design-system/result.md) |
-| [`financial-regs`](evals/financial-regs/result.md) | 4 / 2 / 0 | 5 / 1 / 0 | **3 / 0 / 3** | [report](evals/financial-regs/result.md) |
-| [`financial-accounting`](evals/financial-accounting/result.md) | 5 / 1 / 0 | **4 / 0 / 2** | 4 / 1 / 1 | [report](evals/financial-accounting/result.md) |
+| [`go`](evals/go/result.md) | **9 / 0 / 1** | 7 / 1 / 2 | **7 / 0 / 3** | [report](evals/go/result.md) |
+| [`sqlite`](evals/sqlite/result.md) | 7 / 1 / 0 | **7 / 0 / 1** | 6 / 1 / 1 | [report](evals/sqlite/result.md) |
+| [`spanner`](evals/spanner/result.md) | 7 / 1 / 0 | 7 / 1 / 0 | **7 / 0 / 1** | [report](evals/spanner/result.md) |
+| [`pubsub`](evals/pubsub/result.md) | **7 / 0 / 1** | **6 / 0 / 2** | **7 / 0 / 1** | [report](evals/pubsub/result.md) |
+| [`typescript`](evals/typescript/result.md) | **7 / 0 / 1** | **4 / 0 / 4** | **4 / 0 / 4** | [report](evals/typescript/result.md) |
+| [`lit`](evals/lit/result.md) | 7 / 1 / 1 | 5 / 1 / 3 | 5 / 1 / 3 | [report](evals/lit/result.md) |
+| [`lit-router`](evals/lit-router/result.md) | **8 / 0 / 1** | 6 / 1 / 2 | 4 / 2 / 3 | [report](evals/lit-router/result.md) |
+| [`jh-design-system`](evals/jh-design-system/result.md) | 7 / 1 / 0 | 6 / 1 / 1 | **7 / 0 / 1** | [report](evals/jh-design-system/result.md) |
+| [`financial-regs`](evals/financial-regs/result.md) | 7 / 2 / 0 | 7 / 1 / 1 | 6 / 2 / 1 | [report](evals/financial-regs/result.md) |
+| [`financial-accounting`](evals/financial-accounting/result.md) | 7 / 2 / 0 | 6 / 1 / 2 | **8 / 0 / 1** | [report](evals/financial-accounting/result.md) |
 
 **Bold** = no baseline wins (skill never made answers worse). ¹ Opus does not accept the `temperature` parameter — its column is an indicator, not a measurement (re-runs may flip individual verdicts).
 
-Total spend for one full 3-model sweep across all 10 plugins: **~$16**.
+Total spend for one full 3-model sweep across all 10 plugins: **~$26**.
 
 ### Reading the table
 
@@ -63,7 +63,7 @@ Total spend for one full 3-model sweep across all 10 plugins: **~$16**.
 
 Iteration uses **Sonnet + Haiku** (the deterministic pair) — `uv run python -m evals <plugin>` runs both at temperature 0, no Opus. That sweep is ~$1 per plugin and produces stable verdicts you can diff between SKILL.md edits. Opus is opt-in via `--models sonnet,haiku,opus` for the periodic full-picture refresh; its column in the canonical may go stale in between.
 
-Each suite has 4-5 positive cases plus an adversarial case (a prompt that invites the anti-pattern) and an off-topic guard (a question unrelated to the skill, expected to tie). Off-topic guards tied as expected for every plugin — no skill is bleeding into unrelated answers.
+Each suite has 6-8 positive cases plus an adversarial case (a prompt that invites the anti-pattern) and an off-topic guard (a question unrelated to the skill, expected to tie).
 
 Run a plugin's eval locally with `cd evals && uv run python -m evals <plugin>`.
 

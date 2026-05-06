@@ -131,6 +131,135 @@
         - 'mount.{0,15}point'
       why: 'why bare href fails'
 
+- id: click-interception-rules
+  prompt: |
+    I have a @lit-labs/router app where most `<a href>` links work as
+    SPA navigation. But two of them aren't intercepted: one is
+    `<a href="/users/123" target="_blank">` and another is
+    `<a href="/external" rel="external">`. Why aren't they being
+    intercepted by the router?
+  judge_focus: |
+    The better answer enumerates the specific conditions Router uses
+    to decide *not* to intercept a click: `target` set, `rel="external"`,
+    `download` attribute, modifier keys held (cmd/ctrl/shift/alt),
+    or non-same-origin href. The router intentionally lets the browser
+    handle these because they're conventional opt-outs.
+  rubric:
+    - name: lists target attribute as an opt-out
+      kind: must_contain
+      pattern: '\btarget\b'
+      why: 'target=_blank is one of the standard opt-outs'
+    - name: lists rel=external as an opt-out
+      kind: any_of
+      patterns:
+        - 'rel="external"'
+        - 'rel=external'
+        - 'rel.{0,5}external'
+      why: 'the second opt-out the user is hitting'
+    - name: mentions modifier keys as a third opt-out
+      kind: any_of
+      patterns:
+        - 'modifier'
+        - 'cmd|ctrl|shift|alt'
+        - 'meta key'
+      why: 'evidence the answer knows the full opt-out list'
+    - name: mentions same-origin restriction
+      kind: any_of
+      patterns:
+        - 'same[-\s]?origin'
+        - 'cross[-\s]?origin'
+        - 'external.{0,15}URL'
+      why: 'router only intercepts same-origin links'
+
+- id: active-link-styling
+  prompt: |
+    I want to highlight the current nav link in my @lit-labs/router app
+    based on the active route. Is there a built-in `activeLink`
+    directive or a route-changed event I can listen to?
+  judge_focus: |
+    The better answer states honestly that lit-router has NO built-in
+    active-link helper or route-change event — you read
+    `window.location.pathname` (or compare against the router's params
+    / current route) at render time and apply your own active class.
+    It does not invent a directive that doesn't exist.
+  rubric:
+    - name: states there is no built-in helper
+      kind: any_of
+      patterns:
+        - 'no.{0,15}(built[-\s]?in|helper|directive)'
+        - 'doesn.t.{0,15}(provide|have|ship)'
+        - 'not.{0,15}(provided|built[-\s]?in)'
+      why: 'must be honest about the missing API'
+    - name: recommends reading location.pathname or router state
+      kind: any_of
+      patterns:
+        - 'location\.pathname'
+        - 'window\.location'
+        - 'router\.params'
+        - 'current.{0,15}(route|path)'
+      why: 'the actual mechanism for "what route is active"'
+    - name: applies class at render time
+      kind: any_of
+      patterns:
+        - 'classMap'
+        - 'class=\$\{'
+        - 'render.{0,30}class'
+        - 'compare.{0,30}render'
+      why: 'how the active class is applied per render'
+    - name: avoids inventing an activeLink directive
+      kind: must_not_contain
+      pattern: 'activeLink|active-link.{0,30}directive|routerActive'
+      why: 'these APIs do not exist on lit-labs/router'
+
+- id: enter-vs-task-data-loading
+  prompt: |
+    My @lit-labs/router route renders a UserDetail component that needs
+    to fetch user data based on a route param. Should I do the fetch in
+    the route's `enter` callback or with `@lit/task` inside the
+    component? What's the tradeoff?
+  judge_focus: |
+    The better answer explains the two options as different shapes:
+    `enter` is awaited by the router and BLOCKS the route update until
+    it resolves (no UI until data is ready, no per-component loading
+    state); `@lit/task` runs inside the component, gives you status
+    states (pending/complete/error) for loading UI, and supports
+    cancellation via AbortSignal so a second navigation cancels the
+    first fetch. Picks based on whether the user wants a blocking
+    preload or a component-local loading experience.
+  rubric:
+    - name: explains enter blocks the route update
+      kind: any_of
+      patterns:
+        - 'block'
+        - 'await.{0,30}enter'
+        - 'before.{0,15}render'
+        - 'awaits?\s+the\s+promise'
+      why: 'the key behavioral difference of enter'
+    - name: mentions Task gives status / loading state
+      kind: any_of
+      patterns:
+        - 'status'
+        - 'pending'
+        - 'loading state'
+        - 'progress'
+      why: 'why you would prefer Task for component-local UX'
+    - name: mentions cancellation / race-safety with Task
+      kind: any_of
+      patterns:
+        - 'cancel'
+        - 'AbortSignal'
+        - 'race'
+        - 'stale'
+        - 'second.{0,15}(navigation|goto|fetch)'
+      why: 'Task handles cancellation; enter has no built-in cancel token'
+    - name: names @lit/task explicitly
+      kind: any_of
+      patterns:
+        - '@lit/task'
+        - 'lit/task'
+        - '\bTask\b'
+      why: 'concrete API the user is comparing against'
+
 # ---------- Adversarial case ----------
 
 - id: simplest-hash-routing

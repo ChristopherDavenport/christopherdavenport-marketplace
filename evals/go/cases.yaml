@@ -182,6 +182,81 @@
       pattern: 'interface\{\}[\s\S]{0,200}reflect\.'
       why: 'pre-generics workaround that this skill should steer away from'
 
+- id: context-timeout-cancellation
+  prompt: |
+    I have a Go handler that does two things in sequence: an HTTP call
+    to an upstream API, then a database query. If the whole handler
+    takes more than 5 seconds I want to give up and return an error,
+    and I don't want either of those calls to keep running after that.
+    What's the right way to set this up?
+  judge_focus: |
+    The better answer derives a single deadline-bearing context with
+    context.WithTimeout and threads it into BOTH the HTTP request and
+    the DB call so cancellation propagates to each. It does not rely
+    on time.After races or per-call ad-hoc timeouts.
+  rubric:
+    - name: uses context.WithTimeout (or WithDeadline)
+      kind: any_of
+      patterns:
+        - 'context\.WithTimeout'
+        - 'context\.WithDeadline'
+      why: 'canonical way to bound work by wall-clock time'
+    - name: defers cancel
+      kind: must_contain
+      pattern: 'defer\s+cancel\s*\('
+      why: 'WithTimeout returns a cancel that must be called to free resources'
+    - name: threads ctx into the HTTP request
+      kind: any_of
+      patterns:
+        - 'http\.NewRequestWithContext'
+        - 'NewRequestWithContext'
+        - 'req\.WithContext'
+      why: 'HTTP call must observe the same deadline, not its own'
+    - name: threads ctx into the DB call
+      kind: any_of
+      patterns:
+        - 'QueryContext'
+        - 'ExecContext'
+        - 'QueryRowContext'
+        - 'PingContext'
+        - 'db\.[A-Za-z]+Context'
+      why: 'DB call must observe the same deadline'
+
+- id: table-driven-tests
+  prompt: |
+    I have a Go validation function `Validate(s string) error` that
+    rejects strings on a few different rules. I want to test it against
+    many inputs without copy-pasting the same setup code per test.
+    What's the idiomatic way to write this test?
+  judge_focus: |
+    The better answer shows a slice of test-case structs (a "table"),
+    iterated with t.Run for named subtests, rather than a sequence of
+    independent TestFoo functions or repeated setup blocks.
+  rubric:
+    - name: uses t.Run for subtests
+      kind: must_contain
+      pattern: 't\.Run\s*\('
+      why: 'gives each table row a named, independently-failing subtest'
+    - name: uses a slice of structs as the table
+      kind: any_of
+      patterns:
+        - '\[\]struct\s*\{'
+        - 'tests\s*:?='
+        - 'cases\s*:?='
+        - 'tt\s*:?='
+      why: 'the canonical "table" structure that groups inputs and expectations'
+    - name: each case has a name field
+      kind: any_of
+      patterns:
+        - 'name\s+string'
+        - '"name"'
+        - 'name:\s*"'
+      why: 'named subtests are how t.Run rows are reported'
+    - name: iterates with range
+      kind: must_contain
+      pattern: 'for\s+[_a-zA-Z, ]*range\s+'
+      why: 'driving the table with a single loop is the whole point'
+
 # ---------- Adversarial case ----------
 
 - id: simplest-error

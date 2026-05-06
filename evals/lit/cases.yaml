@@ -136,6 +136,127 @@
         - 'reactivity'
       why: 'both are reactive — the difference is exposure, not reactivity'
 
+- id: custom-directive-vs-helper
+  prompt: |
+    I have a small piece of templating logic I'm reusing across three
+    Lit components — it formats a list of items with some conditional
+    rendering. Should I extract it into a custom Lit directive (extends
+    Directive) or just a helper function that returns a TemplateResult?
+    What's the difference?
+  judge_focus: |
+    The better answer explains that a plain helper function returning
+    a TemplateResult is the right tool for "compose a sub-template" —
+    custom directives only earn their weight when you need access to
+    the underlying Part (DOM node), want noChange to skip work, or
+    need persistent state between renders. Custom directives are
+    overkill for "I want to reuse some markup."
+  rubric:
+    - name: recommends helper function for the simple case
+      kind: any_of
+      patterns:
+        - 'helper'
+        - 'function.{0,20}(return|that returns).{0,30}TemplateResult'
+        - 'plain function'
+        - '=>\s*html`'
+      why: 'the right answer for "reuse some markup"'
+    - name: explains when a Directive is justified
+      kind: any_of
+      patterns:
+        - '\bPart\b'
+        - 'noChange'
+        - 'persistent state'
+        - 'access\s+(to\s+)?the\s+DOM'
+        - 'directive.{0,30}(when|if).{0,30}(state|Part|DOM|noChange)'
+      why: 'must distinguish the two tools by what directives uniquely offer'
+    - name: mentions Directive class or directive() factory
+      kind: any_of
+      patterns:
+        - 'class\s+\w+\s+extends\s+Directive'
+        - 'extends\s+Directive'
+        - 'directive\s*\('
+        - 'AsyncDirective'
+      why: 'concrete Lit API for custom directives'
+
+- id: reactive-controller-vs-task
+  prompt: |
+    I want to add a persistent WebSocket connection to my Lit component
+    — open on mount, close on unmount, and re-render the host when a
+    message arrives. Should I write a ReactiveController or use
+    @lit/task? What's the difference?
+  judge_focus: |
+    The better answer recommends a ReactiveController for this case
+    (long-lived resource with hostConnected / hostDisconnected
+    lifecycle hooks and requestUpdate to drive re-renders), and
+    contrasts it with @lit/task which is for request-shaped async
+    work tied to inputs (fetch-style, with status states).
+  rubric:
+    - name: recommends ReactiveController for this scenario
+      kind: any_of
+      patterns:
+        - 'ReactiveController'
+        - 'reactive controller'
+      why: 'the right primitive for connection-style lifecycle'
+    - name: mentions hostConnected / hostDisconnected
+      kind: any_of
+      patterns:
+        - 'hostConnected'
+        - 'hostDisconnected'
+      why: 'the lifecycle hooks the controller uses for setup/teardown'
+    - name: contrasts with Task as request-shaped async
+      kind: any_of
+      patterns:
+        - '@lit/task'
+        - 'Task.{0,30}(request|fetch|input)'
+        - 'Task.{0,30}(loading|status)'
+        - 'Task is for'
+        - 'Task fits'
+      why: 'shows the user *why* Task is the wrong shape here'
+    - name: mentions requestUpdate or host re-render
+      kind: any_of
+      patterns:
+        - 'requestUpdate'
+        - 'host\.requestUpdate'
+        - 're[\s-]?render'
+      why: 'controller pushes updates by asking the host to re-render'
+
+- id: context-subscribe-true
+  prompt: |
+    I'm using @lit/context to share a theme object from a top-level
+    provider. The provider's value changes at runtime when the user
+    toggles dark mode, but the consumer components don't update.
+    The initial value is read fine, just not subsequent changes.
+    What's missing?
+  judge_focus: |
+    The better answer pinpoints `subscribe: true` on the consumer
+    side as the missing piece — without it, @lit/context fetches the
+    value once and never re-subscribes to provider updates. It may
+    also mention setting the provider's value via setValue (or
+    re-assigning the @provide property) so the change actually fires.
+  rubric:
+    - name: identifies subscribe option
+      kind: any_of
+      patterns:
+        - 'subscribe\s*:\s*true'
+        - 'subscribe option'
+        - '\{\s*context[^}]*subscribe'
+      why: 'the actual missing flag'
+    - name: explains default is one-shot / no resubscription
+      kind: any_of
+      patterns:
+        - 'one[-\s]?shot'
+        - 'only.{0,15}once'
+        - 'doesn.t.{0,15}(resubscribe|update|listen)'
+        - 'fetched once'
+        - 'initial.{0,15}only'
+      why: 'must explain *why* the consumer is stuck on the first value'
+    - name: mentions @consume or ContextConsumer
+      kind: any_of
+      patterns:
+        - '@consume'
+        - 'ContextConsumer'
+        - 'ContextProvider'
+      why: 'concrete @lit/context API where subscribe is set'
+
 # ---------- Adversarial case ----------
 
 - id: simplest-render-html

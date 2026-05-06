@@ -152,6 +152,101 @@
         - 'service[-\s]?agent'
       why: 'identity that needs the bindings'
 
+- id: graceful-shutdown
+  prompt: |
+    My Go service has a Pub/Sub subscriber and publisher. On shutdown,
+    I cancel the context, but the Receive goroutine seems to hang and
+    in-flight publishes get lost. What's the right shutdown sequence?
+  judge_focus: |
+    The better answer prescribes a specific order: cancel the context
+    so Subscription.Receive returns, drain in-flight handlers, call
+    Topic.Stop() to flush the publish batch, then close the client.
+    It explains *why* each step matters — Receive blocks until the
+    context is cancelled or an unrecoverable error fires; Topic.Stop
+    flushes batched publishes; Client.Close releases the gRPC
+    connection.
+  rubric:
+    - name: cancel ctx to break out of Receive
+      kind: any_of
+      patterns:
+        - 'cancel\s*\(\s*\)'
+        - 'context\.Cancel'
+        - 'ctx.{0,15}cancel'
+        - 'cancelCtx'
+      why: 'Subscription.Receive only returns on cancel or fatal error'
+    - name: explains Receive blocks until ctx.Done or error
+      kind: any_of
+      patterns:
+        - 'Receive\s+blocks'
+        - 'until.{0,20}(ctx|context)'
+        - 'ctx\.Done'
+        - 'returns?\s+(when|until|on).{0,30}cancel'
+      why: 'the mental model the user is missing'
+    - name: calls Topic.Stop before client.Close
+      kind: any_of
+      patterns:
+        - 'Topic\.Stop[\s\S]{0,200}Client\.Close'
+        - 'topic\.Stop[\s\S]{0,200}client\.Close'
+        - 'Stop[\s\S]{0,80}then.{0,20}Close'
+        - 'Stop\(\).{0,80}Close\(\)'
+      why: 'order matters — Stop flushes; Close drops in-flight RPCs'
+    - name: mentions order of operations matters
+      kind: any_of
+      patterns:
+        - 'order'
+        - 'sequence'
+        - 'before.{0,15}(closing|Close)'
+        - 'first.{0,30}then'
+      why: 'must communicate that the steps are sequenced, not parallel'
+
+- id: flow-control-oom
+  prompt: |
+    My Pub/Sub subscriber is OOM-killing despite only having ~50
+    subscriptions. Each message takes about 10 seconds of CPU/IO to
+    process and the subscriber pulls thousands at a time. What's
+    actually limiting how many messages I have in flight, and how do
+    I tune it?
+  judge_focus: |
+    The better answer points at ReceiveSettings.MaxOutstandingMessages
+    and MaxOutstandingBytes as the in-flight cap (defaults are large —
+    ~1000 messages / 1 GiB), explains they only protect once the
+    handler returns or Ack/Nack fires, and tells the user to lower
+    them when handlers are slow or messages are heavy.
+  rubric:
+    - name: names the flow-control settings
+      kind: any_of
+      patterns:
+        - 'MaxOutstandingMessages'
+        - 'MaxOutstandingBytes'
+        - 'ReceiveSettings'
+        - 'flow[\s-]?control'
+      why: 'the actual lever'
+    - name: explains they cap concurrent in-flight work
+      kind: any_of
+      patterns:
+        - 'in[-\s]?flight'
+        - 'outstanding'
+        - 'concurrent'
+        - 'pull more.{0,30}until'
+        - 'back[-\s]?press'
+      why: 'the *what* of the setting'
+    - name: tells the user to lower the cap for slow / heavy messages
+      kind: any_of
+      patterns:
+        - 'lower'
+        - 'reduce'
+        - 'decrease'
+        - 'tune.{0,15}(down|smaller)'
+        - 'set.{0,15}lower'
+      why: 'concrete remediation'
+    - name: mentions ack deadline as a related axis
+      kind: any_of
+      patterns:
+        - 'ack[\s-]?deadline'
+        - 'lease.{0,15}extens'
+        - 'MaxExtension'
+      why: 'slow handlers also lapse the lease and get redelivered'
+
 # ---------- Adversarial case ----------
 
 - id: simplest-publish

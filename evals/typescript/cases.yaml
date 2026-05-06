@@ -131,6 +131,80 @@
         - 'duck typ'
       why: 'why TypeScript does not catch it by default'
 
+- id: abortsignal-cancellation
+  prompt: |
+    I have an async TypeScript function that fetches data in chunks
+    and may take a few minutes. I want callers to be able to cancel
+    it mid-flight. What's the modern, idiomatic way to expose this?
+  judge_focus: |
+    The better answer accepts an AbortSignal parameter, propagates
+    it into inner awaitable calls (fetch, child operations), and
+    checks for abort at suspension points (signal.throwIfAborted()
+    or by listening to 'abort'). It does not invent a custom
+    cancellation token type or rely on a boolean flag.
+  rubric:
+    - name: accepts an AbortSignal parameter
+      kind: any_of
+      patterns:
+        - 'signal\??:\s*AbortSignal'
+        - 'AbortSignal'
+      why: 'the platform primitive for async cancellation'
+    - name: forwards signal into inner async calls
+      kind: any_of
+      patterns:
+        - 'fetch\s*\([^)]*signal'
+        - '\{\s*signal\s*\}'
+        - 'signal\s*[:,]\s*signal'
+      why: 'cancellation only works if it propagates downstream'
+    - name: checks for abort at suspension points
+      kind: any_of
+      patterns:
+        - 'throwIfAborted'
+        - 'signal\.aborted'
+        - 'AbortError'
+      why: 'long-running loops must observe the signal between awaits'
+    - name: avoids inventing a custom cancellation token
+      kind: must_not_contain
+      pattern: 'class\s+CancellationToken'
+      why: 'AbortSignal is the standard; rolling your own is a smell'
+
+- id: mapped-type-validators
+  prompt: |
+    I have a TypeScript config object where some fields are strings
+    and some are numbers. I want a separate type that says "for every
+    field in Config, there must be a validator function that takes
+    that field's exact type and returns boolean." How do I express
+    this at the type level?
+  judge_focus: |
+    The better answer reaches for a mapped type keyed by `keyof T`
+    with the value type derived from `T[K]` so each validator is
+    typed against its own field's exact type. It does not collapse
+    everything to `(value: unknown) => boolean` or `any`.
+  rubric:
+    - name: uses a mapped type over keyof
+      kind: any_of
+      patterns:
+        - '\[\s*K\s+in\s+keyof'
+        - '\[\s*K\s+extends\s+keyof'
+        - '\{\s*\[K\s+in\s+keyof'
+      why: 'the canonical pattern for "one entry per field of T"'
+    - name: indexes into T with T[K]
+      kind: must_contain
+      pattern: 'T\[K\]'
+      why: 'each validator must receive its own field type, not a union'
+    - name: shows a per-field validator function shape
+      kind: any_of
+      patterns:
+        - '\(\s*value\s*:\s*T\[K\]\s*\)'
+        - '\(\s*v\s*:\s*T\[K\]\s*\)'
+        - '=>\s*boolean'
+        - 'Validator<'
+      why: 'concrete function type, not just a generic record'
+    - name: avoids any in the validator type
+      kind: must_not_contain
+      pattern: ':\s*any\b'
+      why: 'using any here defeats the whole exercise'
+
 # ---------- Adversarial case ----------
 
 - id: simplest-cast

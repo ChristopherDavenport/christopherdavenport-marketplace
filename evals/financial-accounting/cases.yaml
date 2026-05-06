@@ -172,6 +172,156 @@
         - 'period.{0,15}close'
       why: 'realistic FI operating practice'
 
+- id: afs-securities-credit-loss
+  prompt: |
+    Our bank holds $2M par of 5-year corporate bonds classified as
+    Available-for-Sale. Fair value has dropped 8% because market
+    rates rose. The issuer's credit is unchanged. Under current
+    GAAP, how do we recognize the decline, and what's the governing
+    ASC?
+  judge_focus: |
+    The better answer cites ASC 320 for AFS classification and ASC
+    326-30 (the post-CECL standard that replaced OTTI for AFS). It
+    explains the unrealized non-credit decline goes through OCI/AOCI
+    (not P&L), and that any credit-related allowance is capped at
+    the "lesser of expected credit loss or the amount fair value is
+    below amortized cost." Because credit is unchanged here, no
+    allowance is required — the entire FV decline sits in AOCI.
+  rubric:
+    - name: cites ASC 326-30 for AFS credit losses
+      kind: any_of
+      patterns:
+        - 'ASC 326-30'
+        - '326-30-'
+        - 'Subtopic 326-30'
+      why: 'the specific post-CECL AFS subtopic, distinct from 326-20'
+    - name: cites ASC 320 for AFS classification
+      kind: any_of
+      patterns:
+        - 'ASC 320'
+        - 'Topic 320'
+        - '320-10'
+      why: 'AFS classification standard'
+    - name: routes non-credit unrealized loss through OCI / AOCI
+      kind: any_of
+      patterns:
+        - '\bOCI\b'
+        - 'AOCI'
+        - 'other comprehensive income'
+        - 'accumulated.{0,15}comprehensive'
+      why: 'AFS unrealized G/L is OCI, not P&L'
+    - name: notes the lesser-of cap on the allowance
+      kind: any_of
+      patterns:
+        - 'lesser of'
+        - 'capped'
+        - 'limit[a-z]*\s+to'
+        - 'cannot exceed'
+        - 'below amortized cost'
+      why: 'the 326-30 cap is the AFS-specific mechanic'
+    - name: avoids the superseded OTTI framing as primary
+      kind: must_not_contain
+      pattern: 'recommend[a-z]*\s+(using|the)?\s*OTTI'
+      why: 'OTTI was replaced by 326-30 for AFS; legacy term should not be the answer'
+
+- id: nonaccrual-interest-reversal
+  prompt: |
+    A $500k commercial loan goes 95 days past due. Last month we
+    recorded $4k of accrued interest income on it. Walk me through
+    the journal entries to put the loan on nonaccrual and reverse
+    the previously accrued interest.
+  judge_focus: |
+    The better answer cites the bright-line 90-day past-due rule
+    (FFIEC Call Report instructions) for placing on nonaccrual,
+    shows the reversal entry — Dr Interest Income / Cr Accrued
+    Interest Receivable — and is explicit that this reversal hits
+    the income statement and does NOT touch the allowance. Charge-
+    off is a separate event that does involve the allowance.
+  rubric:
+    - name: cites the 90-day past-due bright line
+      kind: any_of
+      patterns:
+        - '90[-\s]?day'
+        - 'ninety[-\s]?day'
+        - 'past due'
+        - 'FFIEC'
+        - 'Call Report'
+      why: 'the regulatory trigger for nonaccrual placement'
+    - name: shows reversal direction (Dr Interest Income, Cr Accrued Interest Receivable)
+      kind: any_of
+      patterns:
+        - 'debit.{0,30}interest income'
+        - 'Dr.{0,30}interest income'
+        - 'credit.{0,30}accrued interest'
+        - 'Cr.{0,30}accrued interest'
+      why: 'concrete reversal entry'
+    - name: explicitly distinguishes from charge-off / no allowance impact
+      kind: any_of
+      patterns:
+        - 'not.{0,15}charge[-\s]?off'
+        - 'separate.{0,15}from.{0,15}charge[-\s]?off'
+        - 'no.{0,15}allowance'
+        - 'doesn.t.{0,15}touch.{0,15}allowance'
+        - 'allowance.{0,15}not affected'
+      why: 'common confusion: nonaccrual reversal vs charge-off'
+    - name: mentions cash-basis going forward
+      kind: any_of
+      patterns:
+        - 'cash[-\s]?basis'
+        - 'when received'
+        - 'when collected'
+        - 'no longer accru'
+        - 'stop.{0,15}accru'
+      why: 'completes the nonaccrual mechanics'
+
+- id: loan-held-for-sale-lcm
+  prompt: |
+    We originated a $750k residential mortgage and immediately
+    decided to hold it for sale (we plan to sell to an aggregator
+    in 30 days). How do we measure this loan on our balance sheet
+    under GAAP, and which ASC applies?
+  judge_focus: |
+    The better answer identifies HFS classification, cites ASC 948
+    (Mortgage Banking) — or ASC 310-10 for non-mortgage HFS — and
+    states the measurement basis is lower of cost or market (LCM)
+    or lower of cost or fair value (LCFV), NOT amortized cost.
+    Contrasts this with held-for-investment loans (amortized cost
+    under ASC 310 with an ASC 326-20 allowance).
+  rubric:
+    - name: cites ASC 948 (or ASC 310-10 for HFS)
+      kind: any_of
+      patterns:
+        - 'ASC 948'
+        - 'Topic 948'
+        - '948-310'
+        - 'ASC 310-10'
+      why: 'the governing standard for mortgage HFS measurement'
+    - name: states LCM / lower of cost or market measurement
+      kind: any_of
+      patterns:
+        - 'lower of cost or market'
+        - '\bLCM\b'
+        - 'lower of cost or fair value'
+        - 'LCFV'
+      why: 'the specific measurement basis that distinguishes HFS'
+    - name: contrasts with amortized cost / held-for-investment
+      kind: any_of
+      patterns:
+        - 'amortized cost'
+        - 'held[-\s]?for[-\s]?investment'
+        - 'HFI'
+        - 'not.{0,15}amortized'
+        - 'unlike.{0,30}(310|HFI|investment)'
+      why: 'must explain *why* HFS is different from regular loan accounting'
+    - name: mentions valuation allowance / writedown to market
+      kind: any_of
+      patterns:
+        - 'valuation allowance'
+        - 'writedown'
+        - 'write[-\s]?down'
+        - 'mark.{0,15}(down|to market)'
+      why: 'mechanism for booking the LCM adjustment'
+
 # ---------- Adversarial case ----------
 
 - id: simplest-loan-loss

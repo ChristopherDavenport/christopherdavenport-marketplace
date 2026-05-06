@@ -140,6 +140,94 @@
         - 'EQP'
       why: 'verifying the index is actually used'
 
+- id: json-arrow-vs-double-arrow
+  prompt: |
+    In SQLite, what's the difference between `data->'profile'` and
+    `data->>'profile'` in a JSON column query? I'm seeing weird
+    comparison results when I use `WHERE data->'profile' = 'admin'`.
+  judge_focus: |
+    The better answer explains that `->` returns a JSON value (still
+    JSON-quoted text for strings) while `->>` returns a SQL value
+    (unquoted, ready to compare). The user's WHERE is failing because
+    `->` is yielding `'"admin"'` (with the JSON quotes) and that
+    won't equal `'admin'`. JSONB is worth a mention as the storage
+    optimization but is a separate axis.
+  rubric:
+    - name: explains -> returns JSON
+      kind: any_of
+      patterns:
+        - '->\s*returns?\s+(a\s+)?json'
+        - 'json[\s-]*value'
+        - 'json[\s-]*quoted'
+        - 'still.{0,15}json'
+      why: 'the operator semantic the user needs to grasp'
+    - name: explains ->> returns SQL value / text
+      kind: any_of
+      patterns:
+        - '->>\s*returns?\s+(a\s+)?(text|sql|string)'
+        - 'unquoted'
+        - 'sql[\s-]*value'
+        - 'plain[\s-]*text'
+      why: 'the matching half of the contrast'
+    - name: tells the user to use ->> for the WHERE
+      kind: any_of
+      patterns:
+        - 'use\s+->>'
+        - 'switch\s+to\s+->>'
+        - 'should\s+(be\s+)?->>'
+        - "data->>'profile'"
+      why: 'concrete fix for the user''s broken comparison'
+    - name: mentions JSONB
+      kind: must_contain
+      pattern: '\bJSONB\b'
+      why: 'JSONB is the modern storage form and is worth flagging here'
+
+- id: covering-index-design
+  prompt: |
+    My SQLite query `SELECT user_id, email FROM users WHERE status = 'active'`
+    is fast — there's an index on `status`. But the very similar query
+    `SELECT user_id, email, phone FROM users WHERE status = 'active'`
+    is much slower. Same index. Why is the second one slow, and how
+    do I fix it?
+  judge_focus: |
+    The better answer recognizes this as a covering-index situation:
+    the first query is satisfied entirely from the index; the second
+    has to do a rowid lookup back into the base table per row to fetch
+    `phone`. The fix is to extend the index to cover `phone` (or all
+    selected columns), and the user should confirm with EXPLAIN QUERY
+    PLAN.
+  rubric:
+    - name: names "covering index"
+      kind: any_of
+      patterns:
+        - 'covering[\s-]*index'
+        - 'index[\s-]*only'
+        - 'covers? the (query|columns)'
+      why: 'the canonical term for this optimization'
+    - name: explains base-table / rowid lookup
+      kind: any_of
+      patterns:
+        - 'base[\s-]*table'
+        - 'rowid'
+        - 'main\s+table'
+        - 'table\s+lookup'
+        - 'fetch\s+from\s+the\s+table'
+      why: 'the *reason* the second query is slow'
+    - name: suggests adding the missing column to the index
+      kind: any_of
+      patterns:
+        - 'add\s+phone'
+        - 'include\s+phone'
+        - 'index\s*\([^)]*phone'
+        - '\(status,\s*[a-z_,\s]*phone'
+      why: 'the concrete fix'
+    - name: recommends EXPLAIN QUERY PLAN
+      kind: any_of
+      patterns:
+        - 'EXPLAIN QUERY PLAN'
+        - 'EQP'
+      why: 'how to verify the new plan is index-only'
+
 # ---------- Adversarial case ----------
 
 - id: simplest-write-tx

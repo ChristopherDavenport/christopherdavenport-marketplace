@@ -147,6 +147,95 @@
         - 'one parent'
       why: 'evidence the answer engages with Spanner-specific limits'
 
+- id: stale-reads-for-latency
+  prompt: |
+    My Spanner read query is slow in a multi-region instance — looks like
+    it's hitting the leader region every time. I'm just powering a "recent
+    activity" widget; data being a few seconds out of date is fine. How do
+    I make this faster?
+  judge_focus: |
+    The better answer reaches for a read-only transaction with bounded
+    staleness (MaxStaleness or ExactStaleness) so the read can be served
+    from the closest replica instead of the leader. It explains the
+    consistency tradeoff and uses the Go client's WithTimestampBound /
+    Single().WithTimestampBound API.
+  rubric:
+    - name: recommends a stale / bounded-staleness read
+      kind: any_of
+      patterns:
+        - 'stale\s+read'
+        - 'bounded\s+staleness'
+        - 'MaxStaleness'
+        - 'ExactStaleness'
+      why: 'the actual primitive that lets replicas serve the read'
+    - name: uses a read-only / single-use transaction
+      kind: any_of
+      patterns:
+        - 'ReadOnlyTransaction'
+        - 'Single\s*\(\s*\)'
+        - 'read[-\s]only\s+transaction'
+      why: 'staleness bounds only apply to read-only paths'
+    - name: explains it can serve from a closer replica
+      kind: any_of
+      patterns:
+        - 'closest\s+replica'
+        - 'nearest\s+replica'
+        - 'local\s+replica'
+        - 'avoid.{0,15}leader'
+        - 'replica\s+(read|serve)'
+      why: 'the *why* behind the latency win'
+    - name: notes the consistency tradeoff
+      kind: any_of
+      patterns:
+        - 'tradeoff'
+        - 'trade-off'
+        - 'eventual'
+        - 'out of date'
+        - 'stale data'
+      why: 'must call out that fresh-read guarantees are weakened'
+
+- id: null-filtered-index-mismatch
+  prompt: |
+    I created a NULL_FILTERED index on `Users(deleted_at)` to keep the
+    index small (most rows have deleted_at = NULL). My query
+    `SELECT * FROM Users WHERE deleted_at IS NOT NULL` is still doing
+    a full scan according to EXPLAIN. What's wrong?
+  judge_focus: |
+    The better answer explains that NULL_FILTERED indexes only contain
+    rows where the indexed column is non-NULL, and that the optimizer
+    will only choose this index when the query expression matches —
+    typically requiring an explicit `IS NOT NULL` predicate or
+    FORCE_INDEX. The user's query *should* be able to use it, so the
+    likely fix is FORCE_INDEX or rechecking the index column list.
+  rubric:
+    - name: explains NULL_FILTERED contains only non-NULL rows
+      kind: any_of
+      patterns:
+        - 'non[-\s]?NULL'
+        - 'not.{0,5}NULL'
+        - 'excludes?\s+NULL'
+        - 'rows.{0,30}NULL'
+      why: 'the operative semantic of NULL_FILTERED'
+    - name: explains optimizer must prove the predicate filters NULLs
+      kind: any_of
+      patterns:
+        - 'IS NOT NULL'
+        - 'optimizer'
+        - 'must match'
+        - 'predicate'
+        - 'matching\s+(WHERE|filter)'
+      why: 'why the index is not auto-selected even when it should be'
+    - name: recommends FORCE_INDEX as the override
+      kind: must_contain
+      pattern: 'FORCE_INDEX'
+      why: 'standard escape hatch when the planner picks wrong'
+    - name: mentions EXPLAIN to verify
+      kind: any_of
+      patterns:
+        - 'EXPLAIN'
+        - 'query plan'
+      why: 'confirming the index is now used'
+
 # ---------- Adversarial case ----------
 
 - id: simplest-bulk-update

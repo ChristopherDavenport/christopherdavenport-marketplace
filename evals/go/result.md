@@ -1,17 +1,17 @@
 # Eval report: `go`
 
 - Backend: **SDK direct (sonnet/haiku at temperature=0; opus uncontrolled)**
-- Cases: **8**
+- Cases: **10**
 - Models: **sonnet, haiku, opus**
-- Total cost: **$1.84** (judge cost not counted)
+- Total cost: **$2.40** (judge cost not counted)
 
 ## Per-model summary
 
 | Model | Expectations met | Judge (skill / baseline / tie) | Rubric: baseline → skill (Δ) |
 | --- | --- | --- | --- |
-| `sonnet` | 8/8 | 7 / 0 / 1 | 86% → 96% (+11%) |
-| `haiku` | 8/8 | 7 / 0 / 1 | 69% → 95% (+26%) |
-| `opus` ¹ | 5/8 | 4 / 0 / 4 | 86% → 96% (+11%) |
+| `sonnet` | 8/10 | 7 / 1 / 2 | 86% → 94% (+7%) |
+| `haiku` | 10/10 | 9 / 0 / 1 | 81% → 94% (+13%) |
+| `opus` ¹ | 8/10 | 7 / 0 / 3 | 86% → 97% (+11%) |
 
 ¹ Opus 4.7 does not accept the `temperature` parameter; its numbers are indicators, not measurements (re-runs may flip individual verdicts).
 
@@ -19,7 +19,7 @@
 
 | Expectation kind | Total | sonnet met | haiku met | opus met |
 | --- | --- | --- | --- | --- |
-| `skill_wins` | 6 | 6/6 | 6/6 | 3/6 |
+| `skill_wins` | 8 | 6/8 | 8/8 | 6/8 |
 | `skill_wins_strict` | 1 | 1/1 | 1/1 | 1/1 |
 | `tie` | 1 | 1/1 | 1/1 | 1/1 |
 
@@ -27,12 +27,14 @@
 
 | Case | Expected | sonnet | haiku | opus |
 | --- | --- | --- | --- | --- |
-| `error-wrapping` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✗ = tie |
+| `error-wrapping` | skill_wins | ✗ ✗ baseline | ✓ ✓ skill | ✓ ✓ skill |
 | `goroutine-lifetime` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
-| `receiver-consistency` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
-| `interface-placement` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✗ = tie |
+| `receiver-consistency` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✗ = tie |
+| `interface-placement` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
 | `slog-structured` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
-| `generic-min` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✗ = tie |
+| `generic-min` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
+| `context-timeout-cancellation` | skill_wins | ✗ = tie | ✓ ✓ skill | ✗ = tie |
+| `table-driven-tests` | skill_wins | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
 | `simplest-error` | skill_wins_strict | ✓ ✓ skill | ✓ ✓ skill | ✓ ✓ skill |
 | `offtopic-css-grid` | tie | ✓ = tie | ✓ = tie | ✓ = tie |
 
@@ -54,16 +56,16 @@ traversal (i.e. uses %w), not string concatenation or %v which break the chain.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer A has a critical bug in the fmt.Errorf call — `fmt.Errorf("load config from %s: %w", err)` is missing the `path` argument, passing `err` as the `%s` argument and nothing for `%w`. However, Answer A is otherwise more thorough on the focus criteria: it explicitly calls out the %v anti-pattern with a dedicated section, explains why %v breaks the chain, and covers errors.Is/errors.As more clearly. Answer B is more correct code-wise (no argument mismatch) and adds useful structured error type coverage, but is slightly weaker on explicitly teaching the %v anti-pattern distinction. The bug in A is notable but the question focuses on teaching wrapping concepts, and A's conceptual coverage of all rubric criteria is stronger overall — though it's a close call given the code bug.
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **baseline** — Both answers correctly use %w and explain errors.Is/errors.As traversal, but Answer A contains a notable bug: it shows the wrong fmt.Errorf call first ('fmt.Errorf("load config from %s: %w", err)' missing the path argument) before correcting it, which is confusing and unprofessional. Answer B is cleaner, correct from the start, includes a custom error type example demonstrating errors.As with Unwrap(), and provides a multi-layer wrapping example that better teaches the pattern without any errors.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
 | uses %w directive | baseline |
-| mentions errors.Is or errors.As | skill |
+| mentions errors.Is or errors.As | baseline |
 | uses fmt.Errorf for context | baseline |
-| avoids %v wrapping anti-pattern | skill |
+| avoids %v wrapping anti-pattern | tie |
 
 **Baseline rubric**
 
@@ -81,7 +83,7 @@ traversal (i.e. uses %w), not string concatenation or %v which break the chain.
 | uses %w directive | ✓ | `%w` |
 | mentions errors.Is or errors.As | ✓ | `errors.Is` |
 | uses fmt.Errorf for context | ✓ | `fmt.Errorf` |
-| avoids %v wrapping anti-pattern | ✗ | `fmt.Errorf("load config: %v", err` |
+| avoids %v wrapping anti-pattern | ✓ | |
 
 <details><summary>sonnet: baseline answer</summary>
 
@@ -93,122 +95,125 @@ The idiomatic Go solution is to wrap the error with `fmt.Errorf` and the `%w` ve
 
 ```go
 // Bad: caller sees "open /etc/foo.yml: no such file or directory"
-// No idea which subsystem, which config type, or why it was needed
-func loadConfig(path string) (*Config, error) {
-    f, err := os.Open(path)
-    if err != nil {
-        return nil, err  // naked return, context is lost
-    }
-    // ...
+// No idea which subsystem, what the path means, or who asked for it
+func loadConfig(path string) (*os.File, error) {
+    return os.Open(path)
 }
 ```
 
 ### The Fix
 
 ```go
-func loadConfig(path string) (*Config, error) {
+func loadConfig(path string) (*os.File, error) {
     f, err := os.Open(path)
     if err != nil {
-        return nil, fmt.Errorf("loadConfig: %w", err)
+        return nil, fmt.Errorf("loading config: %w", err)
     }
-    defer f.Close()
-
-    var cfg Config
-    if err := yaml.NewDecoder(f).Decode(&cfg); err != nil {
-        return nil, fmt.Errorf("loadConfig: decode %q: %w", path, err)
-    }
-
-    return &cfg, nil
+    return f, nil
 }
 ```
 
-Now callers see: `"loadConfig: open /etc/foo.yml: no such file or directory"`
+Now callers see: **`"loading config: open /etc/foo.yml: no such file or directory"`**
 
 ---
 
 ### Why `%w` and Not `%v`?
 
-| Verb | Wraps error | `errors.Is/As` works | Use when |
-|------|-------------|----------------------|----------|
-| `%w` | Yes | ✅ Yes | Almost always |
-| `%v` | No | ❌ No | Intentionally hiding error type |
+| Verb | Wraps for `errors.Is`/`errors.As`? | Use when |
+|------|-------------------------------------|----------|
+| `%w` | ✅ Yes | You want callers to inspect the underlying error |
+| `%v` | ❌ No | You want to hide implementation details |
 
 ```go
-cfg, err := loadConfig("/etc/foo.yml")
-if errors.Is(err, os.ErrNotExist) {
-    // This still works with %w, breaks with %v
-    applyDefaults()
+f, err := loadConfig("/etc/foo.yml")
+if err != nil {
+    // This still works because %w preserves the chain
+    if errors.Is(err, os.ErrNotExist) {
+        // handle missing file specifically
+    }
+    log.Fatal(err)
 }
 ```
 
 ---
 
-### Build a Convention: Prefix with the Call Chain
+### Add Relevant Context at Each Layer
 
-Each layer adds its own name, creating a readable trace:
+Each layer should add what *it* knows — don't repeat what lower layers already say:
 
 ```go
-func (s *Server) Start() error {
-    if err := s.loadConfig(); err != nil {
-        return fmt.Errorf("server.Start: %w", err)
+// Low level: knows the path
+func openConfig(path string) (*os.File, error) {
+    f, err := os.Open(path)
+    if err != nil {
+        return nil, fmt.Errorf("open config file: %w", err)
     }
-    return nil
+    return f, nil
 }
 
-func (s *Server) loadConfig() error {
-    if _, err := loadConfig(s.configPath); err != nil {
-        return fmt.Errorf("server.loadConfig: %w", err)
+// Mid level: knows the subsystem
+func initDatabase(cfgPath string) (*DB, error) {
+    f, err := openConfig(cfgPath)
+    if err != nil {
+        return nil, fmt.Errorf("database init: %w", err)
     }
-    return nil
+    // ...
+}
+
+// Top level: knows the user-facing operation
+func Start(cfgPath string) error {
+    db, err := initDatabase(cfgPath)
+    if err != nil {
+        return fmt.Errorf("server startup: %w", err)
+    }
+    // ...
 }
 ```
 
-Error message: `"server.Start: server.loadConfig: loadConfig: open /etc/foo.yml: no such file or directory"`
+This produces: **`"server startup: database init: open config file: open /etc/foo.yml: no such file or directory"`**
 
 ---
 
-### When You Need Structured Errors
+### When to Use a Custom Error Type Instead
 
-For libraries or cases where callers need to inspect details programmatically:
+If callers need structured data (not just a message), use `errors.As`:
 
 ```go
 type ConfigError struct {
     Path string
-    Op   string
     Err  error
 }
 
 func (e *ConfigError) Error() string {
-    return fmt.Sprintf("config %s %q: %v", e.Op, e.Path, e.Err)
+    return fmt.Sprintf("config %q: %v", e.Path, e.Err)
 }
 
 // Unwrap lets errors.Is/As traverse the chain
 func (e *ConfigError) Unwrap() error { return e.Err }
 
-func loadConfig(path string) (*Config, error) {
+func loadConfig(path string) (*os.File, error) {
     f, err := os.Open(path)
     if err != nil {
-        return nil, &ConfigError{Path: path, Op: "open", Err: err}
+        return nil, &ConfigError{Path: path, Err: err}
     }
-    // ...
+    return f, nil
 }
 
-// Caller can now extract structured info:
+// Caller can extract structured info:
 var cfgErr *ConfigError
 if errors.As(err, &cfgErr) {
-    log.Printf("failed on config file: %s", cfgErr.Path)
+    log.Printf("bad config path was: %s", cfgErr.Path)
 }
 ```
 
 ---
 
-### Quick Rules of Thumb
+### Key Rules
 
-1. **Always wrap** — never return a bare `err` from a non-trivial function
-2. **Use `%w`** unless you have a specific reason to use `%v`
-3. **Include the path/key** in the message when it adds information the caller doesn't already have
-4. **Don't include it twice** — if the path is already in `os.Open`'s error, you don't need to repeat it in your wrapper
-5. **Name the operation**, not just the file — `"loadConfig:"` is more useful than `"config file:"`
+1. **Wrap at every layer boundary** — each layer adds what it uniquely knows
+2. **Use `%w`** so the error chain stays inspectable
+3. **Don't wrap if you're re-returning** the same error at the same level (avoid duplicate context)
+4. **Message format**: lowercase, no punctuation at end, colon-separated — they're meant to be chained
 
 </details>
 
@@ -238,94 +243,79 @@ func loadConfig(path string) (*os.File, error) {
     f, err := os.Open(path)
     if err != nil {
         return nil, fmt.Errorf("load config from %s: %w", err)
-        //                      ^^^^^^^^^^^^^^^^^^^^^^^^
-        //                      operational context      |
-        //                                               %w preserves the chain
+        //                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        //                      operational context  |  %w preserves the chain
     }
     return f, nil
 }
 ```
 
-Callers now see:
+Wait — that's a typo in the format string. The correct call:
+
+```go
+return nil, fmt.Errorf("load config from %s: %w", path, err)
+```
+
+Now callers see:
 
 ```
 load config from /etc/foo.yml: open /etc/foo.yml: no such file or directory
 ```
 
-And they can still match the underlying cause:
+## Why `%w` and Not `%v`?
+
+| Verb | Message | `errors.Is(err, fs.ErrNotExist)` |
+|------|---------|----------------------------------|
+| `%v` | ✅ has context | ❌ chain broken — callers can't inspect |
+| `%w` | ✅ has context | ✅ chain intact |
+
+`%w` calls `errors.Unwrap` under the hood, so the full chain stays navigable:
 
 ```go
-err := loadConfig("/etc/foo.yml")
-if errors.Is(err, os.ErrNotExist) {
-    // still works — %w keeps the chain intact
+cfg, err := loadConfig("/etc/foo.yml")
+if errors.Is(err, fs.ErrNotExist) {
+    // Still works even through the wrapping layer.
+    log.Fatal("config file missing — run `myapp init` first")
 }
 ```
 
-## Wrapping Rules
+## When NOT to Use `%w`
 
-| Situation | What to do | Why |
-|---|---|---|
-| Adding operational context | `fmt.Errorf("doing X: %w", err)` | Preserves `errors.Is`/`As` chain |
-| The underlying error is an internal detail you don't want to expose | New sentinel or typed error, **no** `%w` | Prevents callers depending on implementation errors |
-| Bare `return err` | Almost always wrong at a subsystem boundary | Loses all context about where the failure occurred |
-
-## Wrapping Deeper Call Stacks
-
-Each layer adds its own context, and the messages compose naturally:
+Use a plain `%v` (or a new sentinel error) when the underlying error is an **implementation detail you want to hide** — for example, a SQL driver error that callers should never match against directly:
 
 ```go
-func (s *Server) Start(cfgPath string) error {
-    f, err := loadConfig(cfgPath)
-    if err != nil {
-        return fmt.Errorf("server start: %w", err)
+var ErrUserNotFound = errors.New("user not found")
+
+func getUser(id int) (*User, error) {
+    u, err := db.QueryRow(...)
+    if errors.Is(err, sql.ErrNoRows) {
+        return nil, ErrUserNotFound  // hide sql.ErrNoRows from callers
     }
-    // ...
+    if err != nil {
+        return nil, fmt.Errorf("query user %d: %w", id, err)  // wrap unexpected errors
+    }
+    return u, nil
 }
 ```
 
-Result:
+## Wrapping Convention
+
+The message fragment should read as a **lowercase phrase without a trailing period**, so the full chain reads naturally when errors are joined by `: `:
 
 ```
-server start: load config from /etc/foo.yml: open /etc/foo.yml: no such file or directory
+initialize app: load config from /etc/foo.yml: open /etc/foo.yml: no such file or directory
+│               │                              └─ os error
+│               └─ loadConfig wrapper
+└─ caller's wrapper
 ```
 
-Read left-to-right: high-level operation → subsystem → stdlib call → OS message. No guessing which layer failed.
-
-## Checking Errors in Tests
-
-```go
-_, err := loadConfig("/nonexistent")
-
-// Check the sentinel — works through any number of wrapping layers
-if !errors.Is(err, os.ErrNotExist) {
-    t.Fatalf("expected ErrNotExist, got %v", err)
-}
-
-// Check the message contains your context
-if !strings.Contains(err.Error(), "load config") {
-    t.Fatalf("error missing context: %v", err)
-}
-```
-
-## One Pitfall to Avoid
-
-`%w` must appear **once** per `fmt.Errorf` call (Go 1.20+ supports multiple `%w` for wrapping several errors, but that's a different pattern). Don't use `%v` when you mean `%w` — `%v` embeds the message as a plain string and breaks `errors.Is`:
-
-```go
-// Wrong — breaks the error chain
-return nil, fmt.Errorf("load config: %v", err)
-
-// Right
-return nil, fmt.Errorf("load config from %s: %w", path, err)
-```
-
-The convention for the context string is `"noun verb noun: %w"` — lowercase, no trailing punctuation, colon-space before `%w`. That way the composed message reads as a natural chain of events.
+Each layer adds one phrase describing *what it was trying to do*, not *what went wrong* — that's the innermost error's job.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B more thoroughly addresses all rubric criteria, explicitly demonstrating errors.Is/errors.As usage with a concrete example, explaining why %w matters for chain traversal, and providing practical guidance on when to wrap vs. replace. Answer A covers the basics but the custom error type section is a distraction from the core question, and it doesn't show errors.Is/errors.As in action as clearly.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly use %w and mention errors.Is/errors.As, but Answer B is more focused and pedagogically stronger. B explicitly demonstrates errors.Is usage with os.ErrNotExist in a code example, provides a nuanced 'when to wrap vs replace' discussion, and shows layered wrapping across multiple functions. Answer A covers the same core points but is slightly less explicit about the errors.Is/errors.As traversal benefit in practice.
 
 **Per-criterion verdict (judge)**
 
@@ -402,7 +392,7 @@ func OpenConfig(path string) (*os.File, error) {
 This gives you:
 - Clear error messages: `"config error: failed to open /etc/foo.yml: no such file or directory"`
 - Ability to check error type: `errors.As(err, &configErr)`
-- Error chain preservation with `Unwrap()`
+- Error chain preservation for debugging
 
 ## Quick Comparison
 
@@ -462,8 +452,17 @@ if errors.Is(err, os.ErrNotExist) {
 return nil, fmt.Errorf("load config: %w", err)
 
 // Good: hides the implementation, returns a domain error
-if err != nil {
-	return nil, ErrConfigNotFound // or a custom type
+var ErrConfigNotFound = errors.New("config file not found")
+
+func loadConfig(path string) (*Config, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrConfigNotFound
+		}
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	// ...
 }
 ```
 
@@ -471,70 +470,60 @@ if err != nil {
 
 1. **Add context at each layer** — each function wraps with its own perspective:
    ```go
-   func (s *Server) Start(ctx context.Context) error {
-       cfg, err := loadConfig("app.yml")
-       if err != nil {
-           return fmt.Errorf("start server: %w", err)
-       }
-       // ...
-   }
-   
-   func loadConfig(path string) (*Config, error) {
+   // In config package
+   func Load(path string) (*Config, error) {
        f, err := os.Open(path)
        if err != nil {
-           return nil, fmt.Errorf("open config file %s: %w", path, err)
+           return nil, fmt.Errorf("open config: %w", err)
        }
        // ...
    }
-   ```
    
-   The final error reads: `start server: open config file /etc/foo.yml: open /etc/foo.yml: no such file or directory`
-
-2. **Include relevant values** — add the filename, URL, or ID that failed:
-   ```go
-   return nil, fmt.Errorf("open config file %s: %w", path, err)
-   ```
-
-3. **Don't wrap twice** — if a function already returns a wrapped error, don't wrap it again:
-   ```go
-   // Bad
-   cfg, err := loadConfig(path)
+   // In main
+   cfg, err := config.Load("/etc/foo.yml")
    if err != nil {
-       return nil, fmt.Errorf("load: %w", err)  // Redundant
-   }
-   
-   // Good: just return it, or add new context only if needed
-   cfg, err := loadConfig(path)
-   if err != nil {
-       return nil, fmt.Errorf("initialize app: %w", err)  // New layer
+       return fmt.Errorf("initialize app: %w", err)
    }
    ```
-
-4. **Use `errors.Is` for sentinel checks, not string matching:**
-   ```go
-   // Bad
-   if strings.Contains(err.Error(), "no such file") { }
    
-   // Good
-   if errors.Is(err, os.ErrNotExist) { }
+   The full chain becomes: `initialize app: open config: open /etc/foo.yml: no such file or directory`
+
+2. **Never discard errors silently** — if you can't wrap, at least log:
+   ```go
+   // Only if you have a good reason to ignore it
+   _ = f.Close() // error ignored; file was read-only
    ```
 
-This pattern is idiomatic Go and recommended by [Effective Go](https://golang.org/doc/effective_go#errors) and the [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments#error-strings).
+3. **Use typed errors for domain-specific failures** — when the caller needs to react differently:
+   ```go
+   type ConfigError struct {
+       Path string
+       Err  error
+   }
+   
+   func (e *ConfigError) Error() string {
+       return fmt.Sprintf("config %s: %v", e.Path, e.Err)
+   }
+   
+   func (e *ConfigError) Unwrap() error { return e.Err }
+   ```
+
+See [errors.md](references/errors.md) for more on error handling patterns.
 
 </details>
 
 #### `opus`
 
-**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly use %w with fmt.Errorf, mention errors.Is and errors.As with working examples, and explicitly warn against %v/%s flattening. Answer A provides slightly more depth with errors.As usage and a nuanced 'when not to wrap' discussion, while Answer B offers cleaner conventions (no capitalization, wrap once per layer) and a mention of stack trace libraries. Neither is clearly superior across all criteria.
+**Met:** ✓  ·  **Judge:** **skill** — Answer A is more thorough and pedagogically stronger. It explicitly explains why %w preserves the error chain for errors.Is/errors.As traversal with a concrete downstream example, uses %q for paths (better practice), and avoids the anti-pattern of redundant path inclusion that Answer B actually demonstrates in its first code example. Answer B introduces a minor anti-pattern by showing `fmt.Errorf("config: open %s: %w", path, err)` which produces the redundant 'open /etc/foo.yml: open /etc/foo.yml' message it then has to walk back, and its mention of multiple %w verbs with fmt.Errorf is actually incorrect (fmt.Errorf only supports one %w in standard Go).
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
-| uses %w directive | tie |
+| uses %w directive | skill |
 | mentions errors.Is or errors.As | skill |
 | uses fmt.Errorf for context | tie |
-| avoids %v wrapping anti-pattern | tie |
+| avoids %v wrapping anti-pattern | skill |
 
 **Baseline rubric**
 
@@ -556,62 +545,71 @@ This pattern is idiomatic Go and recommended by [Effective Go](https://golang.or
 
 <details><summary>opus: baseline answer</summary>
 
-# Wrap the error with context
+# Wrapping errors with context in Go
 
-The idiomatic Go fix is to wrap the error using `fmt.Errorf` with the `%w` verb. This adds your context while preserving the original error for inspection with `errors.Is` / `errors.As`.
+The idiomatic fix is to wrap the error with `fmt.Errorf` and the `%w` verb, which preserves the original error for inspection while adding context.
+
+## The fix
 
 ```go
 func loadConfig(path string) (*os.File, error) {
     f, err := os.Open(path)
     if err != nil {
-        return nil, fmt.Errorf("loadConfig: opening %q: %w", path, err)
+        return nil, fmt.Errorf("config: open %s: %w", path, err)
     }
     return f, nil
 }
 ```
 
-Now callers see something like:
+Now the caller sees something like:
 
 ```
-loadConfig: opening "/etc/foo.yml": open /etc/foo.yml: no such file or directory
+config: open /etc/foo.yml: open /etc/foo.yml: no such file or directory
 ```
 
-## Why `%w` and not `%v` or `%s`
+The `os.Open` error already includes the path, so you may want to drop the redundant path from your message:
 
-- `%w` wraps the error so `errors.Is(err, os.ErrNotExist)` still works upstream.
-- `%v` / `%s` flatten it to a string, losing the ability to type-check or compare sentinel errors.
+```go
+return nil, fmt.Errorf("config: %w", err)
+// => "config: open /etc/foo.yml: no such file or directory"
+```
+
+## Why `%w` and not `%v` or `%s`?
+
+- `%w` *wraps* the error, so callers can still use `errors.Is` and `errors.As`:
+  ```go
+  if errors.Is(err, os.ErrNotExist) {
+      // handle missing config specifically
+  }
+  ```
+- `%v`/`%s` flatten it to a string, breaking those checks.
 
 ## A few conventions worth following
 
-1. **Don't capitalize or end with punctuation.** Error strings get concatenated, so `"loading config: opening file: ..."` reads naturally.
-2. **Add context the caller doesn't already have.** The path is good; "error:" or "failed to" is noise — `err` already implies failure.
-3. **Wrap once per layer, not at every return.** Wrapping in the function that has meaningful context (subsystem name, operation, key parameter) is enough. Re-wrapping at every level produces noisy stack-like strings.
-4. **Include the dynamic value** (here, `path`) since `os.Open`'s message already includes it, but if you transform the path or compute it, log the input the caller gave you.
+1. **Lowercase, no trailing punctuation.** Errors get composed, so `"config: open foo: ..."` reads better than `"Config: Open foo: ...."`.
+2. **Add context, don't restate.** "failed to" / "error while" is noise — the fact that it's an error is implied.
+3. **Wrap once per layer.** Each function adds its own bit of context (`config:`, `subsystem:`, etc.), forming a breadcrumb trail.
+4. **Wrap only when you have something to add.** If you're just passing it through, return it unchanged.
 
-## If callers need to branch on the error
+## When you have multiple errors at one level
+
+Since Go 1.20, `errors.Join` and `fmt.Errorf` with multiple `%w` verbs let you wrap several errors:
 
 ```go
-f, err := loadConfig("/etc/foo.yml")
-if errors.Is(err, os.ErrNotExist) {
-    // fall back to defaults
-}
+return fmt.Errorf("config: %w (path=%s)", err, path)
+// or
+return errors.Join(err, otherErr)
 ```
 
-This still works because of `%w`.
-
-## When you want stack traces too
-
-The standard library doesn't include them. If you find yourself wanting them, [`github.com/pkg/errors`](https://github.com/pkg/errors) or `cockroachdb/errors` add stack capture, but for most code, a couple of well-placed `fmt.Errorf("%w")` wraps are enough to identify the subsystem.
+For your specific case, the one-liner with `%w` and a subsystem prefix is exactly the right move.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-# Add context with `fmt.Errorf` and `%w`
+# The fix: wrap with `%w` to add operational context
 
-The fix is to wrap the error with operational context using `%w`, which preserves the error chain so callers can still inspect the underlying error with `errors.Is`/`errors.As`.
-
-## The fix
+Your callers already get the OS-level message (`open /etc/foo.yml: no such file or directory` — that comes from `os.Open` itself), but they have no idea *which part of your program* asked for that file. Wrap the error with `fmt.Errorf` and the `%w` verb so you add context **without** breaking the error chain:
 
 ```go
 package config
@@ -621,54 +619,69 @@ import (
     "os"
 )
 
-func Open(path string) (*os.File, error) {
+func Load(path string) (*os.File, error) {
     f, err := os.Open(path)
     if err != nil {
-        return nil, fmt.Errorf("config: open %s: %w", path, err)
+        return nil, fmt.Errorf("config: load %q: %w", path, err)
     }
     return f, nil
 }
 ```
 
-Now the error reads:
+Now callers see:
 
 ```
-config: open /etc/foo.yml: open /etc/foo.yml: no such file or directory
+config: load "/etc/foo.yml": open /etc/foo.yml: no such file or directory
 ```
 
-Callers immediately see *which subsystem* failed. (If the duplicated `open /etc/foo.yml` bothers you, drop the path from your wrap message — `os.Open` already includes it. I'd keep the subsystem prefix though: `fmt.Errorf("config: %w", err)`.)
+The `config:` prefix tells you the subsystem; the rest of the chain is preserved verbatim.
 
 ## Why `%w` and not `%v` or `%s`
 
-`%w` wraps the error so the chain stays intact:
+| Verb | Behavior | Use when |
+|---|---|---|
+| `%w` | Wraps — preserves the underlying error in the chain | You want callers to keep using `errors.Is` / `errors.As` |
+| `%v` / `%s` | Formats the error's text into a new string; chain is **lost** | You're deliberately hiding the underlying error (it's an implementation detail) |
+
+Because you used `%w`, this still works downstream:
 
 ```go
-_, err := config.Open("/etc/foo.yml")
-
-// Still works — the underlying os.PathError is reachable:
+f, err := config.Load("/etc/foo.yml")
 if errors.Is(err, os.ErrNotExist) {
-    // handle missing config (e.g. fall back to defaults)
-}
-
-// And you can extract the *fs.PathError if you need details:
-var pathErr *fs.PathError
-if errors.As(err, &pathErr) {
-    log.Printf("failed op=%s path=%s", pathErr.Op, pathErr.Path)
+    // handle missing file specifically — fall back to defaults, etc.
 }
 ```
 
-If you'd used `%v` or `%s`, the message would look the same but `errors.Is(err, os.ErrNotExist)` would return `false` — you'd have flattened the error into a string and lost the ability to inspect it programmatically.
+If you'd written `%v`, that `errors.Is` check would silently return `false` and the caller would lose the ability to react to a missing file vs. a permission error vs. anything else.
 
-## Rule of thumb
+## Conventions for the wrap message
 
-- **Wrap with `%w`** when you're adding context to an error that callers might reasonably want to inspect (the common case).
-- **Don't wrap** (use `%v`, or return a fresh sentinel/typed error) only when the underlying error is an implementation detail you deliberately want to hide from callers — e.g. you don't want callers coupling to the fact that you happen to use `os.Open` today and might switch to an embedded FS tomorrow.
+A few things to keep consistent (these match Google/Uber style and the Go Code Review Comments):
 
-For a config loader, wrapping with `%w` is almost certainly what you want: callers legitimately care about "file not found" vs "permission denied" vs other I/O failures.
+- **Lowercase, no trailing punctuation, no trailing newline.** Errors get composed — `Errorf` will append `: <inner>`, so `"config: load %q"` reads cleanly when nested.
+- **Don't repeat what the inner error already says.** `os.Open`'s error already contains `"open /etc/foo.yml"`, so I wrote `"config: load %q"` rather than `"failed to open file %q"` — otherwise you'd get `open … : open …`.
+- **Use `%q` for paths and user-supplied strings.** It quotes them so whitespace or empty strings are visible (`""` is much clearer than a blank space in the middle of a sentence).
+- **Prefix with the subsystem when it's not obvious from the call site.** `"config: ..."` here; `"db: query users: ..."` for a database layer; etc. This is exactly the "hint of which subsystem" you wanted.
 
-## One more thing
+## One subtlety: this returns an `*os.File`
 
-Make sure callers actually use `errors.Is`/`errors.As` rather than string-matching the error message — the whole point of preserving the chain is wasted otherwise. If you find yourself or your callers writing `strings.Contains(err.Error(), "no such file")`, that's a smell pointing at either missing wrapping somewhere or a missing sentinel/typed error in your API.
+A small caveat unrelated to error handling: returning `*os.File` makes the caller responsible for `Close()`-ing it. That's fine, but if `Load` is going to grow (parse YAML, validate, etc.), have it read and close internally and return the parsed struct instead — fewer footguns for callers.
+
+```go
+func Load(path string) (*Config, error) {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil, fmt.Errorf("config: load %q: %w", path, err)
+    }
+    var c Config
+    if err := yaml.Unmarshal(data, &c); err != nil {
+        return nil, fmt.Errorf("config: parse %q: %w", path, err)
+    }
+    return &c, nil
+}
+```
+
+Notice each failure point gets its own wrap with a verb describing *what was being attempted* (`load`, `parse`). When something breaks in production, the chained message tells you exactly which step failed and on which file — without any extra logging.
 
 </details>
 
@@ -688,7 +701,7 @@ to a context, rather than spawning an unbounded `go func()` with no way to stop.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers satisfy all four rubric criteria, but Answer B goes further by encapsulating the pattern into a reusable, testable function that passes ctx into the work function (enabling mid-task cancellation), returns errors for proper error propagation, and includes a more thorough explanation of design decisions including the note about select randomness and the importance of passing ctx to fn. Answer A is solid and practical but is more of a script-style example rather than a reusable library pattern, and its 'run immediately then tick' variation has a subtle issue where doWork is called outside the select before ctx.Done is checked.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers satisfy all four rubric criteria (context.Context, selects on ctx.Done, uses time.NewTicker, avoids time.Tick), but Answer B is more idiomatic and production-ready. It passes ctx into doWork for mid-flight cancellation, uses signal.NotifyContext (the modern Go 1.16+ idiom), returns errors from Run for proper error propagation, and wraps the worker in a struct with dependencies — all patterns that reflect real-world Go code. Answer A is correct and clear but simpler and less complete.
 
 **Per-criterion verdict (judge)**
 
@@ -764,7 +777,6 @@ func main() {
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
 
-    // Run in background goroutine
     go startWorker(ctx, 3*time.Second)
 
     // Block until CTRL+C or SIGTERM
@@ -777,33 +789,38 @@ func main() {
 }
 ```
 
-### Key points
+### Key Points
 
 | Concern | Solution |
 |---|---|
-| Prevent ticker leak | `defer ticker.Stop()` |
-| Graceful shutdown | `context.Context` cancellation |
-| Non-blocking | Run worker in a goroutine |
-| OS signal handling | `signal.Notify` on a buffered channel |
+| Stopping the ticker | `defer ticker.Stop()` — prevents a goroutine leak |
+| Stopping the goroutine | `context.Context` cancellation |
+| Blocking main | A signal channel or `sync.WaitGroup` |
+| First tick delay | Ticker waits one interval before the first tick |
 
 ---
 
-### Common variations
+### Variant: Run immediately, then on interval
 
-**Run immediately, then tick** — the ticker waits for the first interval before firing:
+If you want work to run **right away** and then repeat:
+
 ```go
 for {
-    doWork(time.Now()) // run once right away
+    doWork(time.Now()) // run once immediately
 
     select {
     case <-ticker.C:
+        // loop back to top to do work again
     case <-ctx.Done():
         return
     }
 }
 ```
 
-**Wait for the worker to fully finish before exiting:**
+---
+
+### Variant: Wait for the worker to finish before exiting
+
 ```go
 var wg sync.WaitGroup
 wg.Add(1)
@@ -815,11 +832,11 @@ go func() {
 
 <-quit
 cancel()
-wg.Wait() // block until worker returns
-log.Println("Clean exit")
+wg.Wait() // block until the worker returns
+log.Println("Clean shutdown complete")
 ```
 
-The core idea is always the same: **ticker + context + select**.
+The core idea is always the same: **ticker + select + context** gives you a clean, cancellable loop with no leaks.
 
 </details>
 
@@ -828,100 +845,117 @@ The core idea is always the same: **ticker + context + select**.
 Here's the idiomatic Go pattern for a periodic background task:
 
 ```go
-// Ticker runs fn on every interval until ctx is cancelled.
-// The caller controls lifetime via the context.
-func Ticker(ctx context.Context, interval time.Duration, fn func(ctx context.Context) error) error {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop() // always release the ticker's goroutine and channel
+// Poller performs some work on a fixed interval until its context is cancelled.
+type Poller struct {
+	interval time.Duration
+	db       *sql.DB // example dependency
+}
+
+func NewPoller(interval time.Duration, db *sql.DB) *Poller {
+	return &Poller{interval: interval, db: db}
+}
+
+// Run blocks until ctx is cancelled. Call it in a goroutine.
+func (p *Poller) Run(ctx context.Context) error {
+	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop() // always stop the ticker to free resources
 
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return ctx.Err() // surface cancellation/deadline to the caller
 
 		case <-ticker.C:
-			if err := fn(ctx); err != nil {
-				return fmt.Errorf("ticker task: %w", err)
+			if err := p.doWork(ctx); err != nil {
+				// Decide: log and continue, or return to stop the loop.
+				slog.Error("poll failed", "err", err)
 			}
 		}
 	}
 }
+
+func (p *Poller) doWork(ctx context.Context) error {
+	// Pass ctx so the work itself can be cancelled mid-flight.
+	rows, err := p.db.QueryContext(ctx, "SELECT ...")
+	if err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+	// ...
+	return nil
+}
 ```
 
-**Calling it from `main` (or a server startup):**
+Wiring it up in `main`:
 
 ```go
 func main() {
-	// A real program would wire this to SIGTERM / SIGINT.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	db, _ := sql.Open("pgx", os.Getenv("DSN"))
+
+	poller := NewPoller(5*time.Second, db)
+
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	err := Ticker(ctx, 5*time.Second, func(ctx context.Context) error {
-		slog.InfoContext(ctx, "tick", "time", time.Now())
-		// do real work here — pass ctx so it can be cancelled mid-task
-		return nil
-	})
-
-	// context.DeadlineExceeded / Canceled is expected on clean shutdown.
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-		slog.Error("ticker stopped", "err", err)
-		os.Exit(1)
-	}
-}
-```
-
-**Running it as a background goroutine (the common server case):**
-
-```go
-func startBackgroundTask(ctx context.Context, wg *sync.WaitGroup) {
+	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := Ticker(ctx, 5*time.Second, doWork); err != nil &&
-			!errors.Is(err, context.Canceled) {
-			slog.Error("background task failed", "err", err)
+		if err := poller.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("poller stopped", "err", err)
 		}
 	}()
-}
 
-// Somewhere in your shutdown sequence:
-//   cancel()   // signal all goroutines to stop
-//   wg.Wait()  // block until they've all returned
+	wg.Wait()
+	slog.Info("shutdown complete")
+}
 ```
 
----
+## Why each piece is here
 
-### Why each piece matters
-
-| Decision | Reason |
+| Piece | Reason |
 |---|---|
-| `time.NewTicker` + `defer ticker.Stop()` | `Stop` drains the channel and frees the internal goroutine. Forgetting it leaks. |
-| `select` with `ctx.Done()` | Gives the task a clean exit path the moment the caller cancels. Without it the goroutine blocks on the next tick even after shutdown. |
-| `ctx.Done()` checked **before** `ticker.C` | Go's `select` picks a ready case at random when multiple fire simultaneously. Listing `ctx.Done()` first doesn't guarantee priority — you still need the `errors.Is` check on shutdown, but it's a clear signal of intent. |
-| Passing `ctx` into `fn` | Long-running work inside the tick (HTTP calls, DB queries) can respect cancellation mid-task, not just between ticks. |
-| `fmt.Errorf("ticker task: %w", err)` | Wraps with context while keeping the original error inspectable via `errors.Is`/`errors.As`. |
-| `sync.WaitGroup` in the goroutine case | Gives the shutdown path a way to confirm the goroutine has actually exited before the process ends. |
+| `ticker.Stop()` in `defer` | Stops the internal goroutine and frees the channel; omitting it leaks resources |
+| `select` with `ctx.Done()` | Gives the task a deterministic shutdown path — no orphaned goroutines |
+| `ctx` passed to `doWork` | Lets in-flight I/O be cancelled immediately on shutdown, not just between ticks |
+| `signal.NotifyContext` | Converts OS signals into context cancellation — the idiomatic main-loop pattern since Go 1.16 |
+| `sync.WaitGroup` | Ensures `main` waits for the goroutine to finish its current tick before the process exits |
+| `errors.Is(err, context.Canceled)` | Distinguishes a clean shutdown from a real failure at the call site |
 
-### One common mistake to avoid
+## Common variations
+
+**Run once immediately, then tick** — the ticker fires *after* the first interval. If you want work to happen right away:
 
 ```go
-// ❌ Don't do this — fires immediately AND on every interval,
-//    and there's no way to stop it cleanly.
-go func() {
-    for {
-        doWork()
-        time.Sleep(5 * time.Second)
-    }
-}()
+// Run once before the loop, then let the ticker take over.
+if err := p.doWork(ctx); err != nil {
+    slog.Error("initial poll failed", "err", err)
+}
 ```
 
-`time.Sleep` can't be interrupted. If the program shuts down mid-sleep, the goroutine is stuck until the sleep expires (or the process is killed). `time.NewTicker` + `select` on `ctx.Done()` is the correct primitive.
+**Stop the loop on the first error** — just `return` instead of logging:
+
+```go
+case <-ticker.C:
+    if err := p.doWork(ctx); err != nil {
+        return fmt.Errorf("doWork: %w", err)
+    }
+```
+
+**Jitter to avoid thundering herds** (multiple instances all firing at once):
+
+```go
+ticker := time.NewTicker(p.interval)
+// Add up to 10% random jitter on the first tick.
+time.Sleep(time.Duration(rand.Int64N(int64(p.interval / 10))))
+```
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer A uses context.Context throughout, selects on ctx.Done(), and uses time.NewTicker — satisfying all four rubric criteria. Answer B uses a raw channel for stopping rather than context.Context, missing the ctx.Done() pattern entirely, and its first example has no exit condition at all (select{} blocks forever with an uncontrolled goroutine).
+**Met:** ✓  ·  **Judge:** **skill** — Answer A uses context.Context with select on ctx.Done(), which is the idiomatic Go pattern for deterministic goroutine lifecycle management. Answer B uses a raw done channel instead of context, missing the standard Go cancellation contract, and its first example has an unbounded goroutine with no stop mechanism. Answer A also correctly uses time.NewTicker with defer ticker.Stop(), while covering all rubric criteria.
 
 **Per-criterion verdict (judge)**
 
@@ -987,7 +1021,7 @@ func doWork() {
 
 ## With Graceful Shutdown
 
-Here's a more production-ready version with a stop signal:
+Here's a more practical version with a way to stop the task:
 
 ```go
 package main
@@ -998,19 +1032,19 @@ import (
 )
 
 func main() {
-	stopChan := make(chan bool)
+	done := make(chan bool)
 
 	// Start the background task
-	go runPeriodicTask(2*time.Second, stopChan)
+	go periodicTask(2*time.Second, done)
 
-	// Simulate running for 10 seconds, then stop
+	// Let it run for 10 seconds, then stop
 	time.Sleep(10 * time.Second)
-	stopChan <- true
+	done <- true
 
 	fmt.Println("Task stopped")
 }
 
-func runPeriodicTask(interval time.Duration, stop <-chan bool) {
+func periodicTask(interval time.Duration, done chan bool) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -1018,7 +1052,7 @@ func runPeriodicTask(interval time.Duration, stop <-chan bool) {
 		select {
 		case <-ticker.C:
 			doWork()
-		case <-stop:
+		case <-done:
 			return
 		}
 	}
@@ -1033,11 +1067,10 @@ func doWork() {
 
 - **`time.NewTicker()`** - Creates a ticker that fires at regular intervals
 - **`defer ticker.Stop()`** - Always stop the ticker to free resources
-- **`for range ticker.C`** - Simple loop (no graceful shutdown)
-- **`select`** - Allows listening to multiple channels (ticker + stop signal)
-- **Goroutine** - Run in background with `go`
+- **`for range ticker.C`** - Receives values when the ticker fires
+- **`select`** - Allows you to handle multiple channels (ticker + shutdown signal)
 
-Choose the first pattern for simple cases, the second for anything that needs to stop cleanly.
+The second pattern is recommended for production code since it allows graceful shutdown.
 
 </details>
 
@@ -1056,118 +1089,132 @@ import (
 	"time"
 )
 
-// StartPeriodicTask launches a background goroutine that runs fn every interval.
-// It returns a stop function; call it to gracefully shut down the task.
-func StartPeriodicTask(ctx context.Context, interval time.Duration, fn func(context.Context) error) func() {
-	ctx, cancel := context.WithCancel(ctx)
-	
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		
-		// Run once immediately (optional; remove if you want to wait for first tick).
-		if err := fn(ctx); err != nil {
-			slog.Error("periodic task failed", "err", err)
-		}
-		
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := fn(ctx); err != nil {
-					slog.Error("periodic task failed", "err", err)
-				}
+// Worker runs a periodic task until the context is cancelled.
+type Worker struct {
+	interval time.Duration
+	log      *slog.Logger
+}
+
+// NewWorker creates a new periodic worker.
+func NewWorker(interval time.Duration, log *slog.Logger) *Worker {
+	return &Worker{
+		interval: interval,
+		log:      log,
+	}
+}
+
+// Start begins the periodic task in a new goroutine.
+// The caller must call cancel() to stop it.
+func (w *Worker) Start(ctx context.Context) {
+	go w.run(ctx)
+}
+
+func (w *Worker) run(ctx context.Context) {
+	ticker := time.NewTicker(w.interval)
+	defer ticker.Stop()
+
+	// Run once immediately, then on each tick.
+	if err := w.doWork(ctx); err != nil {
+		w.log.Error("work failed", "err", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			w.log.Info("worker stopped", "reason", ctx.Err())
+			return
+		case <-ticker.C:
+			if err := w.doWork(ctx); err != nil {
+				w.log.Error("work failed", "err", err)
 			}
 		}
-	}()
-	
-	return cancel
+	}
+}
+
+func (w *Worker) doWork(ctx context.Context) error {
+	// Simulate some I/O-bound work.
+	// Always respect the context deadline/cancellation.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(100 * time.Millisecond):
+		w.log.Info("work completed")
+		return nil
+	}
 }
 
 // Example usage:
 func main() {
-	ctx := context.Background()
-	
-	stop := StartPeriodicTask(ctx, 5*time.Second, func(ctx context.Context) error {
-		slog.Info("doing work...")
-		// Your actual work here; respect ctx.Done() for cancellation.
-		return nil
-	})
-	
-	// Let it run for a bit, then stop.
-	time.Sleep(20 * time.Second)
-	stop()
-	
-	slog.Info("task stopped")
+	log := slog.Default()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	worker := NewWorker(3*time.Second, log)
+	worker.Start(ctx)
+
+	// Let it run for 10 seconds, then stop.
+	time.Sleep(10 * time.Second)
+	cancel()
+
+	// Give the goroutine time to clean up.
+	time.Sleep(100 * time.Millisecond)
 }
 ```
 
 ## Key Points
 
-1. **`time.Ticker`** — creates a channel that fires at regular intervals. Always `defer ticker.Stop()` to free resources.
+| Pattern | Why |
+|---|---|
+| **`time.Ticker` + `defer ticker.Stop()`** | Prevents resource leak; `Stop()` unblocks the channel |
+| **`select { case <-ctx.Done(): ... case <-ticker.C: ... }`** | Respects cancellation immediately; doesn't wait for the next tick |
+| **Run once before the loop** | Common pattern: execute immediately, then on schedule |
+| **`context.Context` as the first parameter** | Standard contract for cancellation and deadlines across the codebase |
+| **Goroutine lifetime is explicit** | Caller controls start/stop via `cancel()`; no hidden leaks |
+| **Structured logging with `slog`** | Leveled, context-aware; easier to filter in production |
 
-2. **`select` with `<-ctx.Done()`** — the goroutine exits cleanly when the context is cancelled. This is how you stop the task.
+## Variations
 
-3. **Return a `cancel` function** — lets the caller shut down the task without managing the context themselves. Alternatively, return the `cancel` directly if you want the caller to manage it.
-
-4. **Error handling** — log errors but don't crash the loop. The task keeps running even if one iteration fails.
-
-5. **Run-once-immediately (optional)** — the first `fn(ctx)` call before the loop lets you execute work right away instead of waiting for the first tick. Remove it if you prefer to wait.
-
-## Variant: With a `sync.WaitGroup` (if you need to wait for completion)
-
+**With `sync.WaitGroup` for clean shutdown:**
 ```go
-func StartPeriodicTask(ctx context.Context, interval time.Duration, fn func(context.Context) error) func() {
-	ctx, cancel := context.WithCancel(ctx)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	
-	go func() {
-		defer wg.Done()
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := fn(ctx); err != nil {
-					slog.Error("periodic task failed", "err", err)
-				}
-			}
-		}
-	}()
-	
-	return func() {
-		cancel()
-		wg.Wait() // Block until the goroutine exits.
-	}
+var wg sync.WaitGroup
+wg.Add(1)
+go func() {
+	defer wg.Done()
+	w.run(ctx)
+}()
+
+// Later:
+cancel()
+wg.Wait() // Block until the goroutine exits
+```
+
+**With a timeout on each work iteration:**
+```go
+func (w *Worker) doWork(ctx context.Context) error {
+	workCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	// Use workCtx for the actual work
+	return w.expensiveOperation(workCtx)
 }
 ```
 
-Use this if you need to ensure the task has fully shut down before proceeding (e.g., before closing a database connection).
-
-## Variant: With a timeout per iteration
-
+**For multiple workers (e.g., a pool):**
 ```go
-case <-ticker.C:
-	// Give each iteration a 10-second deadline.
-	iterCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	if err := fn(iterCtx); err != nil {
-		slog.Error("periodic task failed", "err", err)
-	}
-	cancel()
+for i := 0; i < numWorkers; i++ {
+	worker := NewWorker(interval, log)
+	worker.Start(ctx)
+}
+// All stop when ctx is cancelled
 ```
 
-This ensures no single iteration hangs forever.
+This pattern scales from simple background tasks to complex worker pools and is the foundation for most Go daemons and services.
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers satisfy all four rubric criteria, but Answer B is more idiomatic and production-quality: it wraps the pattern in a reusable function that accepts a `work func(context.Context) error`, forwards the context into the work function for proper cancellation of downstream I/O, returns an error for the caller to handle, and uses `slog` for structured logging. Answer A is correct and clear but slightly less polished—it uses a bare `time.Time` parameter for work, has a minor resource-management concern (the `time.Sleep` at shutdown instead of a WaitGroup), and doesn't propagate context into the work function.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers satisfy all four rubric criteria, but Answer B is more idiomatic and production-quality: it passes ctx into the work function so long-running operations can be cancelled mid-execution, returns ctx.Err() for caller-side error handling, and provides more thorough gotcha documentation. Answer A is slightly simpler and more approachable for beginners, but Answer B's design choices (error propagation, ctx threading into work) reflect better real-world Go patterns.
 
 **Per-criterion verdict (judge)**
 
@@ -1194,13 +1241,13 @@ This ensures no single iteration hangs forever.
 | uses context.Context | ✓ | `context.Context` |
 | selects on ctx.Done | ✓ | `ctx.Done()` |
 | uses time.NewTicker (preferred over time.Tick) | ✓ | `time.NewTicker` |
-| avoids time.Tick (which leaks) | ✗ | `time.Tick(` |
+| avoids time.Tick (which leaks) | ✓ | |
 
 <details><summary>opus: baseline answer</summary>
 
-# Basic Go Periodic Background Task Pattern
+# Basic Go Pattern: Periodic Background Task
 
-Here's the idiomatic pattern using `time.Ticker` with proper cancellation via `context.Context`:
+Here's the idiomatic Go pattern using `time.Ticker` with proper cancellation via `context.Context`:
 
 ```go
 package main
@@ -1214,60 +1261,69 @@ import (
 	"time"
 )
 
-func runPeriodicTask(ctx context.Context, interval time.Duration) {
+// runPeriodic executes work() every interval until ctx is cancelled.
+func runPeriodic(ctx context.Context, interval time.Duration, work func()) {
 	ticker := time.NewTicker(interval)
-	defer ticker.Stop() // Always stop the ticker to release resources
+	defer ticker.Stop() // always release the ticker
 
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("Stopping periodic task:", ctx.Err())
+			fmt.Println("stopping periodic task:", ctx.Err())
 			return
 		case t := <-ticker.C:
-			doWork(t)
+			// Do the work. Consider running in a goroutine if it might
+			// take longer than the interval (see notes below).
+			fmt.Println("tick at", t.Format(time.RFC3339))
+			work()
 		}
 	}
 }
 
-func doWork(t time.Time) {
-	fmt.Println("Doing work at", t.Format(time.RFC3339))
-	// ... your actual work here ...
-}
-
 func main() {
 	// Cancel on Ctrl+C / SIGTERM
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	go runPeriodicTask(ctx, 2*time.Second)
+	go runPeriodic(ctx, 2*time.Second, func() {
+		// your background work here
+		fmt.Println("  doing work...")
+	})
 
-	<-ctx.Done() // Block until signal received
-	fmt.Println("Shutting down...")
-	time.Sleep(100 * time.Millisecond) // Give goroutine a moment to exit
+	<-ctx.Done() // block until cancelled
+	fmt.Println("shutting down")
 }
 ```
 
-## Key Points
+## Key points
 
-1. **`time.NewTicker`** — fires on a channel at a regular interval. Use this instead of `time.Sleep` in a loop because it doesn't drift as much.
+- **`time.NewTicker`** is preferred over `time.Sleep` in a loop because it doesn't drift.
+- **Always `defer ticker.Stop()`** to release resources.
+- **Use `select` with `ctx.Done()`** so the goroutine exits cleanly on shutdown.
+- **`signal.NotifyContext`** (Go 1.16+) wires OS signals into context cancellation.
 
-2. **`defer ticker.Stop()`** — important! A ticker is not garbage-collected until stopped.
+## Common variations
 
-3. **`select` with `ctx.Done()`** — gives you clean cancellation. Without this, your goroutine leaks.
+**Run immediately, then on each tick:**
+```go
+for {
+    work()
+    select {
+    case <-ctx.Done():
+        return
+    case <-ticker.C:
+    }
+}
+```
 
-4. **Run an iteration immediately?** Tickers wait one interval before the first tick. If you want to run right away:
-   ```go
-   for {
-       doWork(time.Now())
-       select {
-       case <-ctx.Done():
-           return
-       case <-ticker.C:
-       }
-   }
-   ```
+**Long-running work (avoid blocking the next tick):**
+```go
+case <-ticker.C:
+    go work() // fire-and-forget; or use a worker pool / semaphore
+```
 
-5. **Long-running work?** If `doWork` can take longer than the interval, ticks may pile up (the channel is buffered to 1, so extras are dropped — usually what you want). For heavy jobs, consider running them in their own goroutine or using `time.AfterFunc` to schedule the next run after completion.
+**Wait for in-flight work to finish on shutdown** — wrap with a `sync.WaitGroup` and `wg.Wait()` after cancelling.
 
 </details>
 
@@ -1275,21 +1331,25 @@ func main() {
 
 # Periodic Background Task in Go
 
-The idiomatic pattern uses `time.Ticker` inside a `select` loop with `context.Context` for cancellation.
+Here's the idiomatic pattern, built around `time.Ticker` and `context.Context` for clean shutdown:
 
 ```go
-package worker
+package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
-// Run executes work every interval until ctx is cancelled.
-// It returns the reason it stopped (typically ctx.Err()).
-func Run(ctx context.Context, interval time.Duration, work func(context.Context) error) error {
+// runPeriodic invokes do every interval until ctx is cancelled.
+// Returns ctx.Err() on cancellation so callers can distinguish shutdown
+// from other failures.
+func runPeriodic(ctx context.Context, interval time.Duration, do func(context.Context) error) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -1297,57 +1357,58 @@ func Run(ctx context.Context, interval time.Duration, work func(context.Context)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
-			if err := work(ctx); err != nil {
-				slog.ErrorContext(ctx, "periodic work failed", "err", err)
-				// Continue ticking; don't kill the loop on a single failure.
-				// If you want fail-fast behavior, return the error here instead.
+		case t := <-ticker.C:
+			if err := do(ctx); err != nil {
+				// Log and continue; one bad tick shouldn't kill the loop.
+				slog.Error("periodic task failed", "err", err, "tick", t)
 			}
 		}
 	}
 }
-```
 
-## Calling it
-
-```go
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Cancels on SIGINT/SIGTERM so Ctrl-C unwinds cleanly.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-	// Wire up signal handling so Ctrl-C cancels ctx (real code: signal.NotifyContext).
-	go func() {
-		if err := Run(ctx, 5*time.Second, doWork); err != nil {
-			slog.Info("worker stopped", "reason", err)
-		}
-	}()
+	work := func(ctx context.Context) error {
+		fmt.Println("doing work at", time.Now().Format(time.RFC3339))
+		return nil
+	}
 
-	// ... rest of program; calling cancel() shuts the worker down cleanly.
-}
-
-func doWork(ctx context.Context) error {
-	// Pass ctx down so any I/O the work does is also cancellable.
-	fmt.Println("tick at", time.Now())
-	return nil
+	if err := runPeriodic(ctx, 2*time.Second, work); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("periodic loop exited", "err", err)
+	}
 }
 ```
 
 ## Why this shape
 
-- **`defer ticker.Stop()`** — `time.Ticker` holds a runtime resource; not stopping it leaks until GC.
-- **`ctx.Done()` in the same `select` as `ticker.C`** — guarantees the goroutine has a known exit. Without this, `Run` would be the kind of unbounded `go func()` that leaks.
-- **`context.Context` is the first arg** — and is forwarded into `work`, so any HTTP calls, DB queries, etc. inside `work` cancel promptly instead of finishing a 30-second request after shutdown.
-- **Errors are logged, not fatal** — a periodic task that dies on the first transient failure is usually wrong. Log with `slog` and keep ticking. (Flip to `return err` if you want fail-fast.)
-- **First tick fires after `interval`, not immediately.** If you want an immediate run, call `work(ctx)` once before the loop.
+- **`time.NewTicker` + `defer ticker.Stop()`** — `time.Tick` exists but can't be stopped, so it leaks the underlying timer. Always prefer `NewTicker` with a deferred `Stop`.
+- **`select` on `ctx.Done()` and `ticker.C`** — gives the goroutine a known exit condition. Without the context branch, this would be a goroutine leak (see the core rule: every `go` must answer "how does this stop?").
+- **Pass `ctx` into `do`** — so the work itself can be cancelled mid-execution, not just between ticks. If `do` makes HTTP calls or DB queries, they'll unwind immediately on shutdown.
+- **Log-and-continue on error** — a transient failure (network blip, etc.) shouldn't terminate the loop. If you *do* want fail-fast semantics, `return err` instead.
+- **`signal.NotifyContext`** — the modern way to bridge OS signals into context cancellation; replaces the older `signal.Notify` + manual channel plumbing.
 
-## Common variants
+## Common variations
 
-**Run once immediately, then on each tick:**
+**Run as a background goroutine alongside other work:**
+
+```go
+go func() {
+    if err := runPeriodic(ctx, 30*time.Second, refreshCache); err != nil &&
+        !errors.Is(err, context.Canceled) {
+        slog.Error("cache refresher exited", "err", err)
+    }
+}()
+```
+
+**Run immediately, then on each tick** (tickers don't fire at t=0):
 
 ```go
 for {
-    if err := work(ctx); err != nil {
-        slog.ErrorContext(ctx, "periodic work failed", "err", err)
+    if err := do(ctx); err != nil {
+        slog.Error("periodic task failed", "err", err)
     }
     select {
     case <-ctx.Done():
@@ -1357,13 +1418,11 @@ for {
 }
 ```
 
-**Avoid overlapping runs if `work` can exceed `interval`:** the pattern above already serializes runs (next tick waits for `work` to return). If you instead want to *skip* missed ticks rather than queue them, that's the default `time.Ticker` behavior — it drops ticks when the receiver is slow. If you want concurrent runs, launch `go work(ctx)` inside the tick case (and bound concurrency with a semaphore).
+## Gotchas to avoid
 
-## Things to avoid
-
-- `time.Sleep(interval)` in a `for` loop — not cancellable; the goroutine sleeps through shutdown.
-- `time.Tick(interval)` — convenient but the underlying ticker can never be stopped, so it leaks. Use `time.NewTicker` + `defer Stop()`.
-- Storing `ctx` in a struct field on the worker — pass it as a parameter to `Run`.
+- **Don't use `time.Sleep` in a loop** — it can't be interrupted by context cancellation, so shutdown waits the full sleep duration.
+- **Don't use `time.Tick`** — leaks because there's no `Stop`.
+- **If `do` can take longer than `interval`**, ticks queue up in the channel buffer (size 1) and you may get back-to-back invocations. Either accept that, or drain with a non-blocking pattern, or use `time.AfterFunc` to schedule the next run *after* completion.
 
 </details>
 
@@ -1384,7 +1443,7 @@ that receiver kind should be consistent across all methods on the type.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend a pointer receiver and explain mutation visibility, but Answer B goes significantly further by covering addressability, interface satisfaction, and mutex safety — all practically important consequences of the pointer receiver choice. Answer B also leads with the consistency rule more prominently and provides a more comprehensive decision checklist. Answer A is solid but more basic in comparison.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend pointer receivers and explain mutation visibility with clear code examples. Answer B is more concise and adds genuinely useful practical notes (non-copyable fields like sync.Mutex, addressability nuances, zero value usability) that make it more informative without being bloated. Answer A covers consistency but buries it at the end, while Answer B states the consistency rule more prominently and precisely explains the interface satisfaction consequence.
 
 **Per-criterion verdict (judge)**
 
@@ -1392,17 +1451,9 @@ that receiver kind should be consistent across all methods on the type.
 | --- | --- |
 | recommends pointer receiver | tie |
 | mentions consistency across methods on the type | tie |
-| explains why (mutation visibility) | skill |
+| explains why (mutation visibility) | tie |
 
 **Baseline rubric**
-
-| Criterion | Pass | Evidence |
-| --- | --- | --- |
-| recommends pointer receiver | ✓ | `pointer receiver` |
-| mentions consistency across methods on the type | ✓ | `Consisten` |
-| explains why (mutation visibility) | ✓ | `mutat` |
-
-**Skill rubric**
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
@@ -1410,11 +1461,19 @@ that receiver kind should be consistent across all methods on the type.
 | mentions consistency across methods on the type | ✓ | `consisten` |
 | explains why (mutation visibility) | ✓ | `mutat` |
 
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| recommends pointer receiver | ✓ | `pointer receiver` |
+| mentions consistency across methods on the type | ✓ | `Consisten` |
+| explains why (mutation visibility) | ✓ | `mutat` |
+
 <details><summary>sonnet: baseline answer</summary>
 
-## Pointer vs Value Receiver for `Counter.Inc()`
+## Pointer vs Value Receivers for `Counter.Inc()`
 
-You should use a **pointer receiver** `(c *Counter)`. Here's why:
+You should use a **pointer receiver** `(c *Counter)`.
 
 ---
 
@@ -1425,81 +1484,92 @@ type Counter struct {
     count int
 }
 
-// ❌ Value receiver - WRONG for mutation
+// ❌ Value receiver - BROKEN
 func (c Counter) Inc() {
     c.count++ // modifies a COPY, original is unchanged
 }
 
-// ✅ Pointer receiver - CORRECT for mutation  
+// ✅ Pointer receiver - CORRECT
 func (c *Counter) Inc() {
-    c.count++ // modifies the ORIGINAL value
+    c.count++ // modifies the ORIGINAL struct
 }
 ```
 
----
-
-### Demonstration of the Difference
+### Why This Happens
 
 ```go
 func main() {
     c := Counter{}
 
-    // With value receiver (broken)
+    // Value receiver - does nothing useful
     c.Inc()
-    fmt.Println(c.count) // 0 — nothing changed!
+    fmt.Println(c.count) // 0 ← unchanged!
 
-    // With pointer receiver (correct)
+    // Pointer receiver - works correctly
     c.Inc()
-    fmt.Println(c.count) // 1 — works as expected
+    fmt.Println(c.count) // 1 ← incremented!
 }
 ```
 
----
-
-### Why This Happens
-
-| | Value Receiver `(c Counter)` | Pointer Receiver `(c *Counter)` |
-|---|---|---|
-| Receives | A **copy** of the struct | The **memory address** of the struct |
-| Mutations affect | The copy only | The original struct |
-| Caller sees changes | ❌ No | ✅ Yes |
+With a **value receiver**, Go passes a **copy** of the struct to the
+method. Any mutations affect only that temporary copy, which is
+discarded when the method returns.
 
 ---
 
-### The Rules of Thumb
+### Memory Diagram
 
 ```
-1. Method needs to MUTATE the receiver  → pointer receiver
-2. Struct is LARGE (avoid copying)      → pointer receiver
-3. Consistency (other methods use ptr)  → pointer receiver
-4. Method only READS, struct is small   → value receiver is fine
+Value receiver:
+┌─────────────┐     copy      ┌─────────────┐
+│  c.count=0  │ ──────────▶  │  c.count=0  │  ← Inc() mutates this
+└─────────────┘               └─────────────┘    then throws it away
+    original                      copy
+
+Pointer receiver:
+┌─────────────┐   pointer     ┌─────────────┐
+│  c.count=0  │ ◀──────────  │   *Counter  │  ← Inc() mutates through
+└─────────────┘               └─────────────┘    the pointer
+    original
 ```
 
 ---
 
-### Practical Consistency Rule
+### The General Rules
 
-If **any** method on a type needs a pointer receiver, it's best practice
-to use pointer receivers for **all** methods on that type:
+| Situation | Use |
+|---|---|
+| Method **mutates** the receiver | **Pointer** |
+| Struct is **large** (avoid copying) | **Pointer** |
+| Need **consistent** method set | **Pointer** |
+| Method only **reads** small struct | Value is fine |
+| Receiver is a **map/slice/chan** | Value is fine (already a reference) |
+
+---
+
+### Consistency Matters
 
 ```go
-type Counter struct {
-    count int
-}
+type Counter struct{ count int }
 
-func (c *Counter) Inc()           { c.count++ }
-func (c *Counter) Reset()         { c.count = 0 }
-func (c *Counter) Value() int     { return c.count } // consistent, even though read-only
+// If ANY method needs a pointer receiver,
+// make ALL methods use pointer receivers for consistency
+func (c *Counter) Inc()   { c.count++ }
+func (c *Counter) Reset() { c.count = 0 }
+func (c *Counter) Value() int { return c.count } // read-only, but keep consistent
 ```
+
+This ensures the type satisfies interfaces predictably — a value
+`Counter` would **not** satisfy an interface requiring pointer receiver
+methods, but `*Counter` satisfies both.
 
 ---
 
 ### Key Takeaway
 
-> A value receiver works on a **copy** — any changes are thrown away
-> when the method returns. Since `Inc()` exists specifically to mutate
-> state, a value receiver would silently do nothing, making it a
-> particularly dangerous bug to have.
+> If a method needs to **modify** the receiver, it **must** use a
+> pointer receiver. With a value receiver, you're working on a
+> throwaway copy and the original struct will never change.
 
 </details>
 
@@ -1507,117 +1577,69 @@ func (c *Counter) Value() int     { return c.count } // consistent, even though 
 
 Use a **pointer receiver** `(c *Counter)`.
 
-## The Rule
+## Why
 
-> If any method on a type needs a pointer receiver, **all** methods should use pointer receivers — consistency matters as much as correctness.
-
-For `Counter`, the mutation requirement alone settles it.
-
-## Why a Value Receiver Fails Here
+A value receiver receives a **copy** of the struct. Any mutation to that copy is discarded when the method returns — the original `Counter` is unchanged.
 
 ```go
-type Counter struct {
-    count int
-}
+// ❌ Value receiver — mutation is invisible to the caller
+type Counter struct{ n int }
 
-// ❌ Value receiver — operates on a COPY
 func (c Counter) Inc() {
-    c.count++ // mutates the copy; caller's Counter is unchanged
+    c.n++ // modifies the copy, not the original
 }
 
 func main() {
-    c := Counter{}
+    var c Counter
     c.Inc()
-    fmt.Println(c.count) // 0 — the increment was lost
+    fmt.Println(c.n) // 0 — nothing happened
 }
 ```
 
-Go passes the receiver by value, exactly like any other function argument. `c.count++` modifies a throwaway copy.
-
-## Pointer Receiver — Correct
-
 ```go
-type Counter struct {
-    count int
-}
+// ✅ Pointer receiver — mutation is visible to the caller
+type Counter struct{ n int }
 
-// ✅ Pointer receiver — operates on the original
 func (c *Counter) Inc() {
-    c.count++
-}
-
-func (c *Counter) Value() int {
-    return c.count
+    c.n++ // modifies the value the pointer points to
 }
 
 func main() {
-    c := Counter{}
+    var c Counter
     c.Inc()
-    c.Inc()
-    fmt.Println(c.Value()) // 2
+    fmt.Println(c.n) // 1
 }
 ```
 
-## Practical Consequences
+## The Decision Rules
 
-**Addressability.** You can only call a pointer-receiver method on an addressable value. A `Counter` stored in a variable is addressable; one returned directly from a function call is not.
-
-```go
-// Fine — variable is addressable; Go auto-takes its address
-c := Counter{}
-c.Inc() // sugar for (&c).Inc()
-
-// Compile error — function return value is not addressable
-NewCounter().Inc() // cannot take the address of NewCounter()
-```
-
-**Interface satisfaction.** `*Counter` satisfies any interface requiring `Inc()` and `Value()`. A plain `Counter` value does **not** — its method set excludes pointer-receiver methods.
-
-```go
-type Incrementer interface {
-    Inc()
-}
-
-var _ Incrementer = &Counter{} // ✅ compiles
-var _ Incrementer = Counter{}  // ❌ Counter does not implement Incrementer
-```
-
-This matters when you store a `Counter` in an interface variable or pass it to a function expecting `Incrementer`.
-
-**Concurrency.** Once you have a pointer receiver, adding a mutex is straightforward and correct:
-
-```go
-type Counter struct {
-    mu    sync.Mutex
-    count int
-}
-
-func (c *Counter) Inc() {
-    c.mu.Lock()
-    defer c.mu.Unlock()
-    c.count++
-}
-```
-
-A value receiver would copy the mutex — which is a data race and explicitly forbidden by `go vet`.
-
-## Decision Checklist
-
-| Question | Answer → receiver |
+| Condition | Receiver |
 |---|---|
-| Does any method mutate the receiver? | Pointer |
-| Does the type contain a `sync.Mutex` or similar? | Pointer (never copy) |
-| Is the struct large (copying is expensive)? | Pointer |
-| Is the type small, immutable, and copied intentionally (like `time.Time`)? | Value |
-| Are other methods already pointer receivers? | Match them — pointer |
+| Method mutates the receiver | **Pointer** (your case) |
+| Receiver is large (copying is expensive) | **Pointer** |
+| Receiver contains a non-copyable field (`sync.Mutex`, `sync.WaitGroup`, etc.) | **Pointer** |
+| Small, immutable, naturally copied type (`time.Time`-style) | Value |
 
-`Counter` hits the first criterion immediately. Use `*Counter` throughout.
+**Consistency rule:** once any method on a type uses a pointer receiver, all methods should use pointer receivers. Mixing them creates a split method set that breaks interface satisfaction in non-obvious ways.
+
+## Practical Notes
+
+**You can still call a pointer-receiver method on an addressable value** — the compiler inserts `&` automatically:
+
+```go
+var c Counter
+c.Inc() // compiler rewrites to (&c).Inc() — fine
+```
+
+But this doesn't work on non-addressable values (map elements, return values used directly), so pointer receivers are slightly more restrictive about where they can be called. For a `Counter` this is never a problem in practice.
+
+**Zero value stays useful.** With a pointer receiver, `var c Counter` is a valid, ready-to-use counter — no constructor required. That's idiomatic Go.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B covers all three rubric criteria while Answer A only covers two. Both correctly recommend pointer receivers and explain mutation visibility with clear examples. However, Answer B explicitly addresses the consistency rule across all methods on a type, including a concrete example of how mixing receiver types breaks the method set — which is the key differentiator in the focus area.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend pointer receivers and explain mutation visibility. However, Answer B more thoroughly addresses the consistency rule with a concrete code example showing how mixing receiver kinds breaks the method set (specifically that *Counter doesn't have Value() in its method set), which is a subtle and important point. Answer A mentions consistency but incorrectly implies it's acceptable to mix receivers ('OK: value receiver for read-only access'), which contradicts the consistency principle.
 
 **Per-criterion verdict (judge)**
 
@@ -1631,8 +1653,8 @@ A value receiver would copy the mutex — which is a data race and explicitly fo
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| recommends pointer receiver | ✓ | `pointer receiver` |
-| mentions consistency across methods on the type | ✗ | |
+| recommends pointer receiver | ✓ | `Pointer Receiver` |
+| mentions consistency across methods on the type | ✓ | `Consisten` |
 | explains why (mutation visibility) | ✓ | `mutat` |
 
 **Skill rubric**
@@ -1645,65 +1667,67 @@ A value receiver would copy the mutex — which is a data race and explicitly fo
 
 <details><summary>haiku: baseline answer</summary>
 
-# Receiver Type for `Inc()` Method
+# Value vs Pointer Receiver for `Inc()`
 
 **Use a pointer receiver `(c *Counter)`.**
 
-## Why?
+## Why
 
-### The Problem with Value Receivers
+With a **value receiver**, the method receives a *copy* of the struct:
 
-With a value receiver, `Inc()` operates on a **copy** of the struct:
+```go
+func (c Counter) Inc() {
+    c.count++  // increments the COPY, not the original
+}
+
+counter := Counter{}
+counter.Inc()
+counter.Inc()
+fmt.Println(counter.count)  // Output: 0 (unchanged!)
+```
+
+With a **pointer receiver**, the method can modify the original:
+
+```go
+func (c *Counter) Inc() {
+    c.count++  // increments the ORIGINAL
+}
+
+counter := Counter{}
+counter.Inc()
+counter.Inc()
+fmt.Println(counter.count)  // Output: 2 ✓
+```
+
+## Key Principle
+
+**Use a pointer receiver when the method needs to modify the receiver.**
+
+## Additional Considerations
+
+- **Consistency**: If any method on `Counter` uses a pointer receiver, use it for all methods to avoid confusion
+- **Performance**: For large structs, pointer receivers avoid copying overhead
+- **Semantics**: Pointer receivers signal to readers that the method has side effects
 
 ```go
 type Counter struct {
     count int
 }
 
-func (c Counter) Inc() {  // ❌ Value receiver
+// Correct: pointer receiver for mutation
+func (c *Counter) Inc() {
     c.count++
 }
 
-func main() {
-    var counter Counter
-    counter.Inc()
-    fmt.Println(counter.count)  // Output: 0 (unchanged!)
-}
-```
-
-The increment happens on the copy, not the original struct.
-
-### The Solution: Pointer Receiver
-
-With a pointer receiver, you modify the **original** struct:
-
-```go
-func (c *Counter) Inc() {  // ✅ Pointer receiver
-    c.count++
+func (c *Counter) Dec() {
+    c.count--
 }
 
-func main() {
-    var counter Counter
-    counter.Inc()
-    fmt.Println(counter.count)  // Output: 1 (correct!)
+// OK: value receiver for read-only access
+func (c Counter) Value() int {
+    return c.count
 }
 ```
-
-## Key Principles
-
-1. **Use pointer receivers when the method modifies the receiver** (mutating methods)
-2. **Use value receivers for read-only operations** (non-mutating methods)
-
-## Bonus: Go's Convenience
-
-Go automatically converts between values and pointers for method calls:
-
-```go
-counter.Inc()      // Go automatically passes &counter
-(&counter).Inc()   // Explicit pointer (also works)
-```
-
-This works in both directions, but the receiver type you define determines the actual behavior.
 
 </details>
 
@@ -1715,10 +1739,10 @@ This works in both directions, but the receiver type you define determines the a
 
 ## Why
 
-`Inc()` **mutates** the receiver. With a value receiver, you'd be incrementing a *copy* of the struct, leaving the original unchanged:
+`Inc()` **mutates** the receiver. With a value receiver, the mutation happens on a *copy* of the struct, leaving the original unchanged:
 
 ```go
-// ❌ WRONG: value receiver
+// ❌ Wrong: value receiver
 type Counter struct {
     count int
 }
@@ -1737,79 +1761,53 @@ func main() {
 With a pointer receiver, you mutate the original:
 
 ```go
-// ✅ CORRECT: pointer receiver
+// ✅ Correct: pointer receiver
 func (c *Counter) Inc() {
     c.count++  // increments the original
 }
 
 func main() {
     var counter Counter
-    counter.Inc()
+    counter.Inc()  // Go auto-dereferences; equivalent to (&counter).Inc()
     fmt.Println(counter.count)  // prints 1
 }
 ```
 
 ## The Consistency Rule
 
-Once you choose pointer for one method, **use pointer for all methods on that type**. Mixing breaks the method set in subtle ways:
+**All methods on a type must use the same receiver kind** (all value or all pointer). Mixing breaks the method set in subtle ways:
 
 ```go
-// ❌ INCONSISTENT
-func (c Counter) Value() int {      // value receiver
-    return c.count
-}
+type Counter struct{ count int }
 
-func (c *Counter) Inc() {           // pointer receiver
-    c.count++
-}
+func (c Counter) Value() int { return c.count }    // value receiver
+func (c *Counter) Inc() { c.count++ }              // pointer receiver
 
-// Now you can't call Value() on a *Counter without dereferencing:
-var p *Counter
-p.Value()  // ✗ compile error: *Counter has no method Value
-(*p).Value()  // ✓ works, but awkward
+var counter Counter
+counter.Value()  // ✅ works
+counter.Inc()    // ✅ works (Go auto-addresses)
+
+var ptr *Counter = &counter
+ptr.Value()      // ❌ compile error: *Counter has no method Value
+ptr.Inc()        // ✅ works
 ```
 
-Keep it uniform:
+Since `Inc()` requires a pointer, **all methods on `Counter` should use pointer receivers**.
 
-```go
-// ✅ CONSISTENT
-func (c *Counter) Value() int {
-    return c.count
-}
+## Summary
 
-func (c *Counter) Inc() {
-    c.count++
-}
+| Receiver | Use When |
+|---|---|
+| Pointer `(c *Counter)` | Method mutates the receiver, OR receiver is large (>~64 bytes) |
+| Value `(c Counter)` | Receiver is small and immutable (like `time.Time`, `int`, `string`) |
 
-var p *Counter
-p.Value()  // ✓ works
-p.Inc()    // ✓ works
-```
-
-## When Value Receivers Are Right
-
-Use value receivers for **small, immutable types** where copying is cheap and you never mutate:
-
-```go
-// ✅ Value receiver is fine here
-type Point struct {
-    X, Y float64
-}
-
-func (p Point) Distance() float64 {
-    return math.Sqrt(p.X*p.X + p.Y*p.Y)
-}
-
-// ✅ Also fine: time.Time, net.IP, small enums
-```
-
-**Rule of thumb:** If the type has a `Mutex`, a slice, or any field you'll ever modify, use pointer receivers everywhere.
+For `Counter.Inc()`: **pointer receiver**, and make all other `Counter` methods pointer receivers too.
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend a pointer receiver and explain mutation visibility, but Answer A more explicitly and thoroughly addresses the consistency requirement across all methods on the type, explaining the method set implications in detail. Answer A also provides a complete, idiomatic Counter implementation showing both methods with pointer receivers, making the consistency principle concrete. Answer B mentions consistency but treats it as a secondary bullet point without the same depth of explanation about why it matters.
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly recommend a pointer receiver, explain mutation visibility clearly, and mention consistency across methods. Answer A goes slightly deeper on method set implications and interface satisfaction, while Answer B provides additional practical rules of thumb (mutex, large structs) and is more concise. Neither is clearly superior overall.
 
 **Per-criterion verdict (judge)**
 
@@ -1831,7 +1829,7 @@ func (p Point) Distance() float64 {
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
-| recommends pointer receiver | ✓ | `Pointer receiver` |
+| recommends pointer receiver | ✓ | `pointer receiver` |
 | mentions consistency across methods on the type | ✓ | `Consisten` |
 | explains why (mutation visibility) | ✓ | `mutat` |
 
@@ -1841,116 +1839,91 @@ func (p Point) Distance() float64 {
 
 ## Why
 
-A method with a **value receiver** operates on a *copy* of the struct. Any mutation to the field inside the method affects only that copy, which is discarded when the method returns.
+A value receiver gets a **copy** of the struct. Any mutations happen on that copy and are discarded when the method returns:
 
 ```go
-func (c Counter) Inc() {
-    c.count++ // modifies the copy, not the original
-}
+func (c Counter) Inc() { c.count++ } // modifies a copy — useless
 
 var x Counter
 x.Inc()
-fmt.Println(x.count) // 0  — surprise!
+fmt.Println(x.count) // still 0
 ```
 
-A **pointer receiver** lets the method mutate the actual struct the caller holds:
+A pointer receiver gives the method access to the original struct, so the increment persists:
 
 ```go
-func (c *Counter) Inc() {
-    c.count++ // modifies the original
-}
+func (c *Counter) Inc() { c.count++ }
 
 var x Counter
 x.Inc()
-fmt.Println(x.count) // 1  ✅
+fmt.Println(x.count) // 1
 ```
 
-## General Rule of Thumb
+## General Rules of Thumb (from Go's official guidance)
 
-From the [Go wiki / Effective Go guidance](https://go.dev/wiki/CodeReviewComments#receiver-type):
+1. **If the method modifies the receiver, use a pointer.** ← your case
+2. **If the struct is large**, use a pointer to avoid copying.
+3. **If the struct contains a `sync.Mutex` or other sync field**, use a pointer (copying would split the lock from the data).
+4. **Be consistent**: if some methods need pointer receivers, prefer pointer receivers for *all* methods on that type, so the method set is uniform and the type satisfies interfaces predictably.
 
-1. **If the method mutates the receiver → pointer receiver.** ← your case
-2. If the struct is large and copying is expensive → pointer receiver.
-3. If the struct contains a `sync.Mutex` or similar non-copyable field → pointer receiver.
-4. For consistency, if *some* methods on the type need pointer receivers, make *all* of them pointer receivers.
-5. Only use value receivers for small, immutable, value-like types (e.g., `time.Time`, `image.Point`).
-
-## Bonus: Method Set Consideration
-
-If you want `*Counter` to satisfy an interface that includes `Inc()`, a pointer receiver works either way (both `Counter` and `*Counter` can call it, given an addressable value). But if you ever need to call `Inc()` on a value returned from a map or interface, only the pointer-receiver version is reliably callable on the *original*.
-
-So: **`func (c *Counter) Inc()`** — because the whole point of the method is to change state.
+Since `Counter` mutates state and you'll likely share a single counter across callers (and may eventually add a mutex for concurrent increments), `*Counter` is the right choice.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-# Pointer receiver: `func (c *Counter) Inc()`
+Use a **pointer receiver**: `(c *Counter) Inc()`.
 
-A value receiver gets a **copy** of the struct, so any mutation happens on that copy and is discarded when the method returns. Your counter would never actually increment from the caller's perspective:
-
-```go
-type Counter struct{ n int }
-
-// WRONG: mutates a copy, caller sees nothing change
-func (c Counter) Inc() { c.n++ }
-
-// RIGHT: mutates the original through the pointer
-func (c *Counter) Inc() { c.n++ }
-```
-
-## The two reasons in order of importance
-
-1. **Mutation requires a pointer.** This is the deciding rule. If the method changes the receiver's state, the receiver must be a pointer — otherwise the change is invisible to the caller. `Inc()` is the textbook example.
-
-2. **Consistency across the type.** Once *any* method on `Counter` needs a pointer receiver (and `Inc` does), **all** methods on `Counter` should use pointer receivers, even read-only ones like `Value()`. Mixing receiver kinds on the same type is a Go style violation because:
-   - It muddles the method set: `*Counter` satisfies interfaces requiring value-receiver methods, but `Counter` does **not** satisfy interfaces requiring pointer-receiver methods. Mixing makes it hard to predict which form users need.
-   - It signals confused ownership semantics to readers.
-
-## So your `Counter` should look like
+## Why
 
 ```go
 type Counter struct {
     n int
 }
 
-func (c *Counter) Inc()       { c.n++ }
-func (c *Counter) Value() int { return c.n }
-```
-
-And callers must hold a `*Counter`:
-
-```go
-c := &Counter{}     // or: var c Counter; c.Inc() works too — Go auto-addresses
-c.Inc()
-fmt.Println(c.Value()) // 1
-```
-
-## One important caveat: concurrency
-
-If multiple goroutines will call `Inc()`, a pointer receiver alone is **not** safe — you've now got shared mutable state and need synchronization. Two idiomatic options:
-
-```go
-// Option A: mutex-guarded
-type Counter struct {
-    mu sync.Mutex
-    n  int
-}
 func (c *Counter) Inc() {
-    c.mu.Lock()
-    defer c.mu.Unlock()
     c.n++
 }
-
-// Option B: atomic (Go 1.19+), zero value usable, no mutex needed
-type Counter struct {
-    n atomic.Int64
-}
-func (c *Counter) Inc()         { c.n.Add(1) }
-func (c *Counter) Value() int64 { return c.n.Load() }
 ```
 
-Both still use pointer receivers — `sync.Mutex` and `atomic.Int64` must not be copied after first use, which reinforces the same answer.
+Two reasons, in order of importance:
+
+1. **`Inc()` mutates the receiver.** A value receiver gets a *copy* of the `Counter`, so `c.n++` would increment the copy and discard it — the caller's `Counter` would never change. Pointer receiver is mandatory for the method to actually do its job.
+
+2. **Consistency across the type's method set.** Per the core rule "receivers must be consistent across all methods on a type," once *any* method on `Counter` needs a pointer receiver (and `Inc` does), *all* methods on `Counter` should use pointer receivers — including read-only ones like `Value()` or `String()`. Mixing receiver kinds breaks the method set in subtle ways: a `*Counter` satisfies interfaces requiring either kind, but a `Counter` value only satisfies interfaces whose methods are all value-receiver. Pick one and stick with it.
+
+## Usage
+
+Because the method set of `Counter` (value) doesn't include pointer-receiver methods, callers need an addressable `Counter`:
+
+```go
+var c Counter      // zero value is useful — n == 0
+c.Inc()            // OK: c is addressable, Go auto-takes &c
+fmt.Println(c.n)   // 1
+
+cp := &Counter{}
+cp.Inc()           // also fine
+```
+
+What *won't* work:
+
+```go
+Counter{}.Inc()    // compile error: cannot take address of Counter literal
+```
+
+## When a value receiver would be right instead
+
+Only if `Inc` returned a *new* `Counter` rather than mutating:
+
+```go
+func (c Counter) Inc() Counter {
+    c.n++
+    return c
+}
+// caller: c = c.Inc()
+```
+
+That's a functional/immutable style — fine for small value types like `time.Time`, but unusual for something literally named `Counter`. Stick with the pointer receiver.
 
 </details>
 
@@ -1971,7 +1944,7 @@ should be small, citing the "accept interfaces, return concrete types" rule.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify the consumer package as the right place for interfaces and cite 'accept interfaces, return concrete types', but Answer A provides significantly more depth, practical guidance, and nuance. Answer A includes a decision guide table, explains testability benefits, discusses the io.Reader exception more thoroughly, and explains why producer-declared interfaces cause coupling problems with concrete examples. Answer A also gives better small interface guidance by explaining that consumer-owned interfaces naturally stay minimal.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify the consumer package as the right place for interfaces and cover the key principles well. Answer A is more comprehensive and better structured, with clearer diagrams showing the dependency inversion, more practical guidance on checking stdlib interfaces first, and a useful summary table. Answer B is solid but slightly less thorough, though its comparison table on coupling/reusability is a nice addition.
 
 **Per-criterion verdict (judge)**
 
@@ -1994,8 +1967,8 @@ should be small, citing the "accept interfaces, return concrete types" rule.
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | says consumer / caller package | ✓ | `consumer` |
-| mentions accept interfaces, return concrete | ✓ | `accept interfaces` |
-| small interface guidance | ✓ | `one method` |
+| mentions accept interfaces, return concrete | ✗ | |
+| small interface guidance | ✓ | `small interface` |
 
 <details><summary>sonnet: baseline answer</summary>
 
@@ -2009,100 +1982,95 @@ In Go, you should declare the interface in the **consuming package** (the one th
 
 > *"Don't design with interfaces, discover them."*
 
-Interfaces in Go are **implicitly satisfied**, so the consumer declares exactly what it needs, and any concrete type that happens to match will satisfy it — with no coupling between packages.
+Go interfaces are **implicitly satisfied** — no `implements` keyword needed. This means the consumer can define exactly what it needs, independently of the producer.
 
 ---
 
-### Example
+### Concrete Example
 
-```
-myapp/
-├── disk/
-│   └── file.go        # concrete type
-├── network/
-│   └── conn.go        # another concrete type
-└── processor/
-    ├── reader.go      # declares the interface
-    └── process.go     # consumes it
-```
-
-**`disk/file.go`** — concrete type, no interface knowledge
 ```go
-package disk
+// BAD: interface defined in the producer package
+// package myreader
+package myreader
 
-type File struct { /* ... */ }
-
-func (f *File) Read(p []byte) (n int, err error) {
-    // ...
-    return
-}
-```
-
-**`network/conn.go`** — another concrete type, also unaware of any interface
-```go
-package network
-
-type Conn struct { /* ... */ }
-
-func (c *Conn) Read(p []byte) (n int, err error) {
-    // ...
-    return
-}
-```
-
-**`processor/reader.go`** — the consumer owns the interface
-```go
-package processor
-
-// Reader is declared HERE, in the consuming package.
-// It describes only what THIS package needs.
+// Leaks abstraction — why should the producer care how consumers use it?
 type Reader interface {
     Read(p []byte) (n int, err error)
 }
+
+type FileReader struct { /* ... */ }
+func (f *FileReader) Read(p []byte) (n int, err error) { /* ... */ }
 ```
 
-**`processor/process.go`** — uses the interface
 ```go
+// GOOD: interface defined in the consuming package
+// package processor
 package processor
 
-func Process(r Reader) error {
+// Defined here because THIS package is the one with the requirement
+type reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+func Process(r reader) error {
     buf := make([]byte, 1024)
     n, err := r.Read(buf)
     // ...
-    _ = n
     return err
 }
 ```
 
-Both `disk.File` and `network.Conn` satisfy `processor.Reader` **without importing `processor`**.
+```go
+// package main — wiring them together
+package main
+
+import (
+    "myreader"
+    "processor"
+)
+
+func main() {
+    r := &myreader.FileReader{} // concrete type
+    // Satisfies processor.reader implicitly — no coupling needed
+    processor.Process(r)
+}
+```
 
 ---
 
 ### Why This Matters
 
-| Approach | Problem |
-|---|---|
-| Interface in **producer** package | Creates unnecessary coupling; producer must anticipate all consumers |
-| Interface in **consumer** package ✅ | Decoupled; consumer declares only what it needs |
+| Concern | Producer-side interface | Consumer-side interface ✅ |
+|---|---|---|
+| **Coupling** | Producer must anticipate all consumers | None — fully decoupled |
+| **Reusability** | Consumer locked to producer's interface | Consumer defines its own needs |
+| **Testability** | Harder to mock precisely | Easy — mock only what you need |
+| **Narrow interfaces** | Tends to be broad | Naturally minimal |
+
+---
+
+### Key Rules of Thumb
+
+```go
+// Keep interfaces small — only what you actually call
+type reader interface {          // not io.ReadCloserSeeker
+    Read([]byte) (int, error)    // just what Process() needs
+}
+
+// Unexported if only used internally
+type reader interface { ... }    // lowercase = package-private
+
+// Exported if it's part of your public API contract
+type Processor interface { ... } // uppercase = public
+```
 
 ---
 
 ### The Standard Library Does This
 
-`io.Reader` is a **rare, justified exception** — it lives in `io` because it's a universal primitive used everywhere. The Go team explicitly calls out that small, standard interfaces like this earn a shared home.
+`io.Reader` is a **rare exception** — it lives in `io` because it's a universal standard used everywhere. The Go team explicitly calls this out: most interfaces should **not** be pre-declared in producer packages.
 
-For your own code, the rule holds: **the consumer owns the interface**.
-
----
-
-### Key Takeaway
-
-```
-Producer package  →  exports a concrete type
-Consumer package  →  declares the interface it needs
-```
-
-This keeps packages loosely coupled and is idiomatic Go. The implicit satisfaction of interfaces is specifically designed to enable this pattern.
+The rule: **the consumer owns the interface**.
 
 </details>
 
@@ -2112,113 +2080,153 @@ This keeps packages loosely coupled and is idiomatic Go. The implicit satisfacti
 
 This is one of Go's most important design principles, and it's the opposite of what most OOP languages teach.
 
----
-
-### The rule: accept interfaces, return concrete types
-
-The package that *needs* the behavior owns the interface describing it. The package that *provides* the behavior just ships a concrete type — it doesn't know or care which interfaces that type will satisfy.
+### The rule: interfaces belong to their consumers
 
 ```
-producer/
-    file.go        // defines File with a Read method — no interface declared here
+// ✅ Correct layout
 
-consumer/
-    process.go     // declares Reader interface, accepts it as a parameter
+// package store — the consumer
+package store
+
+// Declared here, in the package that needs it.
+// The concrete type never has to know this interface exists.
+type reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+func Load(r reader) (*Config, error) { ... }
 ```
 
-```go
-// consumer/process.go
+```
+// ❌ Wrong layout
 
-package consumer
+// package filereader — the producer
+package filereader
 
-// Reader is declared here, in the package that needs it.
-// File from the producer package satisfies this implicitly.
+// Don't do this. The producer shouldn't dictate
+// the interface its callers must satisfy.
 type Reader interface {
     Read(p []byte) (n int, err error)
 }
 
-func Process(r Reader) error {
-    // ...
-}
+type FileReader struct { ... }
+func (f *FileReader) Read(p []byte) (int, error) { ... }
 ```
 
-The `producer.File` type satisfies `consumer.Reader` without any explicit declaration — Go's structural typing handles it automatically.
+### Why Go works this way
 
----
+Go interfaces are **satisfied implicitly** — a type doesn't declare that it implements an interface. This means the interface and the concrete type are completely decoupled at the source level. The concrete type doesn't need to import the consumer, and the consumer doesn't need to import the concrete type just to get an interface definition.
 
-### Why not declare it in the producer package?
+This inverts the dependency arrow compared to Java/C#:
 
-If the producer declares the interface, every consumer must import the producer just to name the type — even if they only care about one method. That creates **unnecessary coupling**.
-
-```go
-// ❌ Producer-declared interface forces this import everywhere
-import "github.com/myorg/producer"
-
-func Process(r producer.Reader) error { ... }
 ```
+Java/C#:  ConcreteType ──implements──▶ Interface ◀──uses── Consumer
+                         (producer owns it)
 
-Now your consumer depends on the producer's entire package for what is essentially a behavioral contract. Worse, the producer has to anticipate every interface its callers might want — which is impossible.
-
----
-
-### The stdlib proves this works at scale
-
-`io.Reader` is the famous exception that proves the rule: it lives in `io` because it's a *universal vocabulary type* used by both producers and consumers across the entire ecosystem. Your own packages rarely reach that level of generality.
-
-Notice that `os.File`, `bytes.Buffer`, `strings.Reader`, and `net.Conn` all satisfy `io.Reader` without importing each other. Each is a concrete type; the interface lives in a neutral package that predates all of them.
-
-For your own code, if you find yourself wanting to put an interface in a "shared" package so multiple consumers can use it, that's a signal to ask whether `io.Reader` (or another stdlib interface) already covers your need.
-
----
+Go:       ConcreteType                 Interface ◀──uses── Consumer
+                                       (consumer owns it)
+```
 
 ### Practical consequences
 
-**Testability is free.** Because the consumer owns the interface, you can swap in a fake without touching the producer:
+**1. You often don't need to declare one at all.**
+
+The stdlib already defines the common ones. Before writing your own, check:
 
 ```go
-// In your test file — no build tags, no mock framework needed
-type fakeReader struct{ data []byte }
+io.Reader          // Read([]byte) (int, error)
+io.Writer          // Write([]byte) (int, error)
+io.ReadCloser      // Reader + Closer
+io.ReadWriteSeeker // Reader + Writer + Seeker
+fmt.Stringer       // String() string
+```
 
-func (f *fakeReader) Read(p []byte) (int, error) {
-    n := copy(p, f.data)
-    return n, io.EOF
+If your parameter is "anything with a Read method", the answer is usually just `io.Reader`.
+
+**2. Keep interfaces small — ideally one method.**
+
+The consumer declares exactly what it needs, nothing more:
+
+```go
+// store package needs Read and nothing else
+type reader interface {
+    Read(p []byte) (n int, err error)
 }
 
-func TestProcess(t *testing.T) {
-    err := Process(&fakeReader{data: []byte("hello")})
-    // ...
+// If it also needs Close, add only that
+type readCloser interface {
+    Read(p []byte) (n int, err error)
+    Close() error
 }
 ```
 
-**Interfaces stay minimal.** When the consumer declares the interface, it only lists the methods it actually calls. Producer-declared interfaces tend to grow to cover every method on the type, which makes them harder to satisfy and harder to test against.
+A large interface defined in the producer forces every implementor to satisfy methods they may not need. A small interface in the consumer is satisfied by many types automatically.
 
-**The producer can evolve freely.** Adding methods to `File` never breaks any consumer's interface — consumers only declared the methods they use.
+**3. Unexported interfaces are fine and often preferable.**
 
----
+```go
+// No need to export this — it's an implementation detail
+// of how store.Load accepts its input.
+type reader interface {
+    Read(p []byte) (n int, err error)
+}
+```
 
-### Quick decision guide
+Export the interface only if other packages need to refer to it by name (e.g., to store a value of that type, or to document a contract explicitly).
 
-| Situation | Where to declare |
+**4. The producer package should export concrete types, not interfaces.**
+
+```go
+// package filereader — just export the concrete type
+package filereader
+
+type FileReader struct { ... }
+
+func New(path string) (*FileReader, error) { ... }
+
+func (f *FileReader) Read(p []byte) (int, error) { ... }
+func (f *FileReader) Close() error               { ... }
+```
+
+`*FileReader` automatically satisfies `io.Reader`, `io.Closer`, `io.ReadCloser`, and any consumer-defined interface that subsets its methods — without `filereader` importing any of those packages.
+
+### The one exception: a shared contract across many packages
+
+If you're publishing a library and multiple unrelated consumer packages need to pass the interface *by name* to each other, it can live in a small, dedicated package:
+
+```go
+// package codec — a shared protocol boundary
+package codec
+
+type Encoder interface {
+    Encode(v any) error
+}
+```
+
+But this is the exception, not the rule, and it's still not the producer package. When in doubt, put it in the consumer.
+
+### Summary
+
+| Question | Answer |
 |---|---|
-| Your package needs "anything with Read" | Your package |
-| Two of your packages share the same behavioral contract | The lower-level one, or a small dedicated `xio`-style package |
-| The interface is a universal vocabulary (like `io.Reader`) | A shared foundation package — but this is rare |
-| You're tempted to put it in the producer "so callers know what to pass" | Resist; let structural typing do its job |
-
-The concrete type in the producer package is the source of truth for *what exists*. The interface in the consumer package is the source of truth for *what's needed*. Keeping those separate is what makes Go's type system so composable.
+| Where does the interface live? | Consumer package |
+| Does the concrete type import the interface? | No — satisfaction is implicit |
+| How big should the interface be? | As small as the consumer actually needs |
+| Should I export it? | Only if other packages reference it by name |
+| Should I define it at all? | Check `io`, `fmt`, `encoding` first |
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify the consumer package as the right place for interfaces and demonstrate Go's structural typing. Answer B is more thorough and useful, providing a complete working example with three separate packages showing the full picture, explicitly discussing the 'accept interfaces, return concrete types' principle through its structure, and addressing edge cases like shared interfaces and stdlib exceptions. Answer A contains a minor inaccuracy by claiming io.Reader is defined in the io package because io is a 'consumer' of abstractions, which is a stretch. Answer B also more clearly articulates small interface guidance through its use of io.Reader as the canonical example.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify the consumer package as the right place for interfaces and mention the 'accept interfaces, return concrete types' principle. Answer B is more comprehensive, providing better examples, a comparison table, guidance on small interfaces (implicitly through the Scanner example showing only the needed method), and practical advice on handling stdlib and third-party interfaces. Answer B also more explicitly demonstrates why small, consumer-defined interfaces are better through its real-world examples.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
 | says consumer / caller package | tie |
-| mentions accept interfaces, return concrete | skill |
+| mentions accept interfaces, return concrete | tie |
 | small interface guidance | skill |
 
 **Baseline rubric**
@@ -2226,7 +2234,7 @@ The concrete type in the producer package is the source of truth for *what exist
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | says consumer / caller package | ✓ | `consumer` |
-| mentions accept interfaces, return concrete | ✗ | |
+| mentions accept interfaces, return concrete | ✓ | `Accept interfaces` |
 | small interface guidance | ✓ | `io.Reader` |
 
 **Skill rubric**
@@ -2235,7 +2243,7 @@ The concrete type in the producer package is the source of truth for *what exist
 | --- | --- | --- |
 | says consumer / caller package | ✓ | `Consumer` |
 | mentions accept interfaces, return concrete | ✗ | |
-| small interface guidance | ✓ | `io.Reader` |
+| small interface guidance | ✓ | `small interface` |
 
 <details><summary>haiku: baseline answer</summary>
 
@@ -2243,69 +2251,57 @@ The concrete type in the producer package is the source of truth for *what exist
 
 **Declare the interface in the package that *consumes* it** (the package that needs the `Read` method).
 
-This is a fundamental Go design principle. Here's why:
+This is a core Go design principle. Here's why:
 
-## The Right Way
+## The Principle
+
+> Accept interfaces, return concrete types
+
+The consumer defines what it needs, not the producer.
+
+## Example
 
 ```go
-// package myapp - the consumer
-package myapp
+// package storage (the consumer)
+package storage
 
-import "io"
-
-// Define the interface you actually need
+// Define the interface here, not in the reader package
 type Reader interface {
     Read(p []byte) (n int, err error)
 }
 
-func ProcessData(r Reader) {
-    // use r
+func SaveData(r Reader) error {
+    // use r.Read()
+    return nil
 }
 ```
-
-Or better yet, use the standard library's `io.Reader`:
 
 ```go
-package myapp
+// package files (the producer)
+package files
 
-import "io"
+type FileReader struct {
+    // ...
+}
 
-func ProcessData(r io.Reader) {
-    // use r
+func (f *FileReader) Read(p []byte) (n int, err error) {
+    // implementation
+    return 0, nil
 }
 ```
 
-## Why Not in the Producer's Package?
+The `FileReader` automatically satisfies `storage.Reader` through implicit interface satisfaction — no import needed.
 
-```go
-// ❌ DON'T do this
-package filelib
+## Why This Works Better
 
-type Reader interface {
-    Read(p []byte) (n int, err error)
-}
+1. **Loose coupling** — `files` doesn't depend on `storage`
+2. **Flexibility** — Any type with a `Read` method works, even from other packages
+3. **Clarity** — The interface documents what the consumer actually needs
+4. **Reusability** — Different packages can define their own interfaces for the same concrete type
 
-type File struct { /* ... */ }
-func (f *File) Read(p []byte) (n int, err error) { /* ... */ }
-```
+## Exception
 
-**Problems:**
-- Creates unnecessary coupling between packages
-- The producer doesn't know what interfaces consumers need
-- Violates the Dependency Inversion Principle
-- Makes the producer package depend on consumer needs
-
-## Key Principle
-
-> **Depend on abstractions defined as close as possible to where they're used.**
-
-The consumer knows what behavior it needs. The concrete type automatically satisfies any interface with matching methods (structural typing), so:
-
-- `filelib.File` will automatically satisfy `myapp.Reader`
-- No explicit declaration needed
-- Loose coupling achieved
-
-This is why Go's standard library defines `io.Reader`, `io.Writer`, etc. in the `io` package—they're the *consumers* of these abstractions.
+If you're defining a standard interface that *many* packages will implement (like `io.Reader`), put it in a foundational package (`io`, `encoding`, etc.). But for domain-specific interfaces, keep them with the consumer.
 
 </details>
 
@@ -2337,106 +2333,96 @@ func (f *FileReader) Read(p []byte) (n int, err error) { /* ... */ }
 // ✅ RIGHT: consumer package defines the interface
 package processor
 
-import "io"
+import "io"  // stdlib already has io.Reader
 
-// Processor accepts anything with a Read method.
-// io.Reader is already defined in the stdlib.
-func Process(r io.Reader) error {
-    // ...
+func ProcessData(r io.Reader) error {
+    // r can be *os.File, *bytes.Buffer, *gzip.Reader, or any custom type
+    // with a Read method — no coupling to the producer
 }
-
-// Your concrete type lives elsewhere:
-// package file
-type FileReader struct { /* ... */ }
-func (f *FileReader) Read(p []byte) (n int, err error) { /* ... */ }
-
-// FileReader satisfies io.Reader implicitly.
-// processor doesn't import file; file doesn't import processor.
 ```
 
 ## Why This Matters
 
-1. **Decoupling** — The consumer declares what behavior it needs. The producer doesn't need to know about every package that might use it. No circular imports, no tight coupling.
+| Aspect | Consumer-Defined | Producer-Defined |
+|---|---|---|
+| **Decoupling** | Consumer declares only the methods it needs | Consumer forced to import producer's interface |
+| **Composability** | Any type with `Read` works; no explicit registration | Only types the producer anticipated work |
+| **API Evolution** | Adding a method to the interface doesn't break producers | Adding a method breaks all implementations |
+| **Testing** | Easy to mock: just implement the small interface | Must import the producer package to mock |
+| **Reusability** | Multiple packages can define their own `Reader` if they need different methods | Duplication or bloat in the producer |
 
-2. **Implicit satisfaction** — Go's structural typing means `FileReader` automatically satisfies `io.Reader` without an explicit declaration. The producer never needs to import the consumer's package.
-
-3. **Reusability** — Your `FileReader` can satisfy *many* interfaces defined in different packages, all without modification.
-
-4. **API stability** — If you own the producer, you don't have to predict every interface consumers might want. They define what they need.
-
-## Real Example
+## Real-World Example
 
 ```go
-// package myapp/processor
-package processor
+// ❌ BAD: producer defines interface
+package database
 
+type Scanner interface {
+    Scan(dest ...interface{}) error
+}
+
+type Row struct { /* ... */ }
+func (r *Row) Scan(dest ...interface{}) error { /* ... */ }
+
+// Consumer must import "database" even if it only cares about Scan
+package myapp
+
+import "database"
+
+func ProcessRow(s database.Scanner) { /* ... */ }
+```
+
+```go
+// ✅ GOOD: consumer defines interface
+package myapp
+
+type Scanner interface {
+    Scan(dest ...interface{}) error
+}
+
+func ProcessRow(s Scanner) { /* ... */ }
+
+// Now ProcessRow works with database.Row, sql.Row, or any custom type
+// myapp doesn't import database; database doesn't know about myapp
+```
+
+## When the Producer Already Defined It
+
+If you're consuming a type from a package that *already* defined an interface (like `io.Reader` from stdlib), **use that interface**. The stdlib got it right, and it's already ubiquitous.
+
+```go
+// ✅ Use stdlib interfaces
 import "io"
 
-// ProcessFile reads from any io.Reader and does something with it.
-func ProcessFile(r io.Reader) error {
-    data, err := io.ReadAll(r)
-    if err != nil {
-        return fmt.Errorf("read: %w", err)
-    }
-    // ... process data
-    return nil
-}
-
-// ----
-
-// package myapp/file
-package file
-
-type FileReader struct {
-    path string
-}
-
-func (f *FileReader) Read(p []byte) (n int, err error) {
-    // implementation
-}
-
-// ----
-
-// package main
-package main
-
-import (
-    "myapp/file"
-    "myapp/processor"
-)
-
-func main() {
-    fr := &file.FileReader{path: "data.txt"}
-    processor.ProcessFile(fr)  // ✅ Works! FileReader satisfies io.Reader
+func Copy(dst io.Writer, src io.Reader) error {
+    _, err := io.Copy(dst, src)
+    return err
 }
 ```
 
-Notice:
-- `processor` imports `io` (stdlib), not `file`.
-- `file` doesn't import `processor`.
-- `FileReader` satisfies `io.Reader` automatically.
+If a third-party producer defined an interface and you want to avoid the import, you can **define your own matching interface** in your consumer package:
 
-## When You Own Both Packages
+```go
+// Your package defines what you need
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
 
-If you're writing both the producer and consumer in the same project:
+// Assign the producer's type to your interface (implicit satisfaction)
+var _ Reader = (*thirdparty.Reader)(nil)  // compile-time check
 
-- **Still define the interface in the consumer** — it clarifies what behavior the consumer actually needs.
-- If the interface is so general it's used by many packages, consider putting it in a small, focused package (like `io` in stdlib) that both can import without creating a cycle.
+func MyFunc(r Reader) { /* ... */ }
+```
 
-## Exception: Stdlib and Well-Known Interfaces
+## The Principle in One Sentence
 
-The stdlib defines interfaces like `io.Reader`, `io.Writer`, `fmt.Stringer`, `error`, `context.Context` in their "natural" homes because they're so fundamental that *everything* depends on them. This is acceptable because:
-- They're stable and rarely change.
-- They're in the stdlib, not your project.
-- They're designed to be depended on by many packages.
-
-For your own code, follow the consumer rule.
+**Interfaces are contracts written by the client, not the supplier.** The consumer knows what behavior it needs; the producer shouldn't guess.
 
 </details>
 
 #### `opus`
 
-**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly identify the consumer package as the right place to declare interfaces, cite the 'accept interfaces, return concrete types' rule, and emphasize small interfaces. Answer A provides a slightly cleaner explanation of the stdlib exception and has a more polished structure, while Answer B's rule-of-thumb summary and promotion guidance are equally useful. Neither answer is meaningfully better across all criteria.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly identify the consumer package as the right place for interfaces and cite 'accept interfaces, return concrete types.' Answer A is more thorough and practical, providing concrete code examples showing both the correct pattern and the anti-pattern to avoid, plus a nuanced discussion of when to reuse stdlib interfaces like io.Reader. Answer B is solid but slightly less detailed in its examples and guidance.
 
 **Per-criterion verdict (judge)**
 
@@ -2444,7 +2430,7 @@ For your own code, follow the consumer rule.
 | --- | --- |
 | says consumer / caller package | tie |
 | mentions accept interfaces, return concrete | tie |
-| small interface guidance | tie |
+| small interface guidance | skill |
 
 **Baseline rubric**
 
@@ -2452,15 +2438,15 @@ For your own code, follow the consumer rule.
 | --- | --- | --- |
 | says consumer / caller package | ✓ | `consumer` |
 | mentions accept interfaces, return concrete | ✓ | `Accept interfaces` |
-| small interface guidance | ✓ | `small interface` |
+| small interface guidance | ✓ | `io.Reader` |
 
 **Skill rubric**
 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | says consumer / caller package | ✓ | `consumer` |
-| mentions accept interfaces, return concrete | ✓ | `accept interfaces` |
-| small interface guidance | ✓ | `io.Reader` |
+| mentions accept interfaces, return concrete | ✓ | `Accept interfaces` |
+| small interface guidance | ✓ | `small interface` |
 
 <details><summary>opus: baseline answer</summary>
 
@@ -2470,80 +2456,104 @@ For your own code, follow the consumer rule.
 
 # Why
 
-Go interfaces are satisfied implicitly. The concrete type doesn't need to know about — or import — the interface to satisfy it. This inverts the usual OO dependency direction and lets you follow a few important conventions:
+This is one of the most idiomatic conventions in Go, often summarized as:
 
-### 1. "Accept interfaces, return structs"
-The consumer knows what it actually needs. If your function only calls `Read`, it should depend on the smallest possible interface describing exactly that, defined where it's used.
+> "Accept interfaces, return structs."
+> "The consumer defines the interface."
 
-### 2. Keep interfaces small and local
-Each consumer can declare its own minimal interface containing just the methods it uses. This avoids forcing every reader-producing package to import some shared "interfaces" package, and avoids bloated interfaces that grow over time.
+The reasoning:
+
+1. **Decoupling.** The producing package shouldn't know or care who consumes its types. If it declared the interface, every consumer would have to import that package just to name the interface — even though they only need a small slice of behavior.
+
+2. **Interfaces are satisfied implicitly.** Unlike Java/C#, a Go type doesn't have to declare "I implement X." So the producer doesn't need to advertise an interface for its type to satisfy one. Any consumer can invent the smallest interface it needs, and the producer's type will satisfy it automatically.
+
+3. **Smaller, more focused interfaces.** The consumer knows exactly what subset of behavior it actually uses. That tends to produce one- or two-method interfaces (like `io.Reader`), which are easier to mock, test, and reuse.
+
+4. **Avoids speculative abstraction.** If the producer defines interfaces "just in case," you usually end up with bloated interfaces that don't quite fit any consumer.
+
+# The exception you'll actually hit
+
+`io.Reader`, `io.Writer`, etc. live in the `io` package — neither producer nor consumer. That's the third option: **a neutral package** when an interface is so universal that many producers and many consumers will share it. Don't reach for this until you actually have multiple consumers needing the same shape.
+
+# Practical rule of thumb
 
 ```go
-// in package consumer
-type reader interface {
+// In your consuming package:
+package report
+
+type source interface {
     Read(p []byte) (n int, err error)
 }
 
-func Process(r reader) error { ... }
+func Generate(s source) error { ... }
 ```
 
-### 3. Avoid import cycles and tight coupling
-If the producer package declared the interface, every consumer would have to import the producer just to name the type. Defining it on the consumer side means the producer has zero knowledge of who uses it.
+Or, more commonly, just take `io.Reader` directly — that's exactly the case it was designed for.
 
-### 4. It matches the standard library
-`io.Reader` lives in `io`, not in `os` or `bytes` or `net`. The `io` package is effectively a "consumer-style" package of abstractions that many other packages happen to satisfy. Your own small interface is the same idea at a smaller scale.
-
-# When to put it elsewhere
-
-- **A widely-shared abstraction** (used by many consumers across your codebase) is worth promoting to a neutral package — similar to how `io.Reader` graduated to a shared spot. But start local; promote only when duplication actually hurts.
-- **Never** put it in the producer package solely because that package defines the concrete type. That's the OO instinct, and it's the wrong one in Go.
-
-# Rule of thumb
-
-> The package that *calls* `Read` owns the interface. The package that *implements* `Read` doesn't even need to know the interface exists.
+Only promote an interface to its own package (or to the producer) once you see real, repeated demand for it across packages.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-Declare it in the **consuming package**, not the producing one.
+Declare it in the **consuming** package — the one that calls `Read`.
 
-This is one of Go's defining idioms — sometimes phrased as **"accept interfaces, return concrete types"** or **"the consumer defines the interface."**
+This is one of Go's core idioms: **"Accept interfaces, return concrete types."** The interface is part of the consumer's contract about what it needs, not part of the producer's contract about what it provides.
 
 ## Why
 
-1. **The consumer knows what it actually needs.** If your function only calls `Read`, it should depend on exactly that — not on whatever broader surface the producer happens to expose. Small, locally-defined interfaces minimize coupling.
+1. **Decoupling.** If the consumer defines the interface, it doesn't need to import the producer's package at all. The producer doesn't even need to know the consumer exists. Anything with a matching `Read` method satisfies it (Go interfaces are structural / implicitly satisfied).
 
-2. **Producers shouldn't have to predict every consumer.** If `pkg/storage` defined a `Reader` interface for every possible client, it would either bloat or constrain its API. Letting consumers declare their own keeps the producer free to evolve.
+2. **Minimal surface.** The consumer asks for exactly what it uses — usually 1–3 methods. If you put the interface on the producer side, you're tempted to make it broad ("everything a `*File` can do") which forces fake implementations and test mocks to grow needlessly.
 
-3. **Implicit satisfaction makes it free.** Go interfaces are structural — the concrete type doesn't need to import or know about the interface. So the consumer can declare exactly what it wants, and any type with a matching method set satisfies it automatically.
+3. **Testability.** The consumer can trivially substitute a `bytes.Buffer`, a `strings.Reader`, or a hand-rolled fake in tests, without depending on the real producer at all.
 
-4. **Testability without mocks-as-a-service.** When the interface lives next to the function that uses it, you can swap in a `bytes.Buffer`, a `strings.Reader`, or a one-off test fake without dragging in the producer package.
+4. **It's already what the stdlib does.** `io.Reader` lives in `io`, not in `os` (where `*os.File` is defined) or `net` (where `*net.TCPConn` is defined). `os` and `net` just return concrete types; `io` defines the abstraction that consumers depend on.
 
-## The exception
-
-`io.Reader` already exists in the standard library — and that's the *right* level for a universally-needed abstraction. The rule isn't "never put interfaces in shared packages"; it's "don't put them in the *producer* package." The stdlib's `io` package is neither producer nor consumer — it's a neutral home for a vocabulary type that everyone agrees on.
-
-So in practice:
+## The pattern
 
 ```go
-// In your consuming package — preferred
+// Producer package — returns a concrete type. No interface declared.
+package diskstore
+
+func Open(path string) (*File, error) { ... }
+
+func (f *File) Read(p []byte) (int, error) { ... }
+```
+
+```go
+// Consumer package — declares the small interface it needs.
 package report
 
-type sourceReader interface {
+type lineSource interface {
     Read(p []byte) (int, error)
 }
 
-func Generate(r sourceReader) error { ... }
+func Generate(src lineSource) error { ... }
 ```
 
-Or, if the method set matches a stdlib interface exactly, just use it:
+Now `report.Generate` accepts `*diskstore.File`, `*os.File`, `*bytes.Buffer`, `*strings.Reader`, or anything else with a `Read` method — and the `report` package never imports `diskstore`.
+
+## When you'd reach for `io.Reader` instead
+
+If the method set you need exactly matches a well-known stdlib interface (`io.Reader`, `io.Writer`, `io.ReadCloser`, etc.), just use that one rather than redeclaring it. You only define your own interface in the consumer when the stdlib doesn't already have the right shape.
+
+## The anti-pattern to avoid
+
+Don't do this in the producer package:
 
 ```go
-func Generate(r io.Reader) error { ... }
+// diskstore/file.go — DON'T
+package diskstore
+
+type Reader interface {  // ← nobody asked for this
+    Read(p []byte) (int, error)
+}
+
+func Open(path string) (Reader, error) { ... }  // ← returning interface, hiding *File
 ```
 
-What you should **not** do is define `type Reader interface { Read(...) }` inside the package that provides the concrete type and force consumers to import it.
+This forces every consumer to import `diskstore` just to name the type, and it hides `*File`'s other useful methods (like `Close`, `Stat`, etc.) behind a narrow interface the producer guessed at.
 
 </details>
 
@@ -2565,15 +2575,15 @@ string, and isn't a third-party library when stdlib suffices.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly use log/slog with structured fields and avoid log.Printf, satisfying all rubric criteria. However, Answer B is more idiomatic and production-focused: it emphasizes the *Context variants (ErrorContext, InfoContext) which are the preferred modern approach for carrying trace IDs, explicitly advises against the log-and-return antipattern, recommends slog.LogAttrs for hot paths, and gives cleaner guidance on library vs. application code. Answer A is comprehensive but slightly less opinionated and includes a table recommending third-party libraries (zerolog, zap) which slightly dilutes the stdlib-first message.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly use log/slog with structured fields and avoid log.Printf, satisfying all rubric criteria. However, Answer B is slightly more idiomatic and production-focused: it introduces LogAttrs for zero-allocation hot paths, uses ErrorContext/InfoContext (the preferred form when context is available), demonstrates slog.Group for nested JSON, and provides cleaner conventions (static messages, don't log-and-return). Answer A is also excellent and comprehensive, but its quick decision guide recommending third-party libraries (zap, zerolog) as alternatives slightly dilutes the stdlib-first message, whereas B stays focused on slog throughout.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
 | uses log/slog | tie |
-| shows a slog call with structured fields | tie |
-| avoids recommending log.Printf for structured logging | skill |
+| shows a slog call with structured fields | skill |
+| avoids recommending log.Printf for structured logging | tie |
 
 **Baseline rubric**
 
@@ -2596,7 +2606,6 @@ string, and isn't a third-party library when stdlib suffices.
 ## Structured Logging in Go (Modern/Idiomatic)
 
 ### The Short Answer
-
 Use **`log/slog`** — it's been in the standard library since **Go 1.21** and is the idiomatic choice today.
 
 ---
@@ -2627,190 +2636,179 @@ func main() {
 ## Logging Errors with Structured Fields
 
 ```go
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-    userID := "usr_123"
-    requestID := r.Header.Get("X-Request-ID")
+func handleRequest(userID, requestID string, err error) {
+    // ✅ Preferred: typed key-value pairs via slog.Attr
+    slog.Error("failed to process request",
+        slog.String("user_id", userID),
+        slog.String("request_id", requestID),
+        slog.Any("error", err),
+    )
 
-    user, err := fetchUser(userID)
-    if err != nil {
-        // ✅ Idiomatic: key-value pairs after the message
-        slog.Error("failed to fetch user",
-            "error",      err,
-            "user_id",    userID,
-            "request_id", requestID,
-        )
-        http.Error(w, "internal error", http.StatusInternalServerError)
-        return
-    }
-
-    _ = user
+    // ✅ Also valid: loose key-value pairs (simpler, slightly less safe)
+    slog.Error("failed to process request",
+        "user_id", userID,
+        "request_id", requestID,
+        "error", err,
+    )
 }
 ```
 
 **Output (JSON):**
 ```json
 {
-  "time": "2024-01-15T10:30:00.000Z",
+  "time": "2024-01-15T10:30:00Z",
   "level": "ERROR",
-  "msg": "failed to fetch user",
-  "error": "sql: no rows in result set",
+  "msg": "failed to process request",
   "user_id": "usr_123",
-  "request_id": "req_abc456"
+  "request_id": "req_abc",
+  "error": "connection refused"
 }
 ```
 
 ---
 
-## Three Ways to Pass Fields
+## Real-World Pattern: Logger with Persistent Fields
+
+Avoid repeating fields on every call — use `With()` to create a child logger:
 
 ```go
-// 1. ✅ Loose key-value pairs (simple, most common)
-slog.Error("something failed",
-    "error",   err,
-    "user_id", userID,
+package middleware
+
+import (
+    "context"
+    "log/slog"
+    "net/http"
 )
 
-// 2. ✅ slog.Attr (explicit typing, avoids mistakes like odd number of args)
-slog.Error("something failed",
-    slog.Any("error",   err),
-    slog.String("user_id", userID),
-    slog.Int("attempt",    3),
-)
+type contextKey string
+const loggerKey contextKey = "logger"
 
-// 3. ✅ Grouped fields (useful for namespacing, e.g. "request.id")
-slog.Error("something failed",
-    slog.Group("request",
-        slog.String("id",     requestID),
-        slog.String("method", r.Method),
-        slog.String("path",   r.URL.Path),
-    ),
-    slog.Any("error", err),
-)
-// → "request":{"id":"...","method":"GET","path":"/users"}
-```
-
----
-
-## Logger with Persistent Fields (Context)
-
-Avoid repeating fields on every call — attach them once with `With`:
-
-```go
-// Per-request logger with fields baked in
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-    log := slog.With(
-        "request_id", r.Header.Get("X-Request-ID"),
-        "user_id",    userIDFromContext(r.Context()),
-        "method",     r.Method,
-        "path",       r.URL.Path,
-    )
-
-    user, err := fetchUser(...)
-    if err != nil {
-        log.Error("failed to fetch user", "error", err)
-        // ↑ request_id, user_id, method, path are automatically included
-        return
-    }
-
-    log.Info("request completed", "status", 200)
-}
-```
-
----
-
-## Passing Logger via Context (Production Pattern)
-
-```go
-// Store logger in context
-type ctxKey struct{}
-
-func WithLogger(ctx context.Context, log *slog.Logger) context.Context {
-    return context.WithValue(ctx, ctxKey{}, log)
-}
-
-func FromContext(ctx context.Context) *slog.Logger {
-    if log, ok := ctx.Value(ctxKey{}).(*slog.Logger); ok {
-        return log
-    }
-    return slog.Default() // safe fallback
-}
-
-// Middleware that seeds the logger
-func LoggingMiddleware(next http.Handler) http.Handler {
+// Attach a request-scoped logger to context
+func RequestLogger(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        log := slog.With(
-            "request_id", r.Header.Get("X-Request-ID"),
-            "user_id",    r.Header.Get("X-User-ID"),
+        logger := slog.Default().With(
+            slog.String("request_id", r.Header.Get("X-Request-ID")),
+            slog.String("method", r.Method),
+            slog.String("path", r.URL.Path),
         )
-        ctx := WithLogger(r.Context(), log)
+
+        ctx := context.WithValue(r.Context(), loggerKey, logger)
         next.ServeHTTP(w, r.WithContext(ctx))
     })
 }
 
-// Deep in your call stack — no need to thread logger manually
-func fetchUser(ctx context.Context, id string) (*User, error) {
-    log := FromContext(ctx)
-
-    user, err := db.QueryUser(id)
-    if err != nil {
-        log.Error("db query failed", "error", err, "user_id", id)
-        return nil, err
+// Pull logger from context in handlers
+func LoggerFromContext(ctx context.Context) *slog.Logger {
+    if logger, ok := ctx.Value(loggerKey).(*slog.Logger); ok {
+        return logger
     }
-    return user, nil
+    return slog.Default() // safe fallback
+}
+```
+
+```go
+// In your handler — no need to repeat request_id, method, path
+func CreateUser(w http.ResponseWriter, r *http.Request) {
+    log := middleware.LoggerFromContext(r.Context())
+
+    user, err := db.CreateUser(r.Context(), payload)
+    if err != nil {
+        log.Error("failed to create user",
+            slog.String("user_id", payload.ID),
+            slog.Any("error", err),
+        )
+        http.Error(w, "internal error", http.StatusInternalServerError)
+        return
+    }
+
+    log.Info("user created", slog.String("user_id", user.ID))
 }
 ```
 
 ---
 
-## Development vs Production Config
+## Choosing Between `slog.String(...)` vs `"key", value`
+
+```go
+// Typed attrs — catches mismatched pairs at compile time, marginally faster
+slog.Error("msg",
+    slog.String("user_id", id),   // ✅ type-safe
+    slog.Int("attempt", 3),
+    slog.Duration("elapsed", d),
+    slog.Any("error", err),       // use Any for errors/custom types
+)
+
+// Loose pairs — more concise, fine for simple cases
+// ⚠️ Odd number of args silently creates a "!BADKEY" field
+slog.Error("msg", "user_id", id, "attempt", 3)
+```
+
+---
+
+## Production Configuration
 
 ```go
 func newLogger(env string) *slog.Logger {
-    if env == "production" {
-        return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-            Level:     slog.LevelInfo,
-            AddSource: true, // adds "source":{"file":"...","line":42}
-        }))
+    opts := &slog.HandlerOptions{
+        Level: slog.LevelInfo,
+
+        // Add source file/line to every log entry
+        AddSource: true,
+
+        // Customize or redact field values
+        ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+            // Rename "msg" → "message" to match your log aggregator's schema
+            if a.Key == slog.MessageKey {
+                a.Key = "message"
+            }
+            // Redact sensitive fields
+            if a.Key == "password" {
+                a.Value = slog.StringValue("[REDACTED]")
+            }
+            return a
+        },
     }
 
-    // Human-readable for local dev
-    return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-        Level: slog.LevelDebug,
-    }))
-    // → time=2024-01-15T10:30:00Z level=ERROR msg="failed to fetch user" error="..."
+    if env == "development" {
+        // Human-readable in dev
+        return slog.New(slog.NewTextHandler(os.Stdout, opts))
+    }
+
+    // Machine-readable JSON in production
+    return slog.New(slog.NewJSONHandler(os.Stdout, opts))
 }
 ```
 
 ---
 
-## Quick Reference: When to Use What
+## Quick Decision Guide
 
 | Situation | Recommendation |
-|---|---|
-| Go 1.21+ project | `log/slog` — no external deps needed |
-| Need high-performance logging | [`zerolog`](https://github.com/rs/zerolog) (zero-alloc) |
-| Large existing codebase | [`zap`](https://github.com/uber-go/zap) (battle-tested at scale) |
-| Need to wrap slog | Implement `slog.Handler` interface |
+|-----------|---------------|
+| Go 1.21+ | `log/slog` — no external deps needed |
+| Need high-throughput / zero-alloc | [`zap`](https://github.com/uber-go/zap) (still excellent) |
+| Want `slog`-compatible ecosystem | `slog` + [`slogzap`](https://github.com/samber/slog-zap) bridge |
+| Legacy codebase on older Go | [`zerolog`](https://github.com/rs/zerolog) or `zap` |
 
 ---
 
 ## Key Takeaways
 
-- **`log/slog` is the standard** — no third-party library needed for most projects
-- Always use **`NewJSONHandler`** in production for machine-readable output
-- Use **`.With()`** to attach persistent fields instead of repeating them
-- Pass loggers via **context** to avoid threading them through every function signature
-- Prefer **`slog.Attr`** types (`slog.String`, `slog.Int`, etc.) when you want compile-time safety over loose key-value pairs
+1. **Use `log/slog` with `NewJSONHandler`** for structured, machine-readable logs
+2. **Use `With()`** to attach persistent fields (request_id, user_id) once — not on every call
+3. **Pass loggers via `context.Context`** in request-scoped code
+4. **Prefer typed `slog.String/Int/Any`** over loose key-value pairs to catch bugs early
+5. **Never use `fmt.Sprintf` in log messages** — put dynamic values in fields instead
 
 </details>
 
 <details><summary>sonnet: skill-loaded answer</summary>
 
-## Modern Structured Logging with `log/slog`
+## Modern Structured Logging in Go with `log/slog`
 
 Since Go 1.21, the standard library includes `log/slog` — the idiomatic choice for structured, leveled, machine-readable logging. No third-party dependency required.
 
-### Basic pattern
+### Basic Pattern
 
 ```go
 slog.Error("failed to process payment",
@@ -2820,152 +2818,190 @@ slog.Error("failed to process payment",
 )
 ```
 
-In production, configure a **JSON handler** so every log line is a parseable object:
+In production with a JSON handler, this emits:
 
-```go
-// main.go — set up once at startup
-logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-    Level: slog.LevelInfo, // or read from config/env
-}))
-slog.SetDefault(logger)
-```
-
-Output:
 ```json
-{"time":"2024-11-01T12:00:00Z","level":"ERROR","msg":"failed to process payment","err":"context deadline exceeded","user_id":"u_123","request_id":"req_abc"}
+{"time":"2024-01-15T10:30:00Z","level":"ERROR","msg":"failed to process payment","err":"connection refused","user_id":"u_123","request_id":"req_abc"}
 ```
 
 ---
 
-### Carry fields through a request with `Logger.With`
+### Setting Up a JSON Handler for Production
 
-Attach fields once and pass the enriched logger down — don't repeat them on every call:
+Configure this once at program startup (e.g., `main.go`):
 
 ```go
+func main() {
+    logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+        Level: slog.LevelInfo, // or read from config/env
+    }))
+    slog.SetDefault(logger) // package-level functions now use this handler
+
+    // ...
+}
+```
+
+Use `slog.NewTextHandler` locally for human-readable output; swap to `NewJSONHandler` in production via config — same call sites, different handler.
+
+---
+
+### Carrying Fields Through a Request: Logger-per-Request
+
+Rather than passing individual fields to every log call, attach them to a logger and thread it through via `context.Context`:
+
+```go
+// middleware or handler entry point
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+    // Build a logger with fields that apply to the whole request.
     log := slog.Default().With(
         "request_id", r.Header.Get("X-Request-ID"),
         "method",     r.Method,
         "path",       r.URL.Path,
     )
 
-    userID, err := authenticate(r)
-    if err != nil {
-        log.Error("authentication failed", "err", err)
-        http.Error(w, "unauthorized", http.StatusUnauthorized)
-        return
-    }
+    // Store it in the context so downstream functions can retrieve it.
+    ctx := r.Context()
+    ctx = ctxWithLogger(ctx, log)
 
-    log = log.With("user_id", userID) // enrich further as you learn more
-
-    if err := processOrder(r.Context(), log, userID); err != nil {
-        log.Error("order processing failed", "err", err)
+    if err := processOrder(ctx, orderID, userID); err != nil {
+        // Fields from .With() are included automatically.
+        log.ErrorContext(ctx, "order processing failed",
+            "err",      err,
+            "order_id", orderID,
+        )
         http.Error(w, "internal error", http.StatusInternalServerError)
         return
     }
 }
 ```
 
----
-
-### Pass the logger explicitly — don't use globals in libraries
-
-Global `slog.Error(...)` is fine in `main` and handlers. In reusable packages, accept a `*slog.Logger` parameter (or embed it in a service struct) so callers control the destination:
-
 ```go
-type OrderService struct {
-    db  *sql.DB
-    log *slog.Logger
-}
+// Retrieve the logger deep in the call stack — no need to re-pass fields.
+func processOrder(ctx context.Context, orderID, userID string) error {
+    log := loggerFromCtx(ctx)
 
-func NewOrderService(db *sql.DB, log *slog.Logger) *OrderService {
-    return &OrderService{db: db, log: log}
-}
-
-func (s *OrderService) Process(ctx context.Context, orderID string) error {
-    s.log.InfoContext(ctx, "processing order", "order_id", orderID)
-
-    if err := s.db.QueryRowContext(ctx, ...).Scan(...); err != nil {
-        return fmt.Errorf("fetch order %s: %w", orderID, err) // wrap, don't log here
+    if err := chargeCard(ctx, userID); err != nil {
+        log.ErrorContext(ctx, "charge failed",
+            "err",      fmt.Errorf("chargeCard: %w", err), // preserve error chain
+            "user_id",  userID,
+            "order_id", orderID,
+        )
+        return fmt.Errorf("processOrder %s: %w", orderID, err)
     }
     return nil
 }
 ```
 
-> **Rule of thumb:** libraries should *return* errors with context (`%w`); only the *call site* that decides what to do with an error should log it. Logging and returning is almost always a mistake — it produces duplicate log lines.
-
----
-
-### Use `*Context` variants to respect cancellation and carry trace IDs
-
-Prefer `InfoContext`/`ErrorContext`/etc. over the bare versions — handlers can extract trace IDs from the context (e.g. OpenTelemetry):
+#### Context helpers (put these in an `internal/logctx` package)
 
 ```go
-slog.ErrorContext(ctx, "cache miss", "key", cacheKey, "err", err)
+type ctxKey struct{}
+
+func ctxWithLogger(ctx context.Context, log *slog.Logger) context.Context {
+    return context.WithValue(ctx, ctxKey{}, log)
+}
+
+func loggerFromCtx(ctx context.Context) *slog.Logger {
+    if log, ok := ctx.Value(ctxKey{}).(*slog.Logger); ok {
+        return log
+    }
+    return slog.Default() // safe fallback
+}
 ```
 
 ---
 
-### Group related fields with `slog.Group`
+### Use `LogAttrs` in Hot Paths (Avoids Allocations)
+
+The variadic `"key", value` style is convenient but boxes every value. For high-throughput code, use typed `slog.Attr` values:
 
 ```go
-slog.InfoContext(ctx, "request complete",
-    slog.Group("http",
-        "method",      r.Method,
-        "path",        r.URL.Path,
-        "status_code", status,
-        "duration_ms", duration.Milliseconds(),
-    ),
-    "user_id", userID,
-)
-```
+// Convenient — fine for most code
+slog.Info("user signed in", "user_id", userID, "ip", ip)
 
-JSON output nests cleanly:
-```json
-{"level":"INFO","msg":"request complete","http":{"method":"POST","path":"/orders","status_code":200,"duration_ms":42},"user_id":"u_123"}
-```
-
----
-
-### Use typed `slog.Attr` in hot paths
-
-The `"key", value` alternating-args style is convenient but does a small allocation per call. For high-throughput paths, use `slog.Attr` directly:
-
-```go
-slog.LogAttrs(ctx, slog.LevelInfo, "cache hit",
-    slog.String("key", cacheKey),
-    slog.Int("ttl_seconds", ttl),
+// Zero-allocation — use in tight loops or high-RPS paths
+slog.LogAttrs(ctx, slog.LevelInfo, "user signed in",
     slog.String("user_id", userID),
+    slog.String("ip",      ip),
+    slog.Int("attempt",    attempt),
 )
+```
+
+Available constructors: `slog.String`, `slog.Int`, `slog.Int64`, `slog.Float64`, `slog.Bool`, `slog.Duration`, `slog.Time`, `slog.Any`.
+
+---
+
+### Grouping Related Fields
+
+Use `slog.Group` to namespace fields — they appear nested in JSON:
+
+```go
+slog.Info("request completed",
+    slog.Group("http",
+        slog.String("method", r.Method),
+        slog.Int("status",    statusCode),
+        slog.Duration("dur",  time.Since(start)),
+    ),
+    slog.Group("user",
+        slog.String("id",   userID),
+        slog.String("role", role),
+    ),
+)
+```
+
+```json
+{"level":"INFO","msg":"request completed","http":{"method":"GET","status":200,"dur":"1.2ms"},"user":{"id":"u_123","role":"admin"}}
 ```
 
 ---
 
-### Quick reference
+### Key Conventions
 
-| Situation | What to use |
+| Rule | Example |
 |---|---|
-| One-off log in `main` or handler | `slog.ErrorContext(ctx, "msg", "key", val)` |
-| Reuse fields across many calls | `logger.With("key", val)` → pass child logger |
-| Library/service code | Accept `*slog.Logger`; use `*Context` variants |
-| High-frequency hot path | `slog.LogAttrs` with typed `slog.Attr` |
-| Group related fields in JSON | `slog.Group("name", "k", v, ...)` |
-| Production output | `slog.NewJSONHandler(os.Stderr, opts)` |
-| Development output | `slog.NewTextHandler(os.Stderr, opts)` |
+| Use `snake_case` for key names | `"user_id"` not `"userId"` |
+| Always pass `err` as a field, not in the message | `"err", err` not `"failed: "+err.Error()` |
+| Use `ErrorContext`/`InfoContext` (not bare `Error`/`Info`) when you have a `ctx` | Enables handler-level context extraction |
+| Keep messages static and lowercase | `"charge failed"` not `"Charge failed for user u_123"` — put variables in fields |
+| Don't log *and* return the same error | Log at the top of the call stack; lower layers just wrap and return |
+
+---
+
+### Quick Reference
+
+```go
+// Setup (main.go)
+slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+
+// Levels
+slog.Debug("cache miss", "key", k)
+slog.Info("server started", "addr", addr)
+slog.Warn("rate limit approaching", "user_id", uid, "pct", 90)
+slog.Error("db query failed", "err", err, "query", q)
+
+// With context (preferred when ctx is available)
+slog.InfoContext(ctx, "order created", "order_id", id)
+
+// Pre-attach fields for a subsystem or request
+log := slog.Default().With("component", "payments")
+log.Error("charge failed", "err", err)
+```
+
+The pattern to internalize: **static message + structured fields**, logger configured once at the boundary, carried through context, retrieved and used deep in the stack — no global state mutation, no format strings with variables baked in.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend log/slog with structured fields and avoid log.Printf, but Answer B is more comprehensive and idiomatic. Answer B shows both the key-value pair style ('key', val) and typed builders, demonstrates slog.With() for request-scoped loggers, includes anti-patterns to avoid, error wrapping patterns, and testing guidance. Answer A unnecessarily promotes third-party libraries (zap, logrus) as alternatives when the question asks about stdlib sufficiency, and contains an error (slog.FromContext doesn't exist in stdlib).
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend log/slog with structured fields, but Answer B is more focused and idiomatic. Answer A dilutes its recommendation by prominently featuring zap as an alternative with a comparison table, which goes against the focus area of preferring stdlib when it suffices. Answer B stays focused on slog, shows both key-value pairs and typed builders, and provides better guidance on error logging conventions without promoting third-party libraries.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
-| uses log/slog | skill |
-| shows a slog call with structured fields | skill |
-| avoids recommending log.Printf for structured logging | tie |
+| uses log/slog | tie |
+| shows a slog call with structured fields | tie |
+| avoids recommending log.Printf for structured logging | skill |
 
 **Baseline rubric**
 
@@ -3069,13 +3105,31 @@ func main() {
 
 ## Best Practices
 
-1. **Use JSON output in production** (human-readable text in dev)
-2. **Include request IDs** for tracing across logs
-3. **Use context** to pass loggers through your application
-4. **Avoid string concatenation** — use structured fields
-5. **Set appropriate log levels** (Error, Warn, Info, Debug)
+1. **Use JSON handlers in production**, text handlers in development
+2. **Add request IDs** via middleware/context
+3. **Avoid string concatenation** — use typed fields
+4. **Set up log levels** appropriately
+5. **Use context propagation** for request-scoped loggers
 
-For new projects, **`slog` is the recommended choice** since it's part of the standard library and has excellent design.
+```go
+// Middleware example
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := uuid.New().String()
+		ctx := context.WithValue(r.Context(), "request_id", requestID)
+		
+		logger := slog.Default().With(
+			slog.String("request_id", requestID),
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+		)
+		
+		next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, slog.HandlerContextKey, logger)))
+	})
+}
+```
+
+**For new projects, `slog` is the recommended choice** since it's part of the standard library and has excellent integration with Go's ecosystem.
 
 </details>
 
@@ -3083,7 +3137,7 @@ For new projects, **`slog` is the recommended choice** since it's part of the st
 
 # Structured Error Logging in Go
 
-The modern, idiomatic way is **`log/slog`** (Go 1.21+), which provides structured, leveled logging with attributes that are machine-readable and composable.
+The modern, idiomatic way is **`log/slog`** (Go 1.21+), which provides structured, leveled logging with attributes that serialize to JSON in production.
 
 ## Basic Pattern
 
@@ -3091,28 +3145,28 @@ The modern, idiomatic way is **`log/slog`** (Go 1.21+), which provides structure
 import "log/slog"
 
 // Log an error with structured fields
-slog.Error("failed to process request",
+slog.Error("failed to process user",
 	"err", err,
 	"user_id", userID,
 	"request_id", requestID,
 )
 ```
 
-This produces JSON output (in production) like:
+This produces JSON output (when configured):
 ```json
 {
   "time": "2024-01-15T10:30:45.123Z",
   "level": "ERROR",
-  "msg": "failed to process request",
+  "msg": "failed to process user",
   "err": "connection timeout",
   "user_id": 42,
-  "request_id": "abc-123-def"
+  "request_id": "req-abc123"
 }
 ```
 
-## Setup for Production
+## Setup: JSON Handler for Production
 
-Configure a JSON handler at startup:
+In your `main()`, configure a JSON handler for structured output:
 
 ```go
 package main
@@ -3122,164 +3176,166 @@ import (
 	"os"
 )
 
-func init() {
-	// JSON output for production; text for local dev
-	opts := &slog.HandlerOptions{
+func main() {
+	// JSON handler for production
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
-	}
-	handler := slog.NewJSONHandler(os.Stdout, opts)
+	})
 	slog.SetDefault(slog.New(handler))
+
+	// Now all slog calls use JSON
+	slog.Error("something went wrong", "err", err, "user_id", 123)
 }
 ```
 
-## In HTTP Handlers (with context)
-
-Attach request-scoped values to `context.Context` and extract them:
-
+For development (human-readable text), use `slog.NewTextHandler`:
 ```go
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	requestID := r.Header.Get("X-Request-ID")
-	userID := extractUserID(ctx) // from auth middleware
-
-	// Attach to context for downstream use
-	ctx = context.WithValue(ctx, "request_id", requestID)
-	ctx = context.WithValue(ctx, "user_id", userID)
-
-	if err := processRequest(ctx); err != nil {
-		slog.ErrorContext(ctx, "request failed",
-			"err", err,
-			"request_id", requestID,
-			"user_id", userID,
-		)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
-	}
-}
+handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+	Level: slog.LevelDebug,
+})
 ```
 
-Or use `slog.With` to create a logger with default attributes:
+## Logging Errors Correctly
+
+**Always pass the error as a named attribute**, not in the message:
 
 ```go
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-	requestID := r.Header.Get("X-Request-ID")
-	userID := extractUserID(r.Context())
+// ✅ Good: error is a structured field
+slog.Error("database query failed",
+	"err", err,
+	"query", "SELECT * FROM users",
+	"table", "users",
+)
 
-	// Create a logger with these fields always included
-	log := slog.With(
-		"request_id", requestID,
+// ❌ Bad: error buried in message string
+slog.Error(fmt.Sprintf("database query failed: %v", err),
+	"query", "SELECT * FROM users",
+)
+
+// ❌ Bad: no error at all
+slog.Error("database query failed")
+```
+
+The `"err"` attribute is special — slog handlers format it nicely and preserve the error chain for analysis.
+
+## With Context (Request Tracing)
+
+Use `slog.With()` to add request-scoped attributes that propagate through your call stack:
+
+```go
+func handleRequest(ctx context.Context, userID int) error {
+	// Add request-scoped fields once
+	logger := slog.With(
+		"request_id", ctx.Value("request_id"),
 		"user_id", userID,
 	)
 
-	if err := processRequest(r.Context()); err != nil {
-		log.Error("request failed", "err", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
+	if err := validateUser(ctx, logger); err != nil {
+		logger.Error("validation failed", "err", err)
+		return err
 	}
-}
-```
 
-## Key Patterns
-
-| Pattern | Use Case |
-|---|---|
-| `slog.Error("msg", "key", val, ...)` | Simple error with attributes |
-| `slog.ErrorContext(ctx, "msg", "key", val, ...)` | Respects context cancellation |
-| `slog.With("key", val, ...)` | Create a logger with default attributes |
-| `slog.Info()`, `slog.Warn()`, `slog.Debug()` | Other log levels |
-| `"err", err` | Always pass the error as an attribute, not in the message |
-
-## Error Wrapping + Logging
-
-Combine with error wrapping (`%w`) so the error chain is preserved:
-
-```go
-if err := readConfig(path); err != nil {
-	// Wrap to add context
-	err = fmt.Errorf("load config: %w", err)
-	slog.Error("startup failed", "err", err, "config_path", path)
-	os.Exit(1)
-}
-```
-
-The error chain is logged as a string; callers can still use `errors.Is(err, io.EOF)` to check the underlying cause.
-
-## Avoid These Anti-Patterns
-
-❌ **Don't use `log.Printf` in libraries** — it's not structured and can't be configured by the application.
-
-❌ **Don't log in hot paths without checking the level:**
-```go
-// BAD: expensive operation even if level is disabled
-slog.Debug("processing", "data", expensiveStringify(obj))
-
-// GOOD: check first
-if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
-	slog.Debug("processing", "data", expensiveStringify(obj))
-}
-```
-
-❌ **Don't put the error message in the log message:**
-```go
-// BAD: duplicates the error
-slog.Error("failed to read file: " + err.Error(), "err", err)
-
-// GOOD: message describes the operation, error is an attribute
-slog.Error("failed to read file", "err", err, "path", path)
-```
-
-❌ **Don't use `fmt.Sprintf` for attributes:**
-```go
-// BAD: loses structure
-slog.Error("request failed", "details", fmt.Sprintf("user=%d, status=%d", userID, status))
-
-// GOOD: separate attributes
-slog.Error("request failed", "user_id", userID, "status", status)
-```
-
-## Testing
-
-Use `slog.SetDefault()` with a test handler to capture logs:
-
-```go
-func TestProcessRequest(t *testing.T) {
-	var buf bytes.Buffer
-	handler := slog.NewJSONHandler(&buf, nil)
-	slog.SetDefault(slog.New(handler))
-
-	err := processRequest(context.Background())
-	if err != nil {
-		// Verify the error was logged with expected fields
-		var logEntry map[string]interface{}
-		json.Unmarshal(buf.Bytes(), &logEntry)
-		if logEntry["user_id"] != 42 {
-			t.Errorf("expected user_id=42, got %v", logEntry["user_id"])
-		}
+	if err := saveUser(ctx, logger); err != nil {
+		logger.Error("save failed", "err", err)
+		return err
 	}
+
+	logger.Info("request completed")
+	return nil
+}
+
+func validateUser(ctx context.Context, logger *slog.Logger) error {
+	// logger already has request_id and user_id
+	if err := checkEmail(ctx); err != nil {
+		logger.Error("email check failed", "err", err, "field", "email")
+		return err
+	}
+	return nil
 }
 ```
 
-## Summary
+All logs from this request will include `request_id` and `user_id` automatically.
 
-- **Use `slog`** for all new code (Go 1.21+).
-- **Always pass `"err", err`** as an attribute, never in the message.
-- **Use `slog.With()`** to attach request-scoped fields to a logger.
-- **Use `slog.ErrorContext(ctx, ...)`** to respect context cancellation.
-- **Configure JSON output** at startup for production.
-- **Never log in hot paths** without checking the level first.
+## Passing Logger via Context (Go 1.21+)
+
+For cleaner APIs, store the logger in context:
+
+```go
+import "context"
+
+// Add logger to context
+ctx = context.WithValue(ctx, "logger", logger)
+
+// Retrieve in downstream functions
+func doWork(ctx context.Context) error {
+	logger := ctx.Value("logger").(*slog.Logger)
+	logger.Info("doing work", "step", 1)
+	return nil
+}
+```
+
+Or use a helper:
+```go
+func loggerFromContext(ctx context.Context) *slog.Logger {
+	if l, ok := ctx.Value("logger").(*slog.Logger); ok {
+		return l
+	}
+	return slog.Default()
+}
+```
+
+## Attribute Conventions
+
+Follow these conventions for consistency across your logs:
+
+| Field | Type | Example |
+|-------|------|---------|
+| `err` | `error` | `"err", err` |
+| `request_id` | `string` | `"request_id", "req-abc123"` |
+| `user_id` | `int` / `string` | `"user_id", 42` |
+| `duration_ms` | `int` | `"duration_ms", 150` |
+| `status_code` | `int` | `"status_code", 500` |
+| `method` | `string` | `"method", "POST"` |
+| `path` | `string` | `"path", "/api/users"` |
+
+## Levels
+
+Use the right level:
+
+```go
+slog.Debug("detailed diagnostic info")      // Development only
+slog.Info("normal operation milestone")     // Startup, shutdown, key events
+slog.Warn("something unexpected but handled") // Retries, degraded mode
+slog.Error("operation failed", "err", err)  // Errors that need attention
+```
+
+## Why Not `log.Printf` or `fmt.Println`?
+
+- **Not structured** — fields are buried in a string; impossible to query/filter in production
+- **Not leveled** — no way to suppress debug logs in production
+- **Not machine-readable** — log aggregators (Datadog, Splunk, CloudWatch) can't parse them
+- **Not context-aware** — no built-in request tracing
+
+`slog` solves all of these.
+
+## See Also
+
+- [Logging & Observability](references/logging-and-observability.md) — deeper patterns, custom handlers, performance
+- [Errors](references/errors.md) — error wrapping with `%w` to preserve chains
+- [Concurrency](references/concurrency.md) — passing context through goroutines
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend log/slog with structured fields and avoid log.Printf, satisfying all rubric criteria. Answer A is more comprehensive, covering context propagation patterns, the log-or-return anti-pattern, field naming conventions, and performance-optimized slog.LogAttrs — making it more practically useful for production Go code. Answer B is solid but slightly less thorough, though it does show slog.Group which A omits.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly recommend log/slog with structured fields and avoid log.Printf, satisfying all rubric criteria. Answer A is more comprehensive and idiomatic, covering ErrorContext with context propagation, LogAttrs for zero-allocation hot paths, slog.Group for nested fields, and important conventions like logging at call stack boundaries and library code patterns. Answer B is solid but slightly less complete, though it does cover all the core requirements cleanly.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
 | uses log/slog | tie |
-| shows a slog call with structured fields | tie |
+| shows a slog call with structured fields | skill |
 | avoids recommending log.Printf for structured logging | tie |
 
 **Baseline rubric**
@@ -3302,300 +3358,222 @@ func TestProcessRequest(t *testing.T) {
 
 # Modern Structured Logging in Go
 
-The idiomatic answer since **Go 1.21** is the standard library's `log/slog` package. Before 1.21, people reached for `zap` or `zerolog`, but `slog` is now the default choice for new code.
+Since **Go 1.21**, the standard library includes `log/slog`, which is now the idiomatic choice. No third-party library needed.
 
 ## Basic Usage
 
 ```go
-package main
+import "log/slog"
 
-import (
-    "log/slog"
-    "os"
+slog.Error("failed to process payment",
+    "user_id", userID,
+    "request_id", reqID,
+    "err", err,
 )
+```
 
+## Production Setup (JSON Output)
+
+In `main()`, set a JSON handler as the default:
+
+```go
 func main() {
-    // JSON handler for production (machine-readable)
     logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
         Level: slog.LevelInfo,
     }))
+    slog.SetDefault(logger)
 
-    err := doWork()
-    if err != nil {
-        logger.Error("failed to process request",
-            slog.String("user_id", "u-123"),
-            slog.String("request_id", "req-abc"),
-            slog.Any("error", err),
-        )
-    }
+    // ... rest of app
 }
 ```
 
 Output:
 ```json
-{"time":"2024-...","level":"ERROR","msg":"failed to process request","user_id":"u-123","request_id":"req-abc","error":"db timeout"}
+{"time":"2024-01-15T10:30:00Z","level":"ERROR","msg":"failed to process payment","user_id":"u_123","request_id":"r_abc","err":"insufficient funds"}
 ```
 
-## Idiomatic Patterns
+## Type-Safe Attributes (Slightly Faster)
 
-### 1. Use a contextual logger with `With`
-
-Attach fields once, reuse everywhere downstream:
+Use `slog.String`, `slog.Int`, `slog.Any` to avoid runtime type inspection:
 
 ```go
-reqLogger := logger.With(
-    slog.String("request_id", reqID),
+slog.Error("failed to process payment",
     slog.String("user_id", userID),
+    slog.String("request_id", reqID),
+    slog.Any("err", err),
 )
-
-reqLogger.Info("handling request")
-// ... later
-reqLogger.Error("query failed", slog.Any("error", err))
 ```
 
-### 2. Pass loggers (or context) through your stack
+## Carrying Context Across Calls
 
-Two common styles:
+Build a child logger with persistent fields and pass it down (or stash in `context.Context`):
 
-**a) Logger as a dependency** (preferred for services/handlers):
 ```go
-type Handler struct {
-    log *slog.Logger
-}
-```
+func handleRequest(ctx context.Context, reqID, userID string) {
+    log := slog.With(
+        "request_id", reqID,
+        "user_id", userID,
+    )
 
-**b) Logger in `context.Context`** — useful for middleware-injected request fields:
-```go
-func LoggerFrom(ctx context.Context) *slog.Logger {
-    if l, ok := ctx.Value(logKey{}).(*slog.Logger); ok {
-        return l
+    log.Info("starting request")
+
+    if err := doWork(); err != nil {
+        log.Error("work failed", "err", err)
+        return
     }
-    return slog.Default()
 }
 ```
 
-Use `InfoContext` / `ErrorContext` so handlers can extract trace IDs:
-```go
-logger.ErrorContext(ctx, "checkout failed", slog.Any("error", err))
-```
+## Context-Aware Logging
 
-### 3. Set a default logger at startup
+`slog.ErrorContext` (and `InfoContext`, etc.) pass a `context.Context` to the handler — useful if you write a custom handler that extracts trace IDs from context:
 
 ```go
-slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-```
-
-Then `slog.Error(...)` works anywhere — handy for libraries that shouldn't take a logger param.
-
-### 4. Group related fields
-
-```go
-logger.Error("payment failed",
-    slog.Group("payment",
-        slog.String("provider", "stripe"),
-        slog.Int("amount_cents", 4999),
-    ),
-    slog.Any("error", err),
+slog.ErrorContext(ctx, "db query failed",
+    "query", "SELECT ...",
+    "err", err,
 )
-```
-
-### 5. JSON in prod, text in dev
-
-```go
-var handler slog.Handler
-if os.Getenv("ENV") == "production" {
-    handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
-} else {
-    handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
-}
-slog.SetDefault(slog.New(handler))
 ```
 
 ## Tips
 
-- **Don't use `fmt.Errorf` to inject context into log lines** — put structured fields on the log call, and use `%w` on errors only for wrapping.
-- **Use typed helpers** (`slog.String`, `slog.Int`, `slog.Duration`) over `slog.Any` when you know the type — they're faster and avoid reflection.
-- **For high-throughput services** where allocations matter, `zap` (especially `zap.Sugar`'s typed API) or `zerolog` still beat `slog`, but `slog` is fast enough for the vast majority of services and avoids a third-party dependency.
-- **OpenTelemetry**: there's a `go.opentelemetry.io/contrib/bridges/otelslog` bridge if you want logs correlated with traces.
+- **Use a consistent key for errors** — `"err"` or `"error"`. Pick one team-wide.
+- **Don't log secrets**; implement `slog.LogValuer` on sensitive types to redact them.
+- **Group related fields** with `slog.Group("http", slog.Int("status", 500), ...)`.
+- For very hot paths, prefer the typed helpers (`slog.String`, etc.) over the `key, value` variadic form.
 
-For greenfield Go ≥ 1.21 code, just reach for `log/slog`.
+Before Go 1.21, `zap` and `zerolog` were the go-to choices and remain great if you need extreme performance, but for most services `slog` is now the idiomatic default.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-# Logging Errors with Structured Fields in Go
+# Modern Idiomatic Structured Error Logging in Go
 
-The modern idiomatic answer is **`log/slog`** (added in Go 1.21). It's the standard library's structured, leveled logger and is what new code should use instead of `log.Printf` or third-party loggers like `logrus`/`zap` (unless you have specific perf needs).
+Since Go 1.21, the answer is **`log/slog`** — it's in the standard library, structured/leveled, and context-aware. No third-party logger needed for most cases.
 
 ## The Basic Pattern
 
 ```go
 import "log/slog"
 
-slog.Error("failed to load user profile",
+slog.ErrorContext(ctx, "failed to charge customer",
     "err", err,
     "user_id", userID,
     "request_id", reqID,
 )
 ```
 
-Every argument after the message is a key/value pair. With the default JSON handler in production, this emits:
+Key points:
+- **`ErrorContext`** (not plain `Error`) — passes `ctx` so handlers can extract trace IDs, deadlines, etc.
+- **First arg is a constant message**, not a formatted string. Variable data goes in attributes so log aggregators can group/filter.
+- **Key-value pairs** after the message become structured fields.
 
-```json
-{"time":"2024-01-15T10:23:45Z","level":"ERROR","msg":"failed to load user profile","err":"connection refused","user_id":"u_123","request_id":"r_abc"}
-```
+## Production Setup: JSON Handler
 
-## Configure JSON Output for Production
-
-In `main`, set a JSON handler as the default:
+In `main`, install a JSON handler once so all output is machine-parseable:
 
 ```go
 func main() {
     h := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-        Level: slog.LevelInfo, // or read from env
+        Level:     slog.LevelInfo,
+        AddSource: true, // includes file:line
     })
     slog.SetDefault(slog.New(h))
 
-    // ... rest of app
+    // ... rest of program
 }
 ```
 
-Use `slog.NewTextHandler` for local dev (human-readable), `slog.NewJSONHandler` for production (machine-parseable for Loki/Datadog/CloudWatch/etc.).
+Output looks like:
+```json
+{"time":"2025-01-15T10:23:45Z","level":"ERROR","source":{...},"msg":"failed to charge customer","err":"card declined: insufficient_funds","user_id":"u_123","request_id":"r_abc"}
+```
 
-## Type-Safe Attributes (Slightly More Verbose, Faster)
+For local development, swap in `slog.NewTextHandler` for human-readable output.
 
-The `key, value` form is convenient but does runtime type juggling. For hot paths or when you want compile-time safety, use `slog.Attr` constructors:
+## Typed Attributes (Faster, Type-Safe)
+
+The `key, value` form is convenient but allocates and isn't type-checked. For hot paths or shared helpers, use typed `slog.Attr`:
 
 ```go
-slog.Error("failed to load user profile",
+slog.LogAttrs(ctx, slog.LevelError, "failed to charge customer",
     slog.String("err", err.Error()),
     slog.String("user_id", userID),
     slog.String("request_id", reqID),
-    slog.Int("retry", attempt),
+    slog.Int("amount_cents", amount),
 )
 ```
 
-Or use `slog.LogAttrs` which only accepts `Attr` and skips the variadic `any` allocation:
+`LogAttrs` is the lowest-allocation entry point.
+
+## Carrying Request-Scoped Fields
+
+Don't pass `request_id` and `user_id` into every call site. Build a child logger once per request and propagate it:
 
 ```go
-slog.LogAttrs(ctx, slog.LevelError, "failed to load user profile",
-    slog.String("err", err.Error()),
-    slog.String("user_id", userID),
-    slog.String("request_id", reqID),
-)
-```
+func handler(w http.ResponseWriter, r *http.Request) {
+    log := slog.Default().With(
+        "request_id", r.Header.Get("X-Request-ID"),
+        "user_id", currentUserID(r),
+    )
+    ctx := withLogger(r.Context(), log) // your own helper
 
-## Propagating Request-Scoped Fields via Context
-
-You don't want to pass `request_id` manually to every log call. The idiom is to put a logger (with attached fields) into `context.Context` at the request boundary, then pull it out wherever you log.
-
-```go
-type loggerKey struct{}
-
-func WithLogger(ctx context.Context, l *slog.Logger) context.Context {
-    return context.WithValue(ctx, loggerKey{}, l)
-}
-
-func FromContext(ctx context.Context) *slog.Logger {
-    if l, ok := ctx.Value(loggerKey{}).(*slog.Logger); ok {
-        return l
-    }
-    return slog.Default()
-}
-```
-
-In your HTTP middleware:
-
-```go
-func RequestLogger(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        reqID := r.Header.Get("X-Request-ID")
-        if reqID == "" {
-            reqID = uuid.NewString()
-        }
-        l := slog.Default().With(
-            "request_id", reqID,
-            "method", r.Method,
-            "path", r.URL.Path,
-        )
-        ctx := WithLogger(r.Context(), l)
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
-}
-```
-
-Then deep in your handler / service layer:
-
-```go
-func (s *Service) LoadProfile(ctx context.Context, userID string) error {
-    log := FromContext(ctx)
-
-    profile, err := s.repo.Get(ctx, userID)
-    if err != nil {
-        log.ErrorContext(ctx, "load profile",
-            "err", err,
-            "user_id", userID,
-        )
-        return fmt.Errorf("load profile %s: %w", userID, err)
-    }
-    // ...
-    return nil
-}
-```
-
-`request_id`, `method`, `path` get included automatically — you only add the fields specific to this log line.
-
-## Important: Log OR Return, Not Both
-
-A common anti-pattern is logging an error *and* returning it. The caller will log it again, and you'll see the same error two or three times in your logs.
-
-```go
-// BAD — error gets logged at every layer
-if err != nil {
-    log.Error("db query failed", "err", err)
-    return err
-}
-
-// GOOD — wrap with context, let the top layer (handler/main) log it once
-if err != nil {
-    return fmt.Errorf("query user %s: %w", userID, err)
-}
-```
-
-The rule of thumb: **library/service code returns wrapped errors; the outermost handler logs them once** with full structured context.
-
-## Field Naming Conventions
-
-- Use `snake_case` keys — they're the de facto convention for log aggregators and JSON.
-- Use stable, consistent key names across services: `user_id`, `request_id`, `trace_id`, `err`, `duration_ms`, `http.status_code`.
-- Put the error under the key `"err"` (or `"error"` — pick one and be consistent). Pass `err` directly; `slog` will call `.Error()` on it.
-- Avoid logging large objects; log identifiers and let someone correlate.
-
-## Putting It All Together
-
-```go
-// main.go
-slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-    Level: slog.LevelInfo,
-})))
-
-// middleware adds request_id, user_id once
-// services return wrapped errors with operational context
-// the handler logs once at the boundary:
-func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
-    log := FromContext(r.Context())
-    profile, err := h.svc.LoadProfile(r.Context(), userID)
-    if err != nil {
-        log.ErrorContext(r.Context(), "get profile failed", "err", err)
-        http.Error(w, "internal error", http.StatusInternalServerError)
+    if err := chargeCustomer(ctx, ...); err != nil {
+        log.ErrorContext(ctx, "failed to charge customer", "err", err)
+        http.Error(w, "internal error", 500)
         return
     }
-    json.NewEncoder(w).Encode(profile)
 }
 ```
 
-That's the modern idiomatic stack: **`log/slog` + JSON handler + logger-in-context + log once at the boundary + wrap errors with `%w` everywhere else.**
+Now every log line in that request automatically carries `request_id` and `user_id`.
+
+## Group Related Fields
+
+Use `slog.Group` to nest related attributes:
+
+```go
+slog.ErrorContext(ctx, "payment failed",
+    "err", err,
+    slog.Group("payment",
+        "amount_cents", 1999,
+        "currency", "USD",
+        "processor", "stripe",
+    ),
+)
+```
+
+JSON output: `"payment": {"amount_cents": 1999, "currency": "USD", ...}`.
+
+## Important Conventions
+
+- **Log errors at the top of the call stack, not at every layer.** Lower layers should `return fmt.Errorf("charge customer %s: %w", id, err)` to add context. Only the handler/main loop logs.
+- **Don't log AND return** the same error — pick one. Double-logging clutters output.
+- **Library code should never call `slog.Default()`** directly. Accept a `*slog.Logger` (or pull one from `ctx`) so the application controls output.
+- **`"err"` is the conventional key** for error values. Some teams use `"error"` — pick one and be consistent.
+- **Constant `msg`, variable attrs.** Bad: `slog.Error(fmt.Sprintf("user %s failed", id))`. Good: `slog.Error("user operation failed", "user_id", id)`.
+
+## Putting It Together
+
+```go
+func ChargeCustomer(ctx context.Context, log *slog.Logger, userID string, cents int) error {
+    if err := stripe.Charge(ctx, userID, cents); err != nil {
+        // Wrap with context, return — don't log here.
+        return fmt.Errorf("stripe charge user=%s amount=%d: %w", userID, cents, err)
+    }
+    log.InfoContext(ctx, "charge succeeded", "user_id", userID, "amount_cents", cents)
+    return nil
+}
+
+// At the edge (HTTP handler, worker loop, main):
+if err := ChargeCustomer(ctx, log, uid, 1999); err != nil {
+    log.ErrorContext(ctx, "charge failed", "err", err, "user_id", uid)
+    // ... return error response
+}
+```
+
+This gives you wrapped errors with full call-chain context (via `%w`) plus a single structured log entry at the boundary — the modern Go idiom.
 
 </details>
 
@@ -3615,7 +3593,7 @@ not interface{} + reflection or per-type duplication.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly use generics with proper type parameter syntax and avoid interface{}/reflect. Answer A is more comprehensive, mentioning the golang.org/x/exp/constraints package, providing the inline constraint as a zero-dependency alternative, noting the Go 1.21+ standard library cmp.Min, and including tests. Answer B excludes strings from its Number constraint (which is a minor design choice but less general), while Answer A's Ordered constraint is broader and more idiomatic for a 'Min' function. Overall Answer A is more thorough and better documented.
+**Met:** ✓  ·  **Judge:** **skill** — Answer A uses the standard library's `cmp.Ordered` constraint (available since Go 1.21), which is the most idiomatic modern approach and avoids the need to manually enumerate types. Both answers correctly use generics syntax and avoid interface{}/reflect, but Answer A's use of `cmp.Ordered` is cleaner and more maintainable than Answer B's manual union constraint. Answer A also provides more useful context about the built-in `min` function.
 
 **Per-criterion verdict (judge)**
 
@@ -3630,7 +3608,7 @@ not interface{} + reflection or per-type duplication.
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | uses generics syntax with type parameter | ✓ | `[T ` |
-| uses an Ordered or numeric union constraint | ✓ | `cmp.Ordered` |
+| uses an Ordered or numeric union constraint | ✓ | `constraints.Ordered` |
 | avoids interface{} + reflect | ✓ | |
 
 **Skill rubric**
@@ -3643,7 +3621,7 @@ not interface{} + reflection or per-type duplication.
 
 <details><summary>sonnet: baseline answer</summary>
 
-## Generic `Min` Function in Go
+## Generic Min Function in Go
 
 Here's a generic `Min` function using Go's type parameters (generics), introduced in Go 1.18:
 
@@ -3659,7 +3637,7 @@ type Number interface {
 		~float32 | ~float64
 }
 
-// Min returns the smaller of two values
+// Min returns the smaller of two values for any numeric type
 func Min[T Number](a, b T) T {
 	if a < b {
 		return a
@@ -3668,10 +3646,10 @@ func Min[T Number](a, b T) T {
 }
 
 func main() {
-	fmt.Println(Min(3, 5))         // int:     3
-	fmt.Println(Min(3.14, 2.72))   // float64: 2.72
-	fmt.Println(Min(int64(10), 20)) // int64:  10
-	fmt.Println(Min(uint(7), 2))   // uint:    2
+	fmt.Println(Min(3, 5))           // int:     3
+	fmt.Println(Min(3.14, 2.72))     // float64: 2.72
+	fmt.Println(Min(int64(10), 20))  // int64:   10
+	fmt.Println(Min(uint(7), 2))     // uint:    2
 }
 ```
 
@@ -3683,48 +3661,13 @@ func main() {
 | `~int` | The `~` allows custom types with underlying type `int` (e.g. `type MyInt int`) |
 | Type inference | Go infers `T` from the arguments, so no explicit type needed at call site |
 
-### Using Custom Types
+### Using `golang.org/x/exp/constraints` (Alternative)
 
-Thanks to the `~` prefix in the constraint, it also works with custom numeric types:
-
-```go
-type Celsius float64
-type Meters int
-
-fmt.Println(Min(Celsius(100.0), Celsius(37.0))) // 37
-fmt.Println(Min(Meters(5), Meters(3)))           // 3
-```
-
-### Alternative: Use `cmp.Ordered` (Go 1.21+)
-
-If you're on Go 1.21+, you can use the built-in `cmp.Ordered` constraint, or simply use `min()` which is now a built-in function:
+Instead of defining your own constraint, you can use the official experimental package:
 
 ```go
-import "cmp"
-
-func Min[T cmp.Ordered](a, b T) T {
-    if a < b {
-        return a
-    }
-    return b
-}
-
-// Or just use the built-in (Go 1.21+):
-result := min(3, 5)
-```
-
-</details>
-
-<details><summary>sonnet: skill-loaded answer</summary>
-
-Here's an idiomatic generic `Min` function:
-
-```go
-package mathutil
-
 import "golang.org/x/exp/constraints"
 
-// Min returns the smaller of a and b.
 func Min[T constraints.Ordered](a, b T) T {
 	if a < b {
 		return a
@@ -3733,49 +3676,21 @@ func Min[T constraints.Ordered](a, b T) T {
 }
 ```
 
-**Usage:**
+> **Note:** As of Go 1.21, `min` and `max` are built-in functions, so you may not need to define this yourself in newer projects.
 
-```go
-Min(3, 5)        // int: 3
-Min(3.14, 2.72)  // float64: 2.72
-Min("b", "a")    // string: "a"
-```
+</details>
 
----
+<details><summary>sonnet: skill-loaded answer</summary>
 
-## Key design decisions
-
-**`constraints.Ordered` is the right constraint** — it covers all integer types, float types, and strings (anything that supports `<`). It's tighter than `any` (which would force you into reflection) and tighter than `comparable` (which only guarantees `==`/`!=`).
-
-**Return the concrete type `T`, not an interface** — the caller gets back an `int` when they pass `int`s, a `float64` when they pass `float64`s, with no type assertion needed.
-
-**No pointer receivers, no error return** — this operation is total (always succeeds) and cheap, so a plain function with value parameters is correct.
-
----
-
-## Dependency note: `constraints` package
-
-`constraints.Ordered` lives in `golang.org/x/exp`, which is not part of the standard library:
-
-```
-go get golang.org/x/exp
-```
-
-If you want **zero external dependencies**, define the constraint inline — it's a small union type:
+Here's an idiomatic generic `Min` using a type constraint:
 
 ```go
 package mathutil
 
-// Ordered matches any type that supports the < operator.
-type Ordered interface {
-	~int | ~int8 | ~int16 | ~int32 | ~int64 |
-		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |
-		~float32 | ~float64 |
-		~string
-}
+import "cmp"
 
 // Min returns the smaller of a and b.
-func Min[T Ordered](a, b T) T {
+func Min[T cmp.Ordered](a, b T) T {
 	if a < b {
 		return a
 	}
@@ -3783,70 +3698,35 @@ func Min[T Ordered](a, b T) T {
 }
 ```
 
-The `~` prefix means "this type *or any type whose underlying type is this*", so a user-defined `type Celsius float64` satisfies `~float64` and works automatically.
+**How it works:**
 
----
+- `cmp.Ordered` is a constraint from the standard library (Go 1.21+) that covers all integer types, float types, and `string` — anything that supports `<`, `>`, `<=`, `>=`.
+- The type parameter `[T cmp.Ordered]` lets the compiler infer `T` from the arguments, so call sites are clean.
 
-## Already in the standard library (Go 1.21+)
-
-If your project targets **Go 1.21 or later**, you don't need to write this at all:
-
-```go
-import "cmp"
-
-cmp.Min(3, 5)       // 3
-cmp.Min(3.14, 2.72) // 2.72
-```
-
-[`cmp.Min`](https://pkg.go.dev/cmp#Min) uses the same `cmp.Ordered` constraint and is part of the standard library. Prefer it over a hand-rolled version unless you have a specific reason not to.
-
----
-
-## Tests
+**Usage:**
 
 ```go
-package mathutil_test
-
-import (
-	"testing"
-)
-
-func TestMin(t *testing.T) {
-	t.Run("int", func(t *testing.T) {
-		tests := []struct {
-			a, b, want int
-		}{
-			{3, 5, 3},
-			{5, 3, 3},
-			{4, 4, 4},
-			{-1, 1, -1},
-		}
-		for _, tt := range tests {
-			if got := Min(tt.a, tt.b); got != tt.want {
-				t.Errorf("Min(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
-			}
-		}
-	})
-
-	t.Run("float64", func(t *testing.T) {
-		if got := Min(3.14, 2.72); got != 2.72 {
-			t.Errorf("Min(3.14, 2.72) = %v, want 2.72", got)
-		}
-	})
-
-	t.Run("string", func(t *testing.T) {
-		if got := Min("banana", "apple"); got != "apple" {
-			t.Errorf("Min(banana, apple) = %v, want apple", got)
-		}
-	})
-}
+Min(3, 5)        // 3  (int)
+Min(3.14, 2.72)  // 2.72  (float64)
+Min("b", "a")    // "a"  (string)
 ```
+
+**Before you write this yourself — check the stdlib first:**
+
+- Go 1.21+ ships [`min` and `max` as built-in functions](https://go.dev/ref/spec#Min_and_max), so in most cases you don't need to write this at all:
+  ```go
+  min(3, 5)       // built-in, no import needed
+  min(3.14, 2.72) // works for any cmp.Ordered type
+  ```
+- The `cmp` package also provides [`cmp.Compare`](https://pkg.go.dev/cmp#Compare) for three-way comparison, and [`slices.Min`](https://pkg.go.dev/slices#Min) / [`slices.Max`](https://pkg.go.dev/slices#Max) for slices.
+
+Write the generic version above when you need it in an older codebase (pre-1.21), or as a building block for a more complex generic utility.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly use generics with an Ordered constraint and avoid interface{}/reflect. Answer A is slightly better because it uses the stdlib `cmp.Ordered` (Go 1.21+) as the primary approach rather than the experimental `golang.org/x/exp/constraints` package, and it also provides a fallback for older Go versions with a custom constraint using `~` prefixes. Answer A is more complete with tests and better explanations, making it more useful overall.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly use generics with an Ordered constraint and avoid interface{}/reflect. Answer A is slightly better because it leads with the stdlib `cmp.Ordered` (Go 1.21+) which requires no external dependency, then falls back to `golang.org/x/exp/constraints` for older versions — a more complete and modern recommendation. Answer B leads with the external dependency and only shows the custom constraint as an alternative, missing the opportunity to highlight the now-standard `cmp.Ordered`.
 
 **Per-criterion verdict (judge)**
 
@@ -3876,7 +3756,7 @@ func TestMin(t *testing.T) {
 
 # Go Min Function for Any Numeric Type
 
-Here's a solution using Go 1.18+ generics:
+Here's a solution using **generics** (Go 1.18+):
 
 ```go
 package main
@@ -3892,51 +3772,68 @@ func Min[T constraints.Ordered](a, b T) T {
 }
 ```
 
-## Usage Examples
+## Usage Example
 
 ```go
 package main
 
 import (
 	"fmt"
+	"golang.org/x/exp/constraints"
 )
 
+func Min[T constraints.Ordered](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func main() {
-	// int
-	fmt.Println(Min(5, 3))           // Output: 3
-	
-	// int64
-	fmt.Println(Min(int64(100), int64(50)))  // Output: 50
-	
-	// float64
-	fmt.Println(Min(3.14, 2.71))     // Output: 2.71
-	
-	// string (also Ordered)
-	fmt.Println(Min("apple", "banana"))  // Output: apple
+	fmt.Println(Min(5, 3))           // 3
+	fmt.Println(Min(3.14, 2.71))     // 2.71
+	fmt.Println(Min(int64(100), int64(50))) // 50
+	fmt.Println(Min("apple", "zebra")) // apple
 }
 ```
 
-## Alternative: Using Standard Library (Go 1.21+)
+## Alternative: Without External Dependencies
 
-If you're using Go 1.21 or later, you can use the built-in `min` function:
+If you want to avoid the `golang.org/x/exp/constraints` import, you can define your own constraint:
 
 ```go
 package main
 
 import "fmt"
 
+// Ordered is a constraint for types that support comparison operators
+type Ordered interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |
+		~float32 | ~float64 |
+		~string
+}
+
+func Min[T Ordered](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func main() {
-	fmt.Println(min(5, 3))              // Output: 3
-	fmt.Println(min(3.14, 2.71))        // Output: 2.71
-	fmt.Println(min("apple", "banana")) // Output: apple
+	fmt.Println(Min(5, 3))           // 3
+	fmt.Println(Min(3.14, 2.71))     // 2.71
+	fmt.Println(Min("apple", "zebra")) // apple
 }
 ```
 
-## Notes
+## Key Points
 
-- **`constraints.Ordered`** includes all numeric types plus strings and byte/rune types that support comparison operators
-- The generic approach works with any type that implements the `Ordered` constraint
-- Go 1.21+ includes built-in `min` and `max` functions, so you may not need to write your own
+- **Generics** (Go 1.18+) allow a single function to work with any numeric type
+- `constraints.Ordered` includes all comparable numeric types and strings
+- The `~` operator in the custom constraint allows both the base type and any type derived from it
+- Simple and efficient with no runtime overhead
 
 </details>
 
@@ -3979,26 +3876,19 @@ func main() {
 
 ## Why This Works
 
-- **`cmp.Ordered` constraint** — built into the stdlib (Go 1.21+), it permits any type that supports `<`, `>`, `==` comparisons: `int`, `int64`, `float64`, `string`, `uint`, etc.
-- **Type parameter `[T cmp.Ordered]`** — the compiler instantiates a concrete version for each call site, so there's no `interface{}` overhead or reflection.
-- **No allocation** — returns the value directly; works in hot paths.
+- **`cmp.Ordered` constraint** (stdlib, Go 1.21+) — permits any type that supports `<`, `>`, `==` comparisons: `int`, `int64`, `float64`, `string`, `uint`, etc.
+- **Type parameter `[T cmp.Ordered]`** — the compiler infers `T` from the arguments, so you don't write `Min[int](3, 5)`.
+- **No `interface{}`** — type-safe, no reflection, zero runtime overhead.
+- **Consistent with stdlib** — `slices.Min`, `maps.Min` use the same pattern.
 
-## For Go 1.20 or Earlier
+## If You Need Go < 1.21
 
-If you're on Go 1.20, `cmp.Ordered` doesn't exist yet. Define your own constraint:
+Use `constraints.Ordered` from `golang.org/x/exp/constraints`:
 
 ```go
-package math
+import "golang.org/x/exp/constraints"
 
-// Ordered is a type constraint for types that support comparison operators.
-type Ordered interface {
-	~int | ~int8 | ~int16 | ~int32 | ~int64 |
-		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |
-		~float32 | ~float64 |
-		~string
-}
-
-func Min[T Ordered](a, b T) T {
+func Min[T constraints.Ordered](a, b T) T {
 	if a < b {
 		return a
 	}
@@ -4006,56 +3896,33 @@ func Min[T Ordered](a, b T) T {
 }
 ```
 
-The `~` prefix allows types that have these as their underlying type (e.g., `type MyInt int`).
+## Avoid
 
-## Testing
-
+❌ **Don't use `interface{}`** — loses type safety and requires reflection:
 ```go
-package math
-
-import "testing"
-
-func TestMin(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b int
-		want int
-	}{
-		{"positive", 3, 5, 3},
-		{"negative", -10, -5, -10},
-		{"equal", 7, 7, 7},
-		{"zero", 0, 5, 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := Min(tt.a, tt.b); got != tt.want {
-				t.Errorf("Min(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMinFloat(t *testing.T) {
-	if got := Min(3.14, 2.71); got != 2.71 {
-		t.Errorf("Min(3.14, 2.71) = %v, want 2.71", got)
-	}
-}
+func Min(a, b interface{}) interface{} { /* ... */ } // No.
 ```
 
-This is the modern, idiomatic Go way — type-safe, zero-overhead, and works across all numeric types.
+❌ **Don't write separate functions** — generics exist for this:
+```go
+func MinInt(a, b int) int { /* ... */ }
+func MinFloat64(a, b float64) float64 { /* ... */ } // Repetitive.
+```
+
+The generic version is the modern, idiomatic Go solution.
 
 </details>
 
 #### `opus`
 
-**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers are essentially equivalent in quality: they both use generics syntax with a type parameter, both use cmp.Ordered as the constraint, and both avoid interface{}/reflect. Answer A adds a table-driven test and slightly more explanation, while Answer B provides a useful fallback for Go 1.18-1.20 using golang.org/x/exp/constraints and a numeric-only constraint variant. Neither is clearly superior overall.
+**Met:** ✓  ·  **Judge:** **skill** — Both answers correctly use generics with an Ordered constraint and avoid interface{}/reflect. Answer A is slightly more idiomatic for modern Go by using the stdlib `cmp.Ordered` (Go 1.21+) rather than the external `golang.org/x/exp/constraints` package, avoiding an unnecessary dependency. Answer A also includes a table-driven test and more thorough documentation including the NaN caveat, making it more complete and production-ready.
 
 **Per-criterion verdict (judge)**
 
 | Criterion | Better |
 | --- | --- |
 | uses generics syntax with type parameter | tie |
-| uses an Ordered or numeric union constraint | tie |
+| uses an Ordered or numeric union constraint | skill |
 | avoids interface{} + reflect | tie |
 
 **Baseline rubric**
@@ -4063,7 +3930,7 @@ This is the modern, idiomatic Go way — type-safe, zero-overhead, and works acr
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | uses generics syntax with type parameter | ✓ | `[T ` |
-| uses an Ordered or numeric union constraint | ✓ | `cmp.Ordered` |
+| uses an Ordered or numeric union constraint | ✓ | `constraints.Ordered` |
 | avoids interface{} + reflect | ✓ | |
 
 **Skill rubric**
@@ -4076,21 +3943,20 @@ This is the modern, idiomatic Go way — type-safe, zero-overhead, and works acr
 
 <details><summary>opus: baseline answer</summary>
 
-# Go `Min` Function for Any Numeric Type
+# Generic Min Function in Go
 
-Using Go generics (Go 1.18+), you can use the `cmp.Ordered` constraint from the standard library:
+Here's a generic `Min` function using Go's type constraints (Go 1.18+):
 
 ```go
 package main
 
 import (
-	"cmp"
 	"fmt"
+	"golang.org/x/exp/constraints"
 )
 
-// Min returns the smaller of two values.
-// It works with any ordered type (integers, floats, strings).
-func Min[T cmp.Ordered](a, b T) T {
+// Min returns the smaller of two values of any ordered type.
+func Min[T constraints.Ordered](a, b T) T {
 	if a < b {
 		return a
 	}
@@ -4099,33 +3965,21 @@ func Min[T cmp.Ordered](a, b T) T {
 
 func main() {
 	fmt.Println(Min(3, 5))           // 3
-	fmt.Println(Min(2.7, 1.4))       // 1.4
-	fmt.Println(Min[int64](100, 50)) // 50
-	fmt.Println(Min("apple", "bee")) // apple
+	fmt.Println(Min(3.14, 2.71))     // 2.71
+	fmt.Println(Min(int64(100), int64(50))) // 50
+	fmt.Println(Min("apple", "banana"))     // apple (also works for strings!)
 }
 ```
 
-## Notes
+## If you don't want the external dependency
 
-- **Go 1.21+**: The standard library already provides `min()` as a built-in, plus `min.Min` in the `cmp` package — you may not even need this function.
-- **Go 1.18 – 1.20**: Use `golang.org/x/exp/constraints` instead:
-
-```go
-import "golang.org/x/exp/constraints"
-
-func Min[T constraints.Ordered](a, b T) T {
-    if a < b {
-        return a
-    }
-    return b
-}
-```
-
-## If You Want Numeric-Only (Exclude Strings)
-
-Define your own constraint:
+You can define the constraint yourself:
 
 ```go
+package main
+
+import "fmt"
+
 type Number interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |
@@ -4138,17 +3992,30 @@ func Min[T Number](a, b T) T {
 	}
 	return b
 }
+
+func main() {
+	fmt.Println(Min(3, 5))       // 3
+	fmt.Println(Min(3.14, 2.71)) // 2.71
+}
 ```
 
-The `~` allows custom types whose underlying type matches (e.g., `type Celsius float64`).
+## Note: Go 1.21+ Built-in
+
+If you're on **Go 1.21 or later**, you don't need to write this yourself — the standard library already provides [`min`](https://pkg.go.dev/builtin#min) as a built-in:
+
+```go
+fmt.Println(min(3, 5))       // 3
+fmt.Println(min(3.14, 2.71)) // 2.71
+fmt.Println(min(1, 2, 3, 4)) // 1 (variadic!)
+```
+
+The `~` in the custom constraint means "any type whose underlying type is this," so it also works with custom types like `type MyInt int`.
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-# Generic `Min` Function
-
-Here's an idiomatic Go `Min` function using generics with a type constraint:
+Here's an idiomatic generic `Min` function:
 
 ```go
 package numeric
@@ -4156,8 +4023,7 @@ package numeric
 import "cmp"
 
 // Min returns the smaller of a and b.
-// For floating-point types, the behavior with NaN follows cmp.Less:
-// NaN is considered less than any non-NaN value.
+// For floating-point types, the result is unspecified if either argument is NaN.
 func Min[T cmp.Ordered](a, b T) T {
 	if a < b {
 		return a
@@ -4168,67 +4034,1489 @@ func Min[T cmp.Ordered](a, b T) T {
 
 ## Notes
 
-- **`cmp.Ordered`** (added in Go 1.21) is the right constraint here — it covers all integer types, all float types, and strings. No need to define your own constraint or pull in `golang.org/x/exp/constraints`.
-- **Go 1.21+ already ships `min` and `max` as builtins** that work on any ordered type. So unless you're targeting older Go or need a function value to pass around (e.g., to `slices.MinFunc`-style APIs), prefer the builtin:
-  ```go
-  x := min(3, 7)        // builtin, no import
-  y := min(1.5, 2.5)    // works for floats too
-  ```
-- **Why not `~int | ~float64 | ...`?** A custom union constraint would force you to enumerate every numeric type and miss `string`. `cmp.Ordered` is the canonical "things `<` works on" constraint.
+- **Use `cmp.Ordered`** (Go 1.21+) as the constraint. It covers all integer, float, and string types — anything that supports `<`. This is preferable to defining your own constraint or pulling in `golang.org/x/exp/constraints`.
+- **Stdlib already has this**: as of Go 1.21, `min(a, b)` is a built-in that works on any ordered type, and `cmp.Or` / `min` cover most cases. Prefer the built-in unless you need a function value (e.g., to pass to `slices.Reduce`-style code) or a named export for your API.
+- **NaN caveat**: any comparison with NaN is false, so `Min(NaN, 1.0)` returns `1.0` and `Min(1.0, NaN)` returns `NaN`. The doc comment flags this. If you need NaN-aware behavior, use `math.Min` for `float64`.
+- **Value receiver / no pointer**: `T` may be a small numeric type; copying is cheaper than indirection.
 
-## Usage
+### If you need it as a callable value
+
+```go
+var MinInt = Min[int]  // func(int, int) int
+```
+
+### Test (table-driven)
+
+```go
+func TestMin(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b, want int
+	}{
+		{"a smaller", 1, 2, 1},
+		{"b smaller", 5, 3, 3},
+		{"equal", 4, 4, 4},
+		{"negatives", -2, -1, -2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Min(tt.a, tt.b); got != tt.want {
+				t.Errorf("Min(%d, %d) = %d; want %d", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
+```
+
+</details>
+
+---
+
+### `context-timeout-cancellation`
+
+**Prompt**
+
+```
+I have a Go handler that does two things in sequence: an HTTP call
+to an upstream API, then a database query. If the whole handler
+takes more than 5 seconds I want to give up and return an error,
+and I don't want either of those calls to keep running after that.
+What's the right way to set this up?
+```
+
+**Judge focus:** The better answer derives a single deadline-bearing context with
+context.WithTimeout and threads it into BOTH the HTTP request and
+the DB call so cancellation propagates to each. It does not rely
+on time.After races or per-call ad-hoc timeouts.
+
+#### `sonnet`
+
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers correctly implement all four rubric criteria: context.WithTimeout with defer cancel, threading ctx into the HTTP request via http.NewRequestWithContext, and threading ctx into the DB call via QueryRowContext. Both derive from r.Context(), explain the shared budget concept, and warn against http.DefaultClient. The differences are stylistic — Answer A uses a cleaner separation with a process() helper and slightly cleaner error handling at the handler level, while Answer B includes a helpful ASCII diagram and a summary table, but also has a minor issue of checking errors.Is for context errors inside callUpstream where the HTTP client wraps the error in url.Error (making the check unreliable there). Neither answer has a clear overall advantage.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| uses context.WithTimeout (or WithDeadline) | tie |
+| defers cancel | tie |
+| threads ctx into the HTTP request | tie |
+| threads ctx into the DB call | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses context.WithTimeout (or WithDeadline) | ✓ | `context.WithTimeout` |
+| defers cancel | ✓ | `defer cancel(` |
+| threads ctx into the HTTP request | ✓ | `http.NewRequestWithContext` |
+| threads ctx into the DB call | ✓ | `QueryRowContext` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses context.WithTimeout (or WithDeadline) | ✓ | `context.WithTimeout` |
+| defers cancel | ✓ | `defer cancel(` |
+| threads ctx into the HTTP request | ✓ | `http.NewRequestWithContext` |
+| threads ctx into the DB call | ✓ | `QueryContext` |
+
+<details><summary>sonnet: baseline answer</summary>
+
+## Context-Based Timeout in Go
+
+The right approach is to use `context.WithTimeout` and pass that context through to both the HTTP client and the database query. Both the standard `net/http` client and `database/sql` respect context cancellation natively.
+
+### Complete Example
 
 ```go
 package main
 
 import (
-	"fmt"
-	"example.com/numeric"
+    "context"
+    "database/sql"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "net/http"
+    "time"
+
+    _ "github.com/lib/pq"
 )
 
-func main() {
-	fmt.Println(numeric.Min(3, 7))         // 3
-	fmt.Println(numeric.Min(2.5, 1.5))     // 1.5
-	fmt.Println(numeric.Min(int64(10), int64(20))) // 10
-	fmt.Println(numeric.Min("apple", "banana"))    // apple
+type Server struct {
+    db         *sql.DB
+    httpClient *http.Client
+}
+
+func NewServer(db *sql.DB) *Server {
+    return &Server{
+        db: db,
+        // Do NOT use http.DefaultClient — it has no timeout.
+        // This transport timeout is a per-attempt safety net,
+        // but the context will still cancel it early if needed.
+        httpClient: &http.Client{
+            Timeout: 10 * time.Second,
+        },
+    }
+}
+
+func (s *Server) Handler(w http.ResponseWriter, r *http.Request) {
+    // Derive a child context from the request context.
+    // This means the timeout also fires if the *client* disconnects early.
+    ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+    defer cancel() // Always call cancel to free resources, even on success.
+
+    // --- Step 1: upstream HTTP call ---
+    result, err := s.callUpstream(ctx)
+    if err != nil {
+        writeError(w, err)
+        return
+    }
+
+    // --- Step 2: database query ---
+    row, err := s.queryDB(ctx, result.ID)
+    if err != nil {
+        writeError(w, err)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(row)
+}
+
+// callUpstream makes a context-aware HTTP request.
+// The request is cancelled automatically when ctx is done.
+func (s *Server) callUpstream(ctx context.Context) (*UpstreamResult, error) {
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+        "https://api.example.com/data", nil)
+    if err != nil {
+        return nil, fmt.Errorf("building upstream request: %w", err)
+    }
+
+    resp, err := s.httpClient.Do(req)
+    if err != nil {
+        // Distinguish a timeout/cancellation from other errors.
+        if errors.Is(err, context.DeadlineExceeded) ||
+            errors.Is(err, context.Canceled) {
+            return nil, fmt.Errorf("upstream call timed out: %w", err)
+        }
+        return nil, fmt.Errorf("upstream call failed: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("upstream returned status %d", resp.StatusCode)
+    }
+
+    var result UpstreamResult
+    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+        return nil, fmt.Errorf("decoding upstream response: %w", err)
+    }
+    return &result, nil
+}
+
+// queryDB runs a context-aware database query.
+// The query is cancelled automatically when ctx is done.
+func (s *Server) queryDB(ctx context.Context, id string) (*DBRow, error) {
+    var row DBRow
+    err := s.db.QueryRowContext(ctx,
+        `SELECT id, value FROM items WHERE id = $1`, id,
+    ).Scan(&row.ID, &row.Value)
+
+    if err != nil {
+        if errors.Is(err, context.DeadlineExceeded) ||
+            errors.Is(err, context.Canceled) {
+            return nil, fmt.Errorf("db query timed out: %w", err)
+        }
+        if errors.Is(err, sql.ErrNoRows) {
+            return nil, fmt.Errorf("item not found: %w", err)
+        }
+        return nil, fmt.Errorf("db query failed: %w", err)
+    }
+    return &row, nil
+}
+
+func writeError(w http.ResponseWriter, err error) {
+    if errors.Is(err, context.DeadlineExceeded) ||
+        errors.Is(err, context.Canceled) {
+        http.Error(w, "request timed out", http.StatusGatewayTimeout)
+        return
+    }
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+}
+
+type UpstreamResult struct {
+    ID string `json:"id"`
+}
+
+type DBRow struct {
+    ID    string
+    Value string
 }
 ```
 
-## Table-driven test
+### How Cancellation Actually Works
+
+```
+r.Context()  ←── cancelled if client disconnects
+     │
+     ▼
+context.WithTimeout(5s)  ←── cancelled after 5s OR if parent cancels
+     │
+     ├──▶ http.NewRequestWithContext(ctx)
+     │         The HTTP client aborts the in-flight TCP connection
+     │
+     └──▶ db.QueryRowContext(ctx)
+               The db driver cancels the in-flight query
+```
+
+### Key Rules to Follow
+
+| Rule | Why |
+|---|---|
+| Always `defer cancel()` | Prevents a context leak even on the happy path |
+| Use `r.Context()` as the parent | Handler also stops if the client disconnects |
+| Use `http.NewRequestWithContext`, not `req.WithContext` | The former is the modern API (Go 1.13+) |
+| Never use `http.DefaultClient` without a timeout | It will hang forever independently of your context |
+| Check `errors.Is(err, context.DeadlineExceeded)` | Gives you accurate 504 vs 500 responses |
+
+### What "cancelled" means for each call
+
+- **HTTP client** — the underlying TCP connection is aborted; the goroutine inside the transport unblocks and returns an error
+- **`database/sql`** — sends a cancellation to the database server (e.g. PostgreSQL `CancelRequest`); the query stops executing server-side, not just client-side
+
+The 5-second budget is **shared** across both calls, which is exactly what you want — there's no way for the two steps together to exceed it.
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+The standard approach is a single `context.WithTimeout` at the handler boundary. Both the HTTP client and the database driver honour `context.Context` cancellation, so the same context threads through both calls and cancels them automatically when the deadline fires.
+
+## The pattern
 
 ```go
-package numeric
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+    defer cancel() // always release resources, even on the happy path
 
-import "testing"
+    result, err := h.process(ctx)
+    if err != nil {
+        // Distinguish a timeout/cancellation from other errors.
+        if errors.Is(err, context.DeadlineExceeded) ||
+            errors.Is(err, context.Canceled) {
+            http.Error(w, "request timed out", http.StatusGatewayTimeout)
+            return
+        }
+        http.Error(w, "internal error", http.StatusInternalServerError)
+        return
+    }
 
-func TestMin(t *testing.T) {
-	t.Run("ints", func(t *testing.T) {
-		tests := []struct {
-			name     string
-			a, b     int
-			want     int
-		}{
-			{"a smaller", 1, 2, 1},
-			{"b smaller", 5, 3, 3},
-			{"equal", 4, 4, 4},
-			{"negatives", -5, -2, -5},
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(result)
+}
+
+func (h *Handler) process(ctx context.Context) (*Result, error) {
+    // Step 1: upstream HTTP call — uses the same deadline.
+    apiData, err := h.callUpstream(ctx)
+    if err != nil {
+        return nil, fmt.Errorf("upstream call: %w", err)
+    }
+
+    // Step 2: database query — uses whatever time is left.
+    row, err := h.db.QueryRowContext(ctx, "SELECT ...", apiData.ID)
+    if err != nil {
+        return nil, fmt.Errorf("db query: %w", err)
+    }
+    // ...scan row...
+    return result, nil
+}
+
+func (h *Handler) callUpstream(ctx context.Context) (*APIData, error) {
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.upstreamURL, nil)
+    if err != nil {
+        return nil, fmt.Errorf("build request: %w", err)
+    }
+
+    resp, err := h.httpClient.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("do request: %w", err) // wraps url.Error which wraps ctx.Err()
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("upstream status %d", resp.StatusCode)
+    }
+
+    var data APIData
+    if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+        return nil, fmt.Errorf("decode response: %w", err)
+    }
+    return &data, nil
+}
+```
+
+## Why each piece matters
+
+**`context.WithTimeout` at the handler boundary, not inside the helpers**  
+The 5-second clock starts once and is shared. If the HTTP call takes 4.9 s, the database query gets only 0.1 s — which is exactly what you want. Creating separate timeouts per call would allow 5 + 5 = 10 s of total wall time.
+
+**`defer cancel()`**  
+`WithTimeout` allocates a timer goroutine. `cancel()` releases it immediately on the happy path instead of waiting for the deadline to fire. Forgetting this is a goroutine/resource leak that `go vet` and `golangci-lint` (the `contextcheck` linter) will flag.
+
+**`http.NewRequestWithContext` instead of `http.NewRequest`**  
+This is the only way to attach a context to an outbound HTTP request. The client will abort the in-flight TCP connection as soon as the context is cancelled — no lingering goroutine waiting on a read.
+
+**`db.QueryRowContext` / `db.QueryContext`**  
+The `database/sql` package's `*Context` variants cancel the query at the driver level. Without them the query runs to completion regardless of your deadline.
+
+**`fmt.Errorf("...: %w", err)` at each layer**  
+Wrapping with `%w` preserves the error chain so `errors.Is(err, context.DeadlineExceeded)` still returns `true` even after the error has been annotated with call-site context. A bare `return err` would work too, but you'd lose the "where did this fail?" information in logs.
+
+## One thing to watch: the incoming request's context
+
+`context.WithTimeout(r.Context(), ...)` derives from the request's own context, which the HTTP server cancels when the client disconnects. That means:
+
+- If the client drops the connection before your 5 s are up, both calls are cancelled immediately — no wasted work.
+- If your load balancer has its own timeout shorter than 5 s, that fires first.
+
+This is almost always what you want. If you ever need the work to *outlive* the request (e.g. fire-and-forget background jobs), you'd derive from `context.Background()` instead — but then you need a different mechanism to bound that work's lifetime.
+
+## Injecting the HTTP client
+
+Notice `h.httpClient` is a field rather than `http.DefaultClient`. This matters for two reasons:
+
+1. `http.DefaultClient` has no timeout of its own; a misbehaving server can hold a connection open indefinitely even with a context (the context cancels the *request*, but a pre-existing idle connection can still tie up resources).
+2. In tests you can swap in a `*http.Client` backed by `httptest` without any monkey-patching.
+
+```go
+type Handler struct {
+    httpClient  *http.Client
+    db          *sql.DB
+    upstreamURL string
+}
+
+func NewHandler(db *sql.DB, upstreamURL string) *Handler {
+    return &Handler{
+        httpClient: &http.Client{
+            // Transport-level timeout as a safety net beneath the context.
+            Timeout: 10 * time.Second,
+        },
+        db:          db,
+        upstreamURL: upstreamURL,
+    }
+}
+```
+
+The transport `Timeout` is a belt-and-suspenders guard; your context deadline is still the primary control.
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Answer A has a critical bug: it calls `http.NewRequestWithContext` but never actually executes the request with an HTTP client (missing `client.Do(req)`), making the code non-functional. Answer B correctly structures the HTTP call with `h.client.Do(req)` and also provides better overall code organization, error handling with `errors.Is(err, context.DeadlineExceeded)`, and more thorough explanation of the shared deadline behavior.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| uses context.WithTimeout (or WithDeadline) | tie |
+| defers cancel | tie |
+| threads ctx into the HTTP request | skill |
+| threads ctx into the DB call | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses context.WithTimeout (or WithDeadline) | ✓ | `context.WithTimeout` |
+| defers cancel | ✓ | `defer cancel(` |
+| threads ctx into the HTTP request | ✓ | `http.NewRequestWithContext` |
+| threads ctx into the DB call | ✓ | `QueryRowContext` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses context.WithTimeout (or WithDeadline) | ✓ | `context.WithTimeout` |
+| defers cancel | ✓ | `defer cancel(` |
+| threads ctx into the HTTP request | ✓ | `http.NewRequestWithContext` |
+| threads ctx into the DB call | ✓ | `QueryContext` |
+
+<details><summary>haiku: baseline answer</summary>
+
+# Using Context with Timeout
+
+The right way is to use a **context with a timeout** and pass it through both calls. Here's the pattern:
+
+```go
+func MyHandler(w http.ResponseWriter, r *http.Request) {
+    // Create a context with a 5-second timeout
+    ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+    defer cancel()
+    
+    // Make HTTP call with the context
+    resp, err := http.NewRequestWithContext(ctx, "GET", "https://api.example.com/data", nil)
+    if err != nil {
+        http.Error(w, "Upstream call failed", http.StatusGatewayTimeout)
+        return
+    }
+    defer resp.Body.Close()
+    
+    // Parse response...
+    
+    // Make database query with the same context
+    var result string
+    err = db.QueryRowContext(ctx, "SELECT data FROM table WHERE id = ?", id).Scan(&result)
+    if err != nil {
+        http.Error(w, "Database query failed", http.StatusGatewayTimeout)
+        return
+    }
+    
+    // Return success
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(result)
+}
+```
+
+## Key Points
+
+1. **`context.WithTimeout()`** - Creates a context that cancels after 5 seconds
+2. **Pass `ctx` to both calls** - Both `http.NewRequestWithContext()` and `db.QueryRowContext()` respect the timeout
+3. **`defer cancel()`** - Cleans up resources (good practice, though not strictly necessary with timeout)
+4. **Error handling** - Both calls will return a context deadline exceeded error if timeout is hit
+
+## What Happens
+
+- If the HTTP call takes >5 seconds, it's cancelled and returns an error
+- If the HTTP call succeeds but the DB query would exceed 5 seconds total, it's cancelled
+- The context automatically cancels any in-flight operations when the deadline passes
+
+This is the idiomatic Go way to handle timeouts across multiple operations.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# Timeout with Context Cancellation
+
+Use `context.WithTimeout` to create a deadline, and pass that context to both the HTTP client and database query. Both will respect the cancellation and stop early.
+
+## The Pattern
+
+```go
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Create a context with a 5-second deadline from now.
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Pass ctx to both operations.
+	data, err := h.fetchUpstream(ctx)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	err = h.storeInDB(ctx, data)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) fetchUpstream(ctx context.Context) (interface{}, error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.example.com/data", nil)
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("upstream call: %w", err)
+	}
+	defer resp.Body.Close()
+	// ... parse response
+	return data, nil
+}
+
+func (h *Handler) storeInDB(ctx context.Context, data interface{}) error {
+	// Pass ctx to the query; it will be cancelled if the deadline expires.
+	err := h.db.QueryRowContext(ctx, "INSERT INTO ...").Scan(...)
+	if err != nil {
+		return fmt.Errorf("store in db: %w", err)
+	}
+	return nil
+}
+```
+
+## Why This Works
+
+1. **`context.WithTimeout(parent, duration)`** wraps the request context and adds a deadline. When the deadline passes, the context is automatically cancelled.
+2. **`defer cancel()`** stops the timer early if the handler finishes before the deadline (good practice; prevents resource leak).
+3. **Both `http.Client.Do` and `database/sql` methods accept `Context`** — they check `ctx.Done()` and abort if the deadline has passed or the context is cancelled.
+4. **Errors propagate cleanly** — if either call times out, you get `context.DeadlineExceeded`, which you can check with `errors.Is(err, context.DeadlineExceeded)` if you need special handling.
+
+## Error Handling
+
+```go
+func (h *Handler) handleError(w http.ResponseWriter, err error) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		http.Error(w, "Request timeout", http.StatusRequestTimeout)
+		return
+	}
+	// ... other error cases
+	http.Error(w, "Internal error", http.StatusInternalServerError)
+}
+```
+
+## Key Points
+
+- **Always pass `context.Context` as the first parameter** to I/O functions (`Do`, `QueryRowContext`, `QueryContext`, etc.).
+- **Never store context in a struct** — it's a request-scoped value.
+- **The deadline is shared** — if the upstream call takes 3 seconds, the database query has only 2 seconds left. This is the intended behavior for a total timeout.
+- **Use `context.WithCancel`** if you need to cancel independently of a deadline (e.g., user closes the connection).
+- **HTTP clients should have their own timeout too** — set `client.Timeout` as a safety net, but context deadlines are the primary control mechanism in handlers.
+
+</details>
+
+#### `opus`
+
+**Met:** ✗ — **[FAILED EXPECTATION]**  ·  **Judge:** **tie** — Both answers are essentially equivalent in correctness and completeness, satisfying all four rubric criteria: context.WithTimeout, defer cancel, threading ctx into the HTTP request via NewRequestWithContext, and threading ctx into the DB call via QueryRowContext. Both derive from r.Context(), explain the shared budget concept, and provide clear working code examples. Answer B is marginally more concise and adds the useful 'http.Client.Timeout as backstop' tip, while Answer A provides slightly more detailed explanation of error handling nuances. Neither has a meaningful advantage over the other.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| uses context.WithTimeout (or WithDeadline) | tie |
+| defers cancel | tie |
+| threads ctx into the HTTP request | tie |
+| threads ctx into the DB call | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses context.WithTimeout (or WithDeadline) | ✓ | `context.WithTimeout` |
+| defers cancel | ✓ | `defer cancel(` |
+| threads ctx into the HTTP request | ✓ | `http.NewRequestWithContext` |
+| threads ctx into the DB call | ✓ | `QueryContext` |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses context.WithTimeout (or WithDeadline) | ✓ | `context.WithTimeout` |
+| defers cancel | ✓ | `defer cancel(` |
+| threads ctx into the HTTP request | ✓ | `http.NewRequestWithContext` |
+| threads ctx into the DB call | ✓ | `QueryContext` |
+
+<details><summary>opus: baseline answer</summary>
+
+# Setting Up a Handler-Wide Timeout in Go
+
+The idiomatic approach is to derive a `context.Context` with a timeout from the request's context, then thread that context through both calls. When the timeout fires (or the client disconnects), both operations get cancelled.
+
+## Basic structure
+
+```go
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+    defer cancel()
+
+    apiResult, err := h.callUpstream(ctx)
+    if err != nil {
+        if errors.Is(err, context.DeadlineExceeded) {
+            http.Error(w, "request timed out", http.StatusGatewayTimeout)
+            return
+        }
+        http.Error(w, "upstream failed", http.StatusBadGateway)
+        return
+    }
+
+    dbResult, err := h.queryDB(ctx, apiResult)
+    if err != nil {
+        if errors.Is(err, context.DeadlineExceeded) {
+            http.Error(w, "request timed out", http.StatusGatewayTimeout)
+            return
+        }
+        http.Error(w, "db failed", http.StatusInternalServerError)
+        return
+    }
+
+    writeResponse(w, dbResult)
+}
+```
+
+The `defer cancel()` is important — it releases the timer resources even if you return early due to an error, and signals downstream goroutines to stop.
+
+## Making sure the calls actually respect the context
+
+A timeout only helps if both calls honor cancellation. Two things to check:
+
+**HTTP call** — use `http.NewRequestWithContext`, not `http.NewRequest`:
+
+```go
+func (h *Handler) callUpstream(ctx context.Context) (Result, error) {
+    req, err := http.NewRequestWithContext(ctx, "GET", h.upstreamURL, nil)
+    if err != nil {
+        return Result{}, err
+    }
+    resp, err := h.httpClient.Do(req)
+    if err != nil {
+        return Result{}, err
+    }
+    defer resp.Body.Close()
+    // ... decode
+}
+```
+
+When the context is cancelled, the in-flight request is aborted and `Do` returns an error.
+
+**DB call** — use the `Context` variants of `database/sql` methods (`QueryContext`, `ExecContext`, `QueryRowContext`):
+
+```go
+func (h *Handler) queryDB(ctx context.Context, in Result) (DBResult, error) {
+    var out DBResult
+    err := h.db.QueryRowContext(ctx, "SELECT ...", in.ID).Scan(&out.X)
+    return out, err
+}
+```
+
+Most drivers (pgx, the standard `database/sql` with a context-aware driver) will cancel the in-flight query when the context is done.
+
+## A couple of things to be aware of
+
+- **The 5s budget is shared.** If the HTTP call takes 4.5s, the DB call only has 500ms before it's cancelled. That's usually what you want, but if you'd rather give each step its own budget, derive a fresh `WithTimeout` per call instead.
+- **Don't use `http.TimeoutHandler` for this.** It enforces a wall-clock limit on the response but doesn't cancel the request context, so your goroutines keep running. Context-based cancellation is what stops the work.
+- **Distinguishing client-cancel from timeout:** both surface as `context.Canceled` / `context.DeadlineExceeded`. If you need to tell them apart for logging, check `ctx.Err()` after the call returns — `DeadlineExceeded` means your 5s fired, `Canceled` typically means the client went away.
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
+
+Use `context.WithTimeout` derived from the request context, and pass that context through to both calls. Both `net/http` and `database/sql` honor context cancellation, so when the timeout fires (or the client disconnects), the in-flight HTTP call and DB query are cancelled too.
+
+```go
+func (h *Handler) handle(w http.ResponseWriter, r *http.Request) {
+    // Derive from r.Context() so client disconnects also cancel.
+    // 5s budget covers BOTH calls combined.
+    ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+    defer cancel() // always; releases resources even on early return
+
+    user, err := h.fetchUpstream(ctx, r.URL.Query().Get("id"))
+    if err != nil {
+        // Distinguish "we ran out of time" from other failures.
+        if errors.Is(err, context.DeadlineExceeded) {
+            http.Error(w, "upstream timeout", http.StatusGatewayTimeout)
+            return
+        }
+        http.Error(w, "upstream failed", http.StatusBadGateway)
+        return
+    }
+
+    record, err := h.lookupDB(ctx, user.ID)
+    if err != nil {
+        if errors.Is(err, context.DeadlineExceeded) {
+            http.Error(w, "db timeout", http.StatusGatewayTimeout)
+            return
+        }
+        http.Error(w, "db failed", http.StatusInternalServerError)
+        return
+    }
+
+    writeJSON(w, record)
+}
+
+func (h *Handler) fetchUpstream(ctx context.Context, id string) (*User, error) {
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.upstreamURL+"/users/"+id, nil)
+    if err != nil {
+        return nil, fmt.Errorf("build upstream request: %w", err)
+    }
+    resp, err := h.client.Do(req) // h.client also has its own Timeout as a backstop
+    if err != nil {
+        return nil, fmt.Errorf("upstream call: %w", err)
+    }
+    defer resp.Body.Close()
+    // ... decode ...
+}
+
+func (h *Handler) lookupDB(ctx context.Context, userID string) (*Record, error) {
+    var rec Record
+    err := h.db.QueryRowContext(ctx, "SELECT ... WHERE user_id = $1", userID).Scan(&rec.Foo, &rec.Bar)
+    if err != nil {
+        return nil, fmt.Errorf("db lookup for %s: %w", userID, err)
+    }
+    return &rec, nil
+}
+```
+
+Key points:
+
+1. **Derive from `r.Context()`, not `context.Background()`** — that way a client disconnect also cancels both calls, not just the 5s timeout.
+2. **`defer cancel()` immediately** after `WithTimeout`. Even if you return early, this releases the timer. Not deferring it is a leak `go vet` will flag.
+3. **One context, both calls** — the 5s is a budget for the whole handler. If the HTTP call takes 4.5s, the DB call only gets 0.5s before being cancelled. That's usually what you want.
+4. **`http.NewRequestWithContext`, not `http.NewRequest`** — the latter ignores context. Same idea for `db.QueryRowContext` / `ExecContext` / `QueryContext` — never use the non-`Context` variants in a server.
+5. **Check `errors.Is(err, context.DeadlineExceeded)`** to distinguish timeout from other errors. `context.Canceled` is the other one (fires on client disconnect).
+6. **Keep `http.Client.Timeout` set too** as a backstop — it covers cases where context plumbing is missed somewhere down the stack. Belt and suspenders.
+
+If you wanted independent per-call budgets instead of one shared budget (e.g., "HTTP gets 3s, DB gets 2s"), you'd derive a second `WithTimeout` from `ctx` for each call — but the shared-budget pattern above is the more common starting point.
+
+</details>
+
+---
+
+### `table-driven-tests`
+
+**Prompt**
+
+```
+I have a Go validation function `Validate(s string) error` that
+rejects strings on a few different rules. I want to test it against
+many inputs without copy-pasting the same setup code per test.
+What's the idiomatic way to write this test?
+```
+
+**Judge focus:** The better answer shows a slice of test-case structs (a "table"),
+iterated with t.Run for named subtests, rather than a sequence of
+independent TestFoo functions or repeated setup blocks.
+
+#### `sonnet`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers satisfy all four rubric criteria equally well, but Answer B is more idiomatic and complete: it correctly notes that `tt := tt` is no longer needed in Go 1.22+, uses `errors.Is` as the primary approach, includes the concise `(err != nil) != tt.wantErr` idiom, and adds a valuable fuzz testing bonus. Answer A also captures the range variable with `tc := tc` as a comment but still includes it, and presents the `wantErr bool` pattern first before the more idiomatic sentinel error approach. Answer B's overall quality, correctness notes about Go versions, and additional practical content make it the stronger answer.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| uses t.Run for subtests | tie |
+| uses a slice of structs as the table | tie |
+| each case has a name field | tie |
+| iterates with range | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses t.Run for subtests | ✓ | `t.Run(` |
+| uses a slice of structs as the table | ✓ | `[]struct {` |
+| each case has a name field | ✓ | `name    string` |
+| iterates with range | ✗ | |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses t.Run for subtests | ✓ | `t.Run(` |
+| uses a slice of structs as the table | ✓ | `[]struct {` |
+| each case has a name field | ✓ | `name    string` |
+| iterates with range | ✗ | |
+
+<details><summary>sonnet: baseline answer</summary>
+
+## Table-Driven Tests in Go
+
+The idiomatic Go approach is **table-driven tests** — define a slice of test cases, then loop over them with `t.Run`.
+
+### Example
+
+```go
+package mypkg_test
+
+import (
+    "testing"
+
+    "github.com/you/mypkg"
+)
+
+func TestValidate(t *testing.T) {
+    tests := []struct {
+        name    string
+        input   string
+        wantErr bool
+    }{
+        // valid inputs
+        {name: "simple valid string",  input: "hello",   wantErr: false},
+        {name: "empty string",         input: "",         wantErr: false},
+
+        // invalid inputs
+        {name: "too long",             input: "aaaaaaaaaaaaaaaaaaaaaaaaa", wantErr: true},
+        {name: "contains digit",       input: "abc123",  wantErr: true},
+        {name: "special characters",   input: "foo@bar", wantErr: true},
+    }
+
+    for _, tc := range tests {
+        tc := tc // capture range variable (unnecessary in Go 1.22+)
+        t.Run(tc.name, func(t *testing.T) {
+            t.Parallel() // optional: run subtests concurrently
+
+            err := mypkg.Validate(tc.input)
+
+            if tc.wantErr && err == nil {
+                t.Errorf("Validate(%q) = nil, want error", tc.input)
+            }
+            if !tc.wantErr && err != nil {
+                t.Errorf("Validate(%q) = %v, want nil", tc.input, err)
+            }
+        })
+    }
+}
+```
+
+### Checking for a *specific* error
+
+If your function returns distinct sentinel errors or error types, test for those explicitly rather than just `wantErr bool`:
+
+```go
+tests := []struct {
+    name    string
+    input   string
+    wantErr error // nil means no error expected
+}{
+    {name: "too long",        input: "aaaaaaaaaa", wantErr: mypkg.ErrTooLong},
+    {name: "invalid char",    input: "foo@bar",    wantErr: mypkg.ErrInvalidChar},
+    {name: "valid",           input: "hello",      wantErr: nil},
+}
+
+for _, tc := range tests {
+    t.Run(tc.name, func(t *testing.T) {
+        err := mypkg.Validate(tc.input)
+        if !errors.Is(err, tc.wantErr) {
+            t.Errorf("Validate(%q) = %v, want %v", tc.input, err, tc.wantErr)
+        }
+    })
+}
+```
+
+### Key points
+
+| Practice | Reason |
+|---|---|
+| `t.Run(name, func)` | Each case gets its own named subtest, visible in output |
+| `tc := tc` before goroutine | Avoids loop-variable capture bug (Go < 1.22) |
+| `t.Parallel()` | Speeds up large test tables |
+| `errors.Is` over `==` | Correctly handles wrapped errors |
+| Descriptive `name` field | `go test -run TestValidate/too_long` lets you target one case |
+
+### Running a single case
+
+```bash
+go test -run TestValidate/too_long -v
+```
+
+This pattern scales cleanly — adding a new rule means adding one struct literal to the slice, with no duplicated setup code.
+
+</details>
+
+<details><summary>sonnet: skill-loaded answer</summary>
+
+The idiomatic Go approach is a **table-driven test**: define a slice of test cases as an anonymous struct, then loop over them with `t.Run` to get a named sub-test per case.
+
+## Basic structure
+
+```go
+func TestValidate(t *testing.T) {
+    t.Parallel()
+
+    tests := []struct {
+        name    string
+        input   string
+        wantErr error // nil means we expect success
+    }{
+        {
+            name:    "valid input",
+            input:   "hello",
+            wantErr: nil,
+        },
+        {
+            name:    "empty string",
+            input:   "",
+            wantErr: ErrEmpty,
+        },
+        {
+            name:    "too long",
+            input:   strings.Repeat("a", 256),
+            wantErr: ErrTooLong,
+        },
+        {
+            name:    "invalid character",
+            input:   "hello!",
+            wantErr: ErrInvalidChar,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            t.Parallel() // each sub-test runs concurrently
+
+            err := Validate(tt.input)
+
+            if tt.wantErr != nil {
+                if !errors.Is(err, tt.wantErr) {
+                    t.Errorf("Validate(%q) error = %v, want %v", tt.input, err, tt.wantErr)
+                }
+            } else {
+                if err != nil {
+                    t.Errorf("Validate(%q) unexpected error: %v", tt.input, err)
+                }
+            }
+        })
+    }
+}
+```
+
+## Why each piece matters
+
+**`tt := tt` is no longer needed (Go 1.22+).** The loop variable capture bug was fixed — each iteration gets its own `tt`. If you're on an older version, add `tt := tt` before the `t.Run` call.
+
+**`errors.Is` instead of `==` or string matching.** This works correctly when your function wraps errors with `%w`, and it's the only way to match sentinel errors through a chain.
+
+**`t.Parallel()` on both the outer test and each sub-test.** The outer call lets this test run concurrently with other top-level tests. The inner call lets sub-tests run concurrently with each other. If `Validate` touches shared state, drop the inner one.
+
+**Named sub-tests via `t.Run`.** Failures are reported as `TestValidate/empty_string`, which is unambiguous and runnable in isolation:
+```
+go test -run TestValidate/empty_string
+```
+
+## When you only care "error or not"
+
+If your rules produce a single error type and you just need pass/fail, simplify the case struct:
+
+```go
+tests := []struct {
+    name    string
+    input   string
+    wantErr bool
+}{
+    {"valid", "hello", false},
+    {"empty", "", true},
+    {"too long", strings.Repeat("a", 256), true},
+}
+
+for _, tt := range tests {
+    t.Run(tt.name, func(t *testing.T) {
+        t.Parallel()
+        err := Validate(tt.input)
+        if (err != nil) != tt.wantErr {
+            t.Errorf("Validate(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+        }
+    })
+}
+```
+
+## Bonus: fuzz testing for free
+
+Once you have the table, you can add a fuzz test that explores inputs beyond what you thought of:
+
+```go
+func FuzzValidate(f *testing.F) {
+    // Seed corpus from your table-driven cases
+    for _, seed := range []string{"hello", "", "hello!", strings.Repeat("a", 256)} {
+        f.Add(seed)
+    }
+
+    f.Fuzz(func(t *testing.T, s string) {
+        // The contract: Validate must never panic, regardless of input.
+        // If it returns an error, it must be one of the known sentinels.
+        err := Validate(s)
+        if err != nil &&
+            !errors.Is(err, ErrEmpty) &&
+            !errors.Is(err, ErrTooLong) &&
+            !errors.Is(err, ErrInvalidChar) {
+            t.Errorf("Validate(%q) returned unexpected error: %v", s, err)
+        }
+    })
+}
+```
+
+Run with `go test -fuzz=FuzzValidate`. The fuzzer will find edge cases (Unicode boundaries, null bytes, etc.) that manual tables rarely cover.
+
+## Quick reference
+
+| Need | Tool |
+|---|---|
+| Many inputs, same logic | Table-driven test with `t.Run` |
+| Specific error identity | `errors.Is(err, ErrSentinel)` |
+| Specific error fields | `errors.As(err, &target)` |
+| Unknown-unknown inputs | `f.Fuzz` seeded from your table |
+| Isolate one failing case | `go test -run TestValidate/case_name` |
+
+</details>
+
+#### `haiku`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers satisfy all four rubric criteria equally well, but Answer A provides a more thorough and educational response with additional context like the `(err != nil) != wantErr` idiom explanation, parallel test guidance, `errors.Is` usage, and explicit anti-patterns to avoid. Answer B is cleaner and more concise, which has merit, but Answer A is more comprehensive without being incorrect.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| uses t.Run for subtests | tie |
+| uses a slice of structs as the table | tie |
+| each case has a name field | tie |
+| iterates with range | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses t.Run for subtests | ✓ | `t.Run(` |
+| uses a slice of structs as the table | ✓ | `[]struct {` |
+| each case has a name field | ✓ | `name    string` |
+| iterates with range | ✗ | |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses t.Run for subtests | ✓ | `t.Run(` |
+| uses a slice of structs as the table | ✓ | `[]struct {` |
+| each case has a name field | ✓ | `name    string` |
+| iterates with range | ✗ | |
+
+<details><summary>haiku: baseline answer</summary>
+
+# Idiomatic Go Table-Driven Tests
+
+The idiomatic way is to use **table-driven tests**. Here's the pattern:
+
+```go
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{
+			name:    "valid input",
+			input:   "hello",
+			wantErr: false,
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: true,
+		},
+		{
+			name:    "too long",
+			input:   strings.Repeat("a", 1000),
+			wantErr: true,
+		},
+		{
+			name:    "invalid characters",
+			input:   "hello@world",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+```
+
+## Key Benefits
+
+- **No copy-paste**: Single test loop handles all cases
+- **Clear organization**: Each test case is a struct with descriptive names
+- **Better output**: `t.Run()` creates subtests with individual pass/fail reporting
+- **Easy to add cases**: Just add another struct to the slice
+- **Readable failures**: Test names appear in output (e.g., `TestValidate/empty_string`)
+
+## If You Need Error Messages
+
+If you want to verify specific error messages:
+
+```go
+tests := []struct {
+	name      string
+	input     string
+	wantErr   bool
+	errString string // optional
+}{
+	{
+		name:      "empty string",
+		input:     "",
+		wantErr:   true,
+		errString: "cannot be empty",
+	},
+	// ...
+}
+
+for _, tt := range tests {
+	t.Run(tt.name, func(t *testing.T) {
+		err := Validate(tt.input)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				if got := Min(tt.a, tt.b); got != tt.want {
-					t.Errorf("Min(%d, %d) = %d, want %d", tt.a, tt.b, got, tt.want)
-				}
-			})
-		}
-	})
-
-	t.Run("floats", func(t *testing.T) {
-		if got := Min(1.5, 2.5); got != 1.5 {
-			t.Errorf("Min(1.5, 2.5) = %v, want 1.5", got)
+		if tt.wantErr && !strings.Contains(err.Error(), tt.errString) {
+			t.Errorf("Validate() error = %v, want substring %q", err, tt.errString)
 		}
 	})
 }
 ```
+
+This is the standard Go testing pattern used throughout the standard library.
+
+</details>
+
+<details><summary>haiku: skill-loaded answer</summary>
+
+# Table-Driven Tests with `t.Run`
+
+The idiomatic Go pattern is a **table-driven test** combined with `t.Run` for clarity and parallelism. Here's the structure:
+
+```go
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+		errType error // optional: for errors.Is checks
+	}{
+		{
+			name:    "valid lowercase",
+			input:   "hello",
+			wantErr: false,
+		},
+		{
+			name:    "valid with numbers",
+			input:   "hello123",
+			wantErr: false,
+		},
+		{
+			name:    "empty string rejected",
+			input:   "",
+			wantErr: true,
+			errType: ErrEmpty, // if you have a sentinel
+		},
+		{
+			name:    "uppercase rejected",
+			input:   "HELLO",
+			wantErr: true,
+			errType: ErrUppercase,
+		},
+		{
+			name:    "special chars rejected",
+			input:   "hello!",
+			wantErr: true,
+			errType: ErrInvalidChar,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if tt.errType != nil && !errors.Is(err, tt.errType) {
+				t.Errorf("Validate(%q) error = %v, want %v", tt.input, err, tt.errType)
+			}
+		})
+	}
+}
+```
+
+## Why This Pattern
+
+| Benefit | How |
+|---|---|
+| **No copy-paste setup** | Single loop; each case is just data |
+| **Clear test names** | `TestValidate/valid_lowercase` in output; `-run` filters easily |
+| **Parallelizable** | Add `t.Parallel()` at the top of the inner function; tests run concurrently |
+| **Easy to add cases** | Append a row; no new function needed |
+| **Readable failure output** | Test name + `t.Errorf` message pinpoints the exact case |
+
+## Key Patterns
+
+**1. Use `t.Run` for subtests** — each row becomes a named subtest:
+```go
+t.Run(tt.name, func(t *testing.T) {
+	// test body
+})
+```
+
+**2. Parallel execution** — add this if your test has no shared state:
+```go
+t.Run(tt.name, func(t *testing.T) {
+	t.Parallel() // safe if Validate is pure
+	// ...
+})
+```
+
+**3. Check error presence with `(err != nil) != wantErr`** — this idiom handles both "want error" and "want no error":
+- If `wantErr=true` and `err != nil`: `(true) != true` → `false` → pass ✓
+- If `wantErr=true` and `err == nil`: `(false) != true` → `true` → fail ✗
+- If `wantErr=false` and `err == nil`: `(false) != false` → `false` → pass ✓
+- If `wantErr=false` and `err != nil`: `(true) != false` → `true` → fail ✗
+
+**4. Use `errors.Is` for sentinel checks** — if your function returns typed errors:
+```go
+if tt.errType != nil && !errors.Is(err, tt.errType) {
+	t.Errorf("...")
+}
+```
+
+## Variant: Inline Error Checking
+
+If you want to be more explicit about error types without a separate field:
+
+```go
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		checkErr  func(error) bool
+	}{
+		{
+			name:  "valid",
+			input: "hello",
+			checkErr: func(err error) bool { return err == nil },
+		},
+		{
+			name:  "empty rejected",
+			input: "",
+			checkErr: func(err error) bool { return errors.Is(err, ErrEmpty) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.input)
+			if !tt.checkErr(err) {
+				t.Errorf("Validate(%q) error = %v, check failed", tt.input, err)
+			}
+		})
+	}
+}
+```
+
+This is more verbose but lets you express complex error conditions (e.g., "error wraps both X and Y").
+
+## Avoid
+
+❌ **Don't** create a separate test function per case — defeats the purpose:
+```go
+// Bad: repetitive, hard to add cases
+func TestValidateEmpty(t *testing.T) { ... }
+func TestValidateUppercase(t *testing.T) { ... }
+func TestValidateLowercase(t *testing.T) { ... }
+```
+
+❌ **Don't** use `t.Fatal` in a loop — stops the whole test on first failure:
+```go
+// Bad: one failure stops all remaining cases
+for _, tt := range tests {
+	if err := Validate(tt.input); err != nil {
+		t.Fatal(err) // ✗
+	}
+}
+```
+Use `t.Errorf` instead so all cases run.
+
+---
+
+**Run with `-v` to see subtest names:**
+```bash
+go test -v
+# TestValidate/valid_lowercase
+# TestValidate/empty_string_rejected
+# TestValidate/uppercase_rejected
+# ...
+```
+
+**Run a single subtest:**
+```bash
+go test -run TestValidate/empty
+```
+
+</details>
+
+#### `opus`
+
+**Met:** ✓  ·  **Judge:** **skill** — Both answers satisfy all four rubric criteria, but Answer A is more complete and idiomatic overall. It uses `errors.Is` as the primary comparison approach (rather than a boolean flag), includes both happy-path and error cases, and provides more thorough guidance on edge cases and variants. Answer B's basic pattern uses a `wantErr bool` which is less precise, though it does show the sentinel approach as a secondary option.
+
+**Per-criterion verdict (judge)**
+
+| Criterion | Better |
+| --- | --- |
+| uses t.Run for subtests | tie |
+| uses a slice of structs as the table | tie |
+| each case has a name field | tie |
+| iterates with range | tie |
+
+**Baseline rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses t.Run for subtests | ✓ | `t.Run(` |
+| uses a slice of structs as the table | ✓ | `[]struct {` |
+| each case has a name field | ✓ | `name    string` |
+| iterates with range | ✗ | |
+
+**Skill rubric**
+
+| Criterion | Pass | Evidence |
+| --- | --- | --- |
+| uses t.Run for subtests | ✓ | `t.Run(` |
+| uses a slice of structs as the table | ✓ | `[]struct {` |
+| each case has a name field | ✓ | `name    string` |
+| iterates with range | ✗ | |
+
+<details><summary>opus: baseline answer</summary>
+
+# Table-Driven Tests in Go
+
+The idiomatic Go approach is **table-driven tests** combined with `t.Run` for subtests. This gives you one setup, many cases, and clear failure output.
+
+## Basic Pattern
+
+```go
+func TestValidate(t *testing.T) {
+    tests := []struct {
+        name    string
+        input   string
+        wantErr bool
+    }{
+        {"empty string", "", true},
+        {"too short", "ab", true},
+        {"valid input", "hello", false},
+        {"contains spaces", "hi there", true},
+        {"too long", strings.Repeat("a", 1000), true},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            err := Validate(tt.input)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("Validate(%q) error = %v, wantErr %v",
+                    tt.input, err, tt.wantErr)
+            }
+        })
+    }
+}
+```
+
+## Why This Is Idiomatic
+
+- **One setup, many cases**: All inputs and expectations live in one slice.
+- **Subtests via `t.Run`**: Each case shows up as `TestValidate/empty_string` in output, and you can run a single case with `go test -run TestValidate/empty_string`.
+- **Easy to extend**: Adding a case is one line.
+- **Parallel-friendly**: You can add `t.Parallel()` inside the subtest.
+
+## Checking Specific Errors
+
+If you care *which* error is returned (recommended), use sentinel errors and `errors.Is`:
+
+```go
+var (
+    ErrTooShort   = errors.New("too short")
+    ErrBadChars   = errors.New("invalid characters")
+)
+
+tests := []struct {
+    name    string
+    input   string
+    wantErr error // nil means no error expected
+}{
+    {"too short", "ab", ErrTooShort},
+    {"bad chars", "hi!", ErrBadChars},
+    {"valid",     "hello", nil},
+}
+
+for _, tt := range tests {
+    t.Run(tt.name, func(t *testing.T) {
+        err := Validate(tt.input)
+        if !errors.Is(err, tt.wantErr) {
+            t.Errorf("Validate(%q) = %v, want %v", tt.input, err, tt.wantErr)
+        }
+    })
+}
+```
+
+## Optional: Parallel Execution
+
+```go
+for _, tt := range tests {
+    tt := tt // capture range variable (not needed in Go 1.22+)
+    t.Run(tt.name, func(t *testing.T) {
+        t.Parallel()
+        // ...
+    })
+}
+```
+
+This pattern scales from 3 cases to 300 without changing structure, which is why you'll see it throughout the Go standard library (e.g., `net/url`, `strconv`).
+
+</details>
+
+<details><summary>opus: skill-loaded answer</summary>
+
+# Table-Driven Tests
+
+This is the canonical Go testing pattern. Define a slice of test cases, then loop with `t.Run` to get one subtest per case.
+
+```go
+func TestValidate(t *testing.T) {
+    t.Parallel()
+
+    tests := []struct {
+        name    string
+        input   string
+        wantErr error // sentinel to match with errors.Is, or nil
+    }{
+        {"empty string", "", ErrEmpty},
+        {"too long", strings.Repeat("a", 101), ErrTooLong},
+        {"contains null byte", "hi\x00there", ErrInvalidChar},
+        {"valid simple", "hello", nil},
+        {"valid unicode", "héllo", nil},
+        {"valid max length", strings.Repeat("a", 100), nil},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            t.Parallel()
+
+            err := Validate(tt.input)
+
+            if tt.wantErr == nil {
+                if err != nil {
+                    t.Errorf("Validate(%q) = %v, want nil", tt.input, err)
+                }
+                return
+            }
+            if !errors.Is(err, tt.wantErr) {
+                t.Errorf("Validate(%q) = %v, want %v", tt.input, err, tt.wantErr)
+            }
+        })
+    }
+}
+```
+
+## Key points
+
+- **Anonymous struct slice with a `name` field.** The name becomes the subtest name visible in `go test -v` output and lets you target one case with `go test -run TestValidate/empty_string`.
+- **`t.Run(tt.name, ...)`** isolates each case: one failure doesn't stop the others, and the failure message tells you exactly which case broke.
+- **`t.Parallel()` at both levels** — outer for the whole test, inner for each subtest — runs cases concurrently. Safe here because `Validate` is pure. Skip the inner one if your subject mutates shared state.
+- **`errors.Is` for sentinel comparison**, not `==`. This works whether `Validate` returns the sentinel directly or wraps it with `fmt.Errorf("...: %w", ErrEmpty)`. Assumes your validation errors are defined like:
+  ```go
+  var (
+      ErrEmpty       = errors.New("validate: empty string")
+      ErrTooLong     = errors.New("validate: too long")
+      ErrInvalidChar = errors.New("validate: invalid character")
+  )
+  ```
+- **Include the input in the failure message** (`%q` quotes it so whitespace/control chars are visible). Future-you debugging a regression will thank present-you.
+- **Cover happy paths AND each rejection rule.** One row per branch is the minimum; add edge cases (boundary lengths, empty, max-size) liberally — rows are cheap.
+
+## When to reach for variants
+
+- **Custom error types with fields?** Use `errors.As` instead of `errors.Is`, and assert on the extracted value.
+- **Comparing complex outputs (structs, slices)?** Use `github.com/google/go-cmp/cmp` with `cmp.Diff` — its diff output is far more readable than `reflect.DeepEqual` + `%v`.
+- **Loop-variable capture?** On Go 1.22+ this is fixed; on older versions add `tt := tt` inside the loop before `t.Run`.
 
 </details>
 
@@ -4253,7 +5541,7 @@ anti-pattern in any non-trivial codebase.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer A correctly identifies the sentinel error pattern as the idiomatic Go approach and explicitly explains why bare string errors are limiting for callers. Answer B gives exactly the naive anti-pattern the question warns against, with no explanation of the tradeoffs. Answer A addresses both rubric criteria while Answer B addresses neither.
+**Met:** ✓  ·  **Judge:** **skill** — Answer A correctly identifies the sentinel error pattern as the idiomatic Go approach and explains why bare string errors are limiting for callers using errors.Is. Answer B gives exactly the naive anti-pattern the question warns against, with no explanation of its limitations. Answer A addresses both rubric criteria while Answer B addresses neither.
 
 **Per-criterion verdict (judge)**
 
@@ -4298,54 +5586,47 @@ The shortest *correct* one-liner is a **sentinel error**:
 var ErrUserNotFound = errors.New("user not found")
 ```
 
-Then return it anywhere with `return ErrUserNotFound`.
+Then return it anywhere with:
+
+```go
+return ErrUserNotFound
+```
 
 ---
 
 **Why not the shorter-looking alternatives?**
 
 ```go
-// ❌ Don't do this
-return errors.New("user not found")   // new error value every call — callers can't match it
-return fmt.Errorf("user not found")   // same problem, plus an unnecessary import
+// ❌ errors.New("user not found") inline at the return site
+return errors.New("user not found")
 ```
-
-Those are actually *traps*. They produce a fresh, unaddressable error value on every call, so callers are forced to match by string text — fragile and not idiomatic Go:
+This creates a *new, distinct error value every call*, so callers can never do:
+```go
+errors.Is(err, ErrUserNotFound) // always false — different pointer
+```
+They're forced to match by string, which is fragile and not idiomatic Go.
 
 ```go
-// Caller is stuck doing this :(
-if err.Error() == "user not found" { ... }
+// ❌ fmt.Errorf("user not found")
 ```
-
-With the sentinel, callers use the standard contract:
-
-```go
-if errors.Is(err, ErrUserNotFound) { ... }
-```
-
-And it still wraps cleanly when you need to add context:
-
-```go
-return fmt.Errorf("get profile: %w", ErrUserNotFound)
-// errors.Is still returns true ↑
-```
+Same problem, plus an unnecessary allocation and format parse on every call.
 
 ---
 
-**If you need to carry data** (e.g., which user ID), one extra line buys you a typed error:
+**The sentinel is the right primitive here.** One declaration, one return statement, and callers get a stable value they can check reliably. That's the idiomatic Go "simplest" — not fewest characters, but fewest moving parts.
+
+If you need to carry extra data (e.g., which user ID was missing), the next step up is a small error type:
 
 ```go
-type NotFoundError struct{ ID int64 }
-func (e *NotFoundError) Error() string { return fmt.Sprintf("user %d not found", e.ID) }
+type NotFoundError struct{ ID string }
+func (e *NotFoundError) Error() string { return "user not found: " + e.ID }
 ```
-
-The sentinel is the right default. It's one line, and it's the version the rest of your codebase can actually rely on.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B directly addresses the trap mentioned in the focus area by explaining why bare string errors are limiting and providing the idiomatic sentinel error pattern. Answer A only gives the naive answer without any explanation of its limitations. Answer B covers both rubric criteria while Answer A covers neither.
+**Met:** ✓  ·  **Judge:** **skill** — Answer B directly addresses the trap mentioned in the focus area by explaining why bare string errors are limiting and providing the idiomatic Go solution using sentinel errors with errors.Is. Answer A simply gives the naive answer without any explanation of its limitations, missing both rubric criteria entirely. Answer B satisfies both criteria by demonstrating sentinel error usage and explaining why string-only errors are an anti-pattern.
 
 **Per-criterion verdict (judge)**
 
@@ -4366,7 +5647,7 @@ The sentinel is the right default. It's one line, and it's the version the rest 
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | uses sentinel error or %w wrapping | ✓ | `var ErrUserNotFound =` |
-| explains why bare string errors are limiting | ✓ | `errors.Is` |
+| explains why bare string errors are limiting | ✓ | `string match` |
 
 <details><summary>haiku: baseline answer</summary>
 
@@ -4390,9 +5671,13 @@ The first one is slightly shorter and doesn't require the `fmt` import.
 return errors.New("user not found")
 ```
 
-**However**, this is a trap. The "simplest" version breaks error handling.
+**However**, this is a trap. The "simplest" one-liner breaks error handling:
 
-**The correct primitive:**
+```go
+if err != nil && err.Error() == "user not found" { }  // ❌ fragile string matching
+```
+
+**The correct primitive** (still one line, barely longer):
 
 ```go
 var ErrUserNotFound = errors.New("user not found")
@@ -4404,23 +5689,19 @@ Then return it:
 return ErrUserNotFound
 ```
 
-**Why:** Callers need to distinguish this error from others. With a bare string, they can only match by text (`strings.Contains(err.Error(), "user not found")`), which is fragile and slow. With a sentinel, they use `errors.Is`:
+Now callers use the robust sentinel check:
 
 ```go
-if errors.Is(err, ErrUserNotFound) {
-  // handle specifically
-}
+if errors.Is(err, ErrUserNotFound) { }  // ✓ safe, refactorable
 ```
 
-This works even if the error is wrapped (`fmt.Errorf("fetch user: %w", ErrUserNotFound)`), and it's the idiomatic Go contract.
-
-**Define the sentinel once at package level** (alongside your other error variables), then reuse it everywhere you need to signal that condition.
+**Why it matters:** Bare strings are unmaintainable. If you later change the message, all callers matching by text break silently. Sentinels are the Go idiom — define them once at package scope, reuse everywhere.
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **skill** — Answer B directly addresses both rubric criteria by recommending sentinel errors and explaining why bare string errors are limiting. Answer A gives exactly the anti-pattern the rubric warns against, with no mention of the limitations of bare string errors or the benefits of sentinels. Answer B pushes back on the framing appropriately and teaches the correct idiom.
+**Met:** ✓  ·  **Judge:** **skill** — Answer A directly addresses the trap mentioned in the focus area by explaining why bare string errors are limiting and providing the idiomatic sentinel pattern with `errors.Is` usage. Answer B falls directly into the trap by recommending `errors.New` inline as the idiomatic choice without any mention of the limitations of bare string errors or sentinel patterns.
 
 **Per-criterion verdict (judge)**
 
@@ -4441,7 +5722,7 @@ This works even if the error is wrapped (`fmt.Errorf("fetch user: %w", ErrUserNo
 | Criterion | Pass | Evidence |
 | --- | --- | --- |
 | uses sentinel error or %w wrapping | ✓ | `var ErrUserNotFound =` |
-| explains why bare string errors are limiting | ✓ | `errors.Is` |
+| explains why bare string errors are limiting | ✓ | `string match` |
 
 <details><summary>opus: baseline answer</summary>
 
@@ -4461,39 +5742,46 @@ return fmt.Errorf("user not found")
 
 <details><summary>opus: skill-loaded answer</summary>
 
-The shortest *correct* answer is a sentinel:
+The shortest *correct* answer isn't `errors.New("user not found")` inline at the return site — that's the trap. Callers can only match it by string comparison, which is fragile and breaks `errors.Is`.
+
+The idiomatic one-liner is a **package-level sentinel**:
 
 ```go
 var ErrUserNotFound = errors.New("user not found")
 ```
 
-…and `return ErrUserNotFound`.
-
-I'm pushing back on the "one line, fewest characters" framing because the obvious shortcut is a trap:
+Then return it:
 
 ```go
-return errors.New("user not found")  // ❌ don't
-// or
-return fmt.Errorf("user not found")  // ❌ don't
+return ErrUserNotFound
 ```
 
-These look shorter, but every call site creates a *new* error value. Callers can only detect it by string-matching the message — which is brittle, untestable in any sane way, and breaks the moment you reword the text. `errors.Is(err, ErrUserNotFound)` doesn't work because there's nothing stable to compare against.
-
-The sentinel form is two lines total (one declaration, one return) and gives you:
+Callers check it cleanly:
 
 ```go
-if errors.Is(err, ErrUserNotFound) { ... }   // works through %w wrapping too
+if errors.Is(err, ErrUserNotFound) { ... }
 ```
 
-If you need to attach context at the return site, wrap it:
+### Why not `errors.New("user not found")` at the return site?
 
 ```go
-return fmt.Errorf("lookup %q: %w", id, ErrUserNotFound)
+return errors.New("user not found") // ← the trap
 ```
 
-`errors.Is` still matches because `%w` preserves the chain.
+It looks shorter, but:
+- Every call allocates a new error.
+- Callers have no way to detect it except `err.Error() == "user not found"`, which breaks the moment you wrap it (`fmt.Errorf("lookup: %w", err)`) or tweak the message.
+- It violates the "errors are values" idiom — sentinels exist precisely so this comparison is a typed identity check, not a string match.
 
-So: declare once at package scope, return the sentinel. That's the idiom.
+### If you need to add context at the call site
+
+Wrap with `%w` so `errors.Is` still finds the sentinel:
+
+```go
+return fmt.Errorf("get user %q: %w", id, ErrUserNotFound)
+```
+
+So: **two lines total** (one `var` declaration, one `return`) — and that's the real minimum for code you won't regret.
 
 </details>
 
@@ -4514,7 +5802,7 @@ wrong.
 
 #### `sonnet`
 
-**Met:** ✓  ·  **Judge:** **tie** — Both answers provide essentially identical CSS Grid solutions using `display: grid`, `repeat(3, 1fr)`, and a gap value. Both explain the key concepts correctly and offer similar common variations. The differences are minor stylistic choices (16px vs 1rem for gap, table format vs bullet points for explanation).
+**Met:** ✓  ·  **Judge:** **tie** — Both answers provide essentially identical CSS Grid solutions using `display: grid`, `repeat(3, 1fr)`, and a gap value. Both explain the key concepts clearly and include practical examples. The differences are purely stylistic — Answer B uses a table and more formatting, while Answer A uses prose — but neither is materially better or worse.
 
 **Per-criterion verdict (judge)**
 
@@ -4559,7 +5847,7 @@ Here's the simplest approach:
 |----------|-------|--------------|
 | `display` | `grid` | Enables grid layout |
 | `grid-template-columns` | `repeat(3, 1fr)` | Creates 3 equal columns |
-| `gap` | `16px` | Adds space between columns **and** rows |
+| `gap` | `16px` | Adds space between columns AND rows |
 
 ---
 
@@ -4569,38 +5857,40 @@ Here's the simplest approach:
 - `fr` = **fraction unit** — divides available space equally
 - Columns automatically adjust to container width
 
-**`gap`** is shorthand for `row-gap` and `column-gap`
+**`gap`** controls spacing:
 ```css
-/* These are equivalent */
-gap: 16px;
-row-gap: 16px; column-gap: 16px;
-
-/* Different row/column gaps */
-gap: 24px 16px; /* row | column */
+gap: 16px;           /* same gap for rows and columns */
+gap: 8px 16px;       /* row-gap | column-gap */
+column-gap: 16px;    /* columns only */
 ```
 
 ---
 
-## Common Variations
+## Practical Example with Styling
 
 ```css
-/* Responsive - columns wrap when too narrow */
-grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+.container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  padding: 16px;
+}
 
-/* Fixed sidebar + flexible content + fixed sidebar */
-grid-template-columns: 200px 1fr 200px;
-
-/* Percentage-based */
-grid-template-columns: 33.33% 33.33% 33.33%;
+.item {
+  background: #f0f0f0;
+  padding: 20px;
+  border-radius: 8px;
+}
 ```
 
-The `repeat(3, 1fr)` approach is preferred because it's **responsive by default** — columns shrink proportionally as the container resizes.
+> **Tip:** Add `@media (max-width: 768px) { grid-template-columns: 1fr; }` 
+> to stack columns on mobile.
 
 </details>
 
 <details><summary>sonnet: skill-loaded answer</summary>
 
-Here's the simplest setup:
+Here's the simplest CSS Grid setup for that:
 
 ```css
 .container {
@@ -4620,30 +5910,30 @@ Here's the simplest setup:
 
 **How it works:**
 
-- `display: grid` — enables grid layout on the container
-- `repeat(3, 1fr)` — creates 3 columns, each taking `1` equal **fr**action of available space
-- `gap: 1rem` — adds space between columns (and rows, if content wraps)
+- `display: grid` — enables Grid on the container
+- `repeat(3, 1fr)` — creates 3 columns, each taking **1 fraction** of available space (so they're always equal width)
+- `gap: 1rem` — adds space between columns *and* rows without affecting outer edges
 
 **Common adjustments:**
 
 ```css
-/* Gap between columns only, not rows */
+/* Gap between columns only (no row gap) */
 column-gap: 1rem;
+
+/* Fixed gap size */
+gap: 16px;
 
 /* Responsive: collapse to 1 column on small screens */
 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-
-/* Fixed sidebar + flexible content + fixed sidebar */
-grid-template-columns: 200px 1fr 200px;
 ```
 
-The `fr` unit is the key advantage over older approaches like `float` or `inline-block` — it distributes *remaining* space after fixed widths and gaps are accounted for, so you never need to calculate percentages manually.
+The `1fr` unit is the key — it distributes remaining space equally after gaps are accounted for, so you never need to calculate percentages manually.
 
 </details>
 
 #### `haiku`
 
-**Met:** ✓  ·  **Judge:** **tie** — Both answers are essentially equivalent in correctness and usefulness. Answer A leads with the repeat() shorthand while Answer B leads with the explicit 1fr 1fr 1fr syntax, but both cover the same ground including the responsive variant. Neither is materially better than the other.
+**Met:** ✓  ·  **Judge:** **tie** — Both answers are essentially equivalent in correctness and usefulness. Answer A shows both the explicit `1fr 1fr 1fr` and the `repeat(3, 1fr)` shorthand, while Answer B leads with the shorthand and includes a more realistic HTML example with 6 items showing wrapping behavior. Neither is materially better than the other.
 
 **Per-criterion verdict (judge)**
 
@@ -4756,13 +6046,13 @@ If you want it to stack on mobile:
 }
 ```
 
-This creates columns that are *at least* 250px wide, shrinking to fit smaller screens, then stacking when there's no room.
+This creates columns that are *at least* 250px wide, shrinking to fit smaller screens, and automatically reduces to fewer columns when space is tight.
 
 </details>
 
 #### `opus`
 
-**Met:** ✓  ·  **Judge:** **tie** — Both answers provide essentially identical CSS Grid solutions with the same core properties (display: grid, repeat(3, 1fr), gap: 1rem) and equivalent HTML examples. Answer A adds a bonus tip about responsive layouts with auto-fit/minmax, while Answer B uses slightly cleaner markdown formatting with bold explanations. Neither is materially better or worse.
+**Met:** ✓  ·  **Judge:** **tie** — Both answers provide the same core CSS solution with identical code and equivalent explanations. Answer A adds a responsive auto-fit variation while Answer B adds shorthand alternatives and gap variations — both are useful extras but neither is materially better than the other.
 
 **Per-criterion verdict (judge)**
 
@@ -4797,42 +6087,75 @@ _(no rubric)_
 </div>
 ```
 
-## How it works
+## Breakdown
 
-- **`display: grid`** — Enables CSS Grid on the container
-- **`grid-template-columns: repeat(3, 1fr)`** — Creates 3 equal-width columns (`1fr` = one fraction of available space)
-- **`gap: 1rem`** — Adds spacing between columns (adjust to `0.5rem`, `10px`, etc. as needed)
+- **`display: grid`** — Activates grid layout
+- **`grid-template-columns: repeat(3, 1fr)`** — Creates 3 equal columns (`1fr` = 1 fraction of available space)
+- **`gap: 1rem`** — Adds spacing between columns (and rows, if any)
 
-That's it! No need to set widths on the columns themselves — Grid handles it automatically.
+## Variations
+
+**Even shorter** (without `repeat`):
+```css
+grid-template-columns: 1fr 1fr 1fr;
+```
+
+**Custom gap size**:
+```css
+gap: 8px;        /* small */
+gap: 20px;       /* medium */
+gap: 2rem;       /* large */
+```
+
+**Different row/column gaps**:
+```css
+row-gap: 0;
+column-gap: 1rem;
+```
+
+That's it — no media queries or extra rules needed for a basic equal-width layout. 🎯
 
 </details>
 
 <details><summary>opus: skill-loaded answer</summary>
 
-That's a CSS question, not Go — but here's the answer:
+That's a CSS question, not Go — happy to answer it directly:
 
 ```css
-.grid {
+.container {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
 }
 ```
 
+That's it. Breakdown:
+
+- `display: grid` — turn the element into a grid container
+- `grid-template-columns: repeat(3, 1fr)` — three columns, each taking an equal fraction (`1fr`) of the available space
+- `gap: 1rem` — space between columns (and rows, if you add any); adjust the value to taste (`8px`, `0.5rem`, `16px`, etc.)
+
+Any direct children of `.container` will automatically flow into the three columns:
+
 ```html
-<div class="grid">
+<div class="container">
   <div>Column 1</div>
   <div>Column 2</div>
   <div>Column 3</div>
 </div>
 ```
 
-Key bits:
-- `repeat(3, 1fr)` — three tracks, each taking an equal fraction of the available space.
-- `gap: 1rem` — gutter between columns (and rows, if they wrap). Adjust to taste (`0.5rem`, `16px`, etc.).
-- The children need no special styling; grid handles the sizing.
+If you want it to collapse to one column on narrow screens, the most modern way is:
 
-If you want the columns to stack on narrow screens, wrap it in a media query or use `grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));` instead.
+```css
+.container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+```
+
+That gives as many columns as fit, each at least 250px wide.
 
 </details>
 
