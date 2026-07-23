@@ -64,6 +64,15 @@
       "name": "excalidraw",
       "source": "./workflow/excalidraw",
       "description": "Read, create, and edit Excalidraw (.excalidraw) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Not for rasterizing PNG/SVG in-process."
-    }
+    },
+     {
+      "name": "github-twin",
+      "source": {
+        "source": "github",
+        "repo": "ChristopherDavenport/github-twin"
+      },
+     "description": "Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools.",
+     "category": "workflow"
+   }
   ]
 }
