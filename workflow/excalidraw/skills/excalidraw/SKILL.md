@@ -61,13 +61,15 @@ Pick the track that matches the request. All tracks share the same setup — wri
 
 1. Load the file (Read tool for small files; `node`/`jq` for large ones).
 2. Run the summarize recipe to get counts by type, extracted text, the edge list, and the bounding box.
-3. Answer specific questions with `jq`/`node` filters (find by type, by text, by group; list arrows and what they connect; find dangling references).
-4. Optionally run the validator as a health report on a file you didn't create.
+3. When the diagram is hand-drawn — unbound arrows, text laid over or above shapes, boxes inside boxes — run the enrichment recipe instead: it resolves loose arrow endpoints to shapes, promotes text inside or titling a shape to labels, and recovers containment and flow direction, emitting `edges` with `provenance`/`slack`.
+4. Answer specific questions with `jq`/`node` filters (find by type, by text, by group; list arrows and what they connect; find dangling references).
+5. Optionally run the validator as a health report on a file you didn't create.
 
 ```sh
 # counts by type, all free-standing text, and the connection (edge) list:
 jq '.elements | group_by(.type) | map({type: .[0].type, count: length})' drawing.excalidraw
 node /tmp/summarize.js drawing.excalidraw   # -> {counts, texts, edges, bbox}
+node /tmp/enrich.js drawing.excalidraw      # -> also resolves unbound arrows, implicit labels, containment
 ```
 
 Detail and more query patterns in [inspecting.md](references/inspecting.md).
@@ -159,7 +161,7 @@ Parse the node declarations (`A[Start]` → rectangle, `B{Check}` → diamond, `
 ## Topic References
 
 - [Schema](references/schema.md) — the `.excalidraw` file format field by field: the top-level object, the shared element base (with defaults and which fields are randomized), the enum tables, the per-subtype addenda (text / linear / freedraw / image / frame), the binding model, the fractional `index`, and the default palette. The single source of truth every other reference points back to.
-- [Inspecting](references/inspecting.md) — Track A: loading, the summarize recipe (counts / text / edges / bbox), and query patterns (find by type/text/group/frame, list connections, find orphaned references).
+- [Inspecting](references/inspecting.md) — Track A: loading, the summarize recipe (counts / text / edges / bbox), the enrichment recipe (unbound-arrow resolution, implicit labels, containment, flow direction, with `provenance`/`slack` on each edge), and query patterns (find by type/text/group/frame, list connections, find orphaned references).
 - [Creating](references/creating.md) — Track B: the element factory (`base`/`shape`/`text`/`addLabel`/`file`), the build-order discipline (shapes → labels → arrows), a worked end-to-end build, and the flowchart auto-layout helper.
 - [Modifying](references/modifying.md) — Track C: the load → mutate-in-place → re-serialize round-trip; add / remove (with reference cleanup) / move (with binding repair) / restyle / connect / relabel / group; always ending at the validator.
 - [Layout and Binding](references/layout-and-binding.md) — the shared geometry: the `connect` bound-arrow recipe (box-edge intersection, gap, focus, both-sided `boundElements`), label centering + binding, grouping and z-order/`index`, and alignment/distribution math.
