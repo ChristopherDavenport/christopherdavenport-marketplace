@@ -60,6 +60,11 @@
       "source": "./workflow/commit-story",
       "description": "Take a batch of uncommitted work and split it into a sequence of meaningful commits with reviewer-grade messages, while guaranteeing the final tree is byte-identical to the starting tree. Plans the commit sequence, presents it for approval, executes whole-file or hunk-level splits via git apply --cached, and verifies the result with diff and tree-hash comparisons. Snapshots the baseline as a stash up front so any failure can be safely rolled back."
     },
+    {
+      "name": "excalidraw",
+      "source": "./workflow/excalidraw",
+      "description": "Read, create, and edit Excalidraw (.excalidraw) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Not for rasterizing PNG/SVG in-process."
+    },
      {
       "name": "github-twin",
       "source": {

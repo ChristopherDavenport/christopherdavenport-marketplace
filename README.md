@@ -27,6 +27,8 @@ For example: `/plugin install go@christopherdavenport`.
 | [`sqlite`](backend/sqlite) | backend | SQLite best practices — STRICT tables, must-set pragmas, BEGIN IMMEDIATE vs DEFERRED, indexes and EXPLAIN QUERY PLAN, JSON1/JSONB, the Go client, and server-side production use (Litestream/LiteFS/Turso/D1). |
 | [`spanner`](backend/spanner) | backend | Google Cloud Spanner best practices — schema design, interleaving, indexes, transactions, query/DML optimization, schema evolution, and the Go client SDK. |
 | [`pubsub`](backend/pubsub) | backend | Google Cloud Pub/Sub best practices — topics & schemas, subscription types, delivery guarantees, ordering, dead-letter, ack deadline / lease, publisher batching, and the Go client SDK. |
+| [`commit-story`](workflow/commit-story) | workflow | Split a batch of uncommitted work into a sequence of meaningful, individually-reviewable commits with reviewer-grade messages, guaranteeing the final tree is byte-identical to the start. |
+| [`excalidraw`](workflow/excalidraw) | workflow | Read, create, and edit Excalidraw (`.excalidraw`) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Export to PNG/SVG is documented (external tooling), not performed in-process. |
 
 Each plugin's `SKILL.md` contains the full reference; the per-plugin `references/` folders break down topic-specific detail.
 
