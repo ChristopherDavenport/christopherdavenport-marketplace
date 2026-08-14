@@ -65,14 +65,19 @@
       "source": "./workflow/excalidraw",
       "description": "Read, create, and edit Excalidraw (.excalidraw) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Not for rasterizing PNG/SVG in-process."
     },
-     {
+    {
       "name": "github-twin",
       "source": {
         "source": "github",
         "repo": "ChristopherDavenport/github-twin"
       },
-     "description": "Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools.",
-     "category": "workflow"
-   }
+      "description": "Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools.",
+      "category": "workflow"
+    },
+    {
+      "name": "guardrails",
+      "source": "./safety/guardrails",
+      "description": "Harness-enforced safety rails for agentic sessions: a containment hook that keeps writes inside the project and blocks network/privilege/deploy commands and pushes to off-machine remotes, an audit hook that records every tool call, and an opt-in Stop gate that refuses to let an agent finish on a red build. Enforcement lives in hooks rather than prompts, so it holds when the model is wrong. Fails closed by design — a crashed containment hook denies rather than allows. Not a replacement for permission rules: plugins cannot ship permissions, and the two layers cover different failure modes."
+    }
   ]
 }

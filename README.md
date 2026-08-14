@@ -1,6 +1,6 @@
 # christopherdavenport-marketplace
 
-Chris Davenport's personal [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace — a collection of skills covering frontend (Lit, Jack Henry Design System), backend (Go, TypeScript, SQLite, Spanner, Pub/Sub), and financial-services knowledge (US regulations, accounting fundamentals).
+Chris Davenport's personal [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace — a collection of skills covering frontend (Lit, Jack Henry Design System), backend (Go, TypeScript, SQLite, Spanner, Pub/Sub), financial-services knowledge (US regulations, accounting fundamentals), and safety (harness-enforced guardrails for agentic sessions).
 
 ## Install
 
@@ -50,6 +50,7 @@ Latest results — judge wins per model (`skill / baseline / tie` out of 8–10 
 | [`jh-design-system`](evals/jh-design-system/result.md) | 7 / 1 / 0 | 6 / 1 / 1 | **7 / 0 / 1** | [report](evals/jh-design-system/result.md) |
 | [`financial-regs`](evals/financial-regs/result.md) | 7 / 2 / 0 | 7 / 1 / 1 | 6 / 2 / 1 | [report](evals/financial-regs/result.md) |
 | [`financial-accounting`](evals/financial-accounting/result.md) | 7 / 2 / 0 | 6 / 1 / 2 | **8 / 0 / 1** | [report](evals/financial-accounting/result.md) |
+| [`guardrails`](safety/guardrails) | safety | Harness-enforced safety rails for agentic sessions — a containment hook that keeps writes inside the project and blocks network/privilege/deploy commands, an audit hook that records every tool call, and an opt-in `Stop` gate that refuses to let an agent finish on a red build. Enforcement lives in hooks rather than prompts, so it holds when the model is wrong. |
 
 **Bold** = no baseline wins (skill never made answers worse). ¹ Opus does not accept the `temperature` parameter — its column is an indicator, not a measurement (re-runs may flip individual verdicts).
 

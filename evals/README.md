@@ -1,6 +1,54 @@
 # Marketplace evals
 
-Automated tests that show, for a given plugin in this marketplace, that loading its skill measurably improves Claude's responses on relevant tasks.
+Automated tests that show a plugin in this marketplace does what it claims.
+
+There are **two eval shapes**, because there are two kinds of plugin here. Skill-shipping plugins are judged on whether they improve an answer; hook-shipping plugins are asserted on the decisions they make. See [Two eval shapes](#two-eval-shapes) before adding a new plugin's eval.
+
+## Two eval shapes
+
+Most plugins here ship a **skill**, so the harness can ask the same question
+twice — once with the skill loaded, once without — and have a judge pick the
+better answer. That is the judge-based shape documented above.
+
+`guardrails` ships **hooks**. There is no answer to compare: what a hook
+produces is a *decision*. So it is evaluated by assertion instead — feed the
+hook a `PreToolUse` payload and check the exit code (`2` = blocked,
+`0` = allowed).
+
+| | Judge-based | Assertion-based |
+|---|---|---|
+| Plugin ships | Skills | Hooks |
+| Question | "Is the answer better?" | "Is the decision correct?" |
+| Scoring | Rubric + LLM judge | Exit code |
+| Cost | Tokens per case | **Free** — no model |
+| Determinism | Stable signal, varying text | Exact |
+| Layout | `cases.yaml` + `plugin_dir.txt` | `cases.json` + `run.sh` |
+| Run | `uv run python -m evals <plugin>` | `./evals/<plugin>/run.sh` |
+
+Because assertion-based evals are free and deterministic, they run on every
+change rather than on a funded sweep.
+
+### The mutation requirement
+
+An assertion-based eval for a *guardrail* has a failure mode a judge-based
+eval does not: **it can silently stop testing anything.** A green run looks
+identical whether the hook is working or absent.
+
+So these suites ship a `--mutate` mode that replaces the hook with a
+permissive stub and asserts the suite goes red. Run it whenever the hook
+changes. Two real bugs of exactly this shape were caught during development —
+a timeout wrapper that silently no-op'd on macOS so a test never executed and
+reported success, and a traversal case that was never checked at all.
+
+Current assertion-based evals:
+
+| Plugin | Cases | Result |
+|---|---|---|
+| [`guardrails`](guardrails/result.md) | 34 (24 deny, 10 allow) | **34/34**, mutation check passes — [report](guardrails/result.md) |
+
+## Judge-based evals (skills)
+
+Automated tests that show, for a given plugin, that loading its skill measurably improves Claude's responses on relevant tasks.
 
 For each test case, the harness asks the model to answer a prompt twice — once with no skill loaded, once with the plugin's `SKILL.md` available — then scores both answers two ways:
 

@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/audit.sh",
+            "timeout": 10,
+            "statusMessage": "audit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/contain.sh",
+            "timeout": 15,
+            "statusMessage": "containment check"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/verify-gate.sh",
+            "timeout": 330,
+            "statusMessage": "verify gate"
+          }
+        ]
+      }
+    ]
+  }
+}
