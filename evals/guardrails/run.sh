@@ -31,11 +31,18 @@ MUTATE=0
 [[ "${1:-}" == "--mutate" ]] && MUTATE=1
 
 # Temp project root, and a sibling that is deliberately outside it.
-SANDBOX="$(mktemp -d -t guardrails-eval)"
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/guardrails-eval.XXXXXX")" || SANDBOX=""
 PROJECT="$SANDBOX/project"
 OUTSIDE="$SANDBOX/outside"
 mkdir -p "$PROJECT/src" "$OUTSIDE"
-BACKUP="$(mktemp -t guardrails-hook)"
+BACKUP="$(mktemp "${TMPDIR:-/tmp}/guardrails-hook.XXXXXX")" || BACKUP=""
+# `mktemp -t foo` is BSD-only; GNU rejects a template with no X's and returns
+# empty. That silently broke the fixture dirs on Linux, and -- far worse --
+# left BACKUP empty, so --mutate could not restore the hook it stubs and would
+# leave an always-allow stub in the working tree permanently.
+if [[ -z "$SANDBOX" || ! -d "$SANDBOX" || -z "$BACKUP" ]]; then
+  echo "FATAL: could not create a temp workspace" >&2; exit 70
+fi
 trap 'rm -rf "$SANDBOX"; [[ $MUTATE -eq 1 ]] && cp "$BACKUP" "$HOOK" 2>/dev/null; rm -f "$BACKUP" 2>/dev/null' EXIT
 
 if [[ $MUTATE -eq 1 ]]; then
@@ -94,6 +101,7 @@ echo "  hook: $pass passed, $fail failed (of $n)"
 # reporting them twice implies coverage the mutation run does not have.
 tfail=0
 mfail=0
+hfail=0
 if [[ $MUTATE -eq 0 ]]; then
   echo
   echo "  templates: sandbox-policy/references/templates.md"
@@ -107,12 +115,20 @@ if [[ $MUTATE -eq 0 ]]; then
   echo
   echo "  manifests: every plugin.json in this marketplace"
   python3 "$HERE/validate_manifests.py" || mfail=1
+
+  # The hook cases above run escapes.py through `python3 "$HOOK"`, which does
+  # not need the executable bit -- so they passed for months against two hooks
+  # the harness could not execute at all. This runs each one the way the
+  # harness does.
+  echo
+  echo "  hooks: every command in hooks.json is runnable"
+  python3 "$HERE/validate_hooks.py" || hfail=1
 fi
 
 echo
-if [[ $fail -gt 0 || $tfail -ne 0 || $mfail -ne 0 ]]; then
+if [[ $fail -gt 0 || $tfail -ne 0 || $mfail -ne 0 || $hfail -ne 0 ]]; then
   [[ $fail -gt 0 ]] && echo "  failed: ${failed[*]}" >&2
   exit 1
 fi
 [[ $MUTATE -eq 1 ]] && echo "  Suite correctly detects a neutered hook." \
-                    || echo "  Escape hatches guarded, templates sound, manifests loadable."
+                    || echo "  Escape hatches guarded, templates sound, manifests loadable, hooks runnable."

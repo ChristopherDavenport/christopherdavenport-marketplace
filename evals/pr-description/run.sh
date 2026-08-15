@@ -31,7 +31,10 @@ command -v python3 >/dev/null || { echo "FATAL: python3 required" >&2; exit 70; 
 MUTATE=0
 [[ "${1:-}" == "--mutate" ]] && MUTATE=1
 
-BACKUP="$(mktemp -t prdesc-scorer)"
+BACKUP="$(mktemp "${TMPDIR:-/tmp}/prdesc-scorer.XXXXXX")" || BACKUP=""
+# BSD-only spelling; GNU returns empty, and an empty BACKUP means --mutate
+# cannot restore the scorer it stubs.
+[[ -n "$BACKUP" ]] || { echo "FATAL: could not create a temp file" >&2; exit 70; }
 trap '[[ $MUTATE -eq 1 ]] && cp "$BACKUP" "$SCORER" 2>/dev/null; rm -f "$BACKUP" 2>/dev/null' EXIT
 
 if [[ $MUTATE -eq 1 ]]; then
