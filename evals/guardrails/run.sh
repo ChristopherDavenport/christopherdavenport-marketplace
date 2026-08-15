@@ -31,11 +31,18 @@ MUTATE=0
 [[ "${1:-}" == "--mutate" ]] && MUTATE=1
 
 # Temp project root, and a sibling that is deliberately outside it.
-SANDBOX="$(mktemp -d -t guardrails-eval)"
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/guardrails-eval.XXXXXX")" || SANDBOX=""
 PROJECT="$SANDBOX/project"
 OUTSIDE="$SANDBOX/outside"
 mkdir -p "$PROJECT/src" "$OUTSIDE"
-BACKUP="$(mktemp -t guardrails-hook)"
+BACKUP="$(mktemp "${TMPDIR:-/tmp}/guardrails-hook.XXXXXX")" || BACKUP=""
+# `mktemp -t foo` is BSD-only; GNU rejects a template with no X's and returns
+# empty. That silently broke the fixture dirs on Linux, and -- far worse --
+# left BACKUP empty, so --mutate could not restore the hook it stubs and would
+# leave an always-allow stub in the working tree permanently.
+if [[ -z "$SANDBOX" || ! -d "$SANDBOX" || -z "$BACKUP" ]]; then
+  echo "FATAL: could not create a temp workspace" >&2; exit 70
+fi
 trap 'rm -rf "$SANDBOX"; [[ $MUTATE -eq 1 ]] && cp "$BACKUP" "$HOOK" 2>/dev/null; rm -f "$BACKUP" 2>/dev/null' EXIT
 
 if [[ $MUTATE -eq 1 ]]; then
