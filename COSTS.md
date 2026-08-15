@@ -51,10 +51,19 @@ that is not installed yet — which is exactly when you want them.
 
 So the always-on figure is stamped into each entry's `description` in
 `marketplace.json`, which is the one field the browser is guaranteed to render.
-It is free: always-on cost comes from each `SKILL.md`'s frontmatter, not from
-the marketplace manifest. `--sync` keeps the two in step and CI fails if they
-drift, because a stale number shown at the moment of the decision is worse than
-no number at all.
+
+Stamping it there is free, and that is measured rather than assumed — padding
+a description by ~4000 characters and re-reading `claude plugin details`:
+
+| Field padded | Always-on |
+| --- | --- |
+| `marketplace.json` description | 193 → 193, unchanged |
+| `plugin.json` description | 193 → 193, unchanged |
+| `SKILL.md` frontmatter description | 193 → 1193 |
+
+Only the skill, agent, and command frontmatter feeds always-on. `--sync` keeps
+the stamp in step with the measurement and CI fails if they drift, because a
+stale number shown at the moment of the decision is worse than no number.
 
 ## Budgets
 

@@ -200,9 +200,18 @@ def sync_marketplace(plugins: list[dict], dry_run: bool = False) -> tuple[str, s
     The marketplace browser has no cost field -- the schema defines none, and the
     catalog that carries `tokens` for official plugins is server-generated and
     contains only claude-plugins-official. So the number goes in `description`,
-    which is the one field guaranteed to render, and it is free: always-on cost
-    comes from each SKILL.md's frontmatter, not from here. (Measured: this file's
-    descriptions are absent from the totals `claude plugin details` reports.)
+    which is the one field guaranteed to render.
+
+    Stamping it there is free, and that is measured rather than assumed. Padding
+    a description by ~4000 characters and re-running `claude plugin details`:
+
+        marketplace.json description   193 tok -> 193 tok   (no change)
+        plugin.json description        193 tok -> 193 tok   (no change)
+        SKILL.md frontmatter           193 tok -> 1193 tok  (+chars/4)
+
+    Only the skill/agent/command frontmatter feeds always-on. If that ever stops
+    being true, this function is the thing that turns a free annotation into a
+    per-session tax on every plugin at once.
 
     `category` and `homepage` are filled in at the same time. Both render in the
     browser and neither was set on any entry; official plugins set them on
@@ -347,10 +356,19 @@ def render_markdown(plugins: list[dict]) -> str:
         "",
         "So the always-on figure is stamped into each entry's `description` in",
         "`marketplace.json`, which is the one field the browser is guaranteed to render.",
-        "It is free: always-on cost comes from each `SKILL.md`'s frontmatter, not from",
-        "the marketplace manifest. `--sync` keeps the two in step and CI fails if they",
-        "drift, because a stale number shown at the moment of the decision is worse than",
-        "no number at all.",
+        "",
+        "Stamping it there is free, and that is measured rather than assumed — padding",
+        "a description by ~4000 characters and re-reading `claude plugin details`:",
+        "",
+        "| Field padded | Always-on |",
+        "| --- | --- |",
+        "| `marketplace.json` description | 193 → 193, unchanged |",
+        "| `plugin.json` description | 193 → 193, unchanged |",
+        "| `SKILL.md` frontmatter description | 193 → 1193 |",
+        "",
+        "Only the skill, agent, and command frontmatter feeds always-on. `--sync` keeps",
+        "the stamp in step with the measurement and CI fails if they drift, because a",
+        "stale number shown at the moment of the decision is worse than no number.",
         "",
         "## Budgets",
         "",
