@@ -8,67 +8,145 @@
     {
       "name": "financial-accounting",
       "source": "./knowledge/financial-accounting",
-      "description": "Financial institution accounting fundamentals (journals, ledgers, sub-ledgers, chart of accounts) and US GAAP (FASB ASC) reference for FI operations."
+      "category": "knowledge",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/knowledge/financial-accounting",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~78 tok always-on. Financial institution accounting fundamentals (journals, ledgers, sub-ledgers, chart of accounts) and US GAAP (FASB ASC) reference for FI operations."
     },
     {
       "name": "financial-regs",
       "source": "./knowledge/financial-regs",
-      "description": "US financial regulation lookup and compliance analysis."
+      "category": "knowledge",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/knowledge/financial-regs",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~69 tok always-on. US financial regulation lookup and compliance analysis."
     },
     {
       "name": "lit",
       "source": "./frontend/lit",
-      "description": "Lit web component library expertise."
+      "category": "frontend",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/frontend/lit",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~86 tok always-on. Lit web component library expertise."
     },
     {
       "name": "lit-router",
       "source": "./frontend/lit-router",
-      "description": "@lit-labs/router expertise."
+      "category": "frontend",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/frontend/lit-router",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~70 tok always-on. @lit-labs/router expertise."
     },
     {
       "name": "jh-design-system",
       "source": "./frontend/jh-design-system",
-      "description": "Jack Henry Design System (jackhenry.design/v2) — components, foundations, tokens, content."
+      "category": "frontend",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/frontend/jh-design-system",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~76 tok always-on. Jack Henry Design System (jackhenry.design/v2) — components, foundations, tokens, content."
     },
     {
       "name": "go",
       "source": "./backend/go",
-      "description": "Go language best practices — Effective Go, Google + Uber style guides, Code Review Comments, modern stdlib (errors, context, slog, generics)."
+      "category": "backend",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/backend/go",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~52 tok always-on. Go language best practices — Effective Go, Google + Uber style guides, Code Review Comments, modern stdlib (errors, context, slog, generics)."
     },
     {
       "name": "spanner",
       "source": "./backend/spanner",
-      "description": "Google Cloud Spanner best practices — schema design, interleaving, indexes, transactions, query/DML optimization, schema evolution, and the Go client SDK."
+      "category": "backend",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/backend/spanner",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~72 tok always-on. Google Cloud Spanner best practices — schema design, interleaving, indexes, transactions, query/DML optimization, schema evolution, and the Go client SDK."
     },
     {
       "name": "sqlite",
       "source": "./backend/sqlite",
-      "description": "SQLite best practices — STRICT tables, the must-set pragmas (WAL, busy_timeout, foreign_keys, synchronous=NORMAL), BEGIN IMMEDIATE vs DEFERRED, indexes and EXPLAIN QUERY PLAN, JSON1/JSONB with generated-column indexing, the Go client (database/sql with mattn/go-sqlite3 or modernc.org/sqlite), and server-side production use (Litestream/LiteFS/Turso/D1)."
+      "category": "backend",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/backend/sqlite",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~78 tok always-on. SQLite best practices — STRICT tables, the must-set pragmas (WAL, busy_timeout, foreign_keys, synchronous=NORMAL), BEGIN IMMEDIATE vs DEFERRED, indexes and EXPLAIN QUERY PLAN, JSON1/JSONB with generated-column indexing, the Go client (database/sql with mattn/go-sqlite3 or modernc.org/sqlite), and server-side production use (Litestream/LiteFS/Turso/D1)."
     },
     {
       "name": "pubsub",
       "source": "./backend/pubsub",
-      "description": "Google Cloud Pub/Sub best practices — topics & schemas, subscription types, delivery guarantees, ordering, dead-letter, ack deadline / lease, publisher batching, and the Go client SDK."
+      "category": "backend",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/backend/pubsub",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~72 tok always-on. Google Cloud Pub/Sub best practices — topics & schemas, subscription types, delivery guarantees, ordering, dead-letter, ack deadline / lease, publisher batching, and the Go client SDK."
     },
     {
       "name": "typescript",
       "source": "./backend/typescript",
-      "description": "TypeScript best practices — type system, generics, utility & advanced types, discriminated unions, classes & OOP, error handling, async & cancellation, immutability, modules, strict tsconfig, naming, testing, plus a dedicated section on functional patterns."
+      "category": "backend",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/backend/typescript",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~69 tok always-on. TypeScript best practices — type system, generics, utility & advanced types, discriminated unions, classes & OOP, error handling, async & cancellation, immutability, modules, strict tsconfig, naming, testing, plus a dedicated section on functional patterns."
     },
     {
       "name": "commit-story",
       "source": "./workflow/commit-story",
-      "description": "Take a batch of uncommitted work and split it into a sequence of meaningful commits with reviewer-grade messages, while guaranteeing the final tree is byte-identical to the starting tree. Plans the commit sequence, presents it for approval, executes whole-file or hunk-level splits via git apply --cached, and verifies the result with diff and tree-hash comparisons. Snapshots the baseline as a stash up front so any failure can be safely rolled back."
+      "category": "workflow",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/workflow/commit-story",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~201 tok always-on. Take a batch of uncommitted work and split it into a sequence of meaningful commits with reviewer-grade messages, while guaranteeing the final tree is byte-identical to the starting tree. Plans the commit sequence, presents it for approval, executes whole-file or hunk-level splits via git apply --cached, and verifies the result with diff and tree-hash comparisons. Snapshots the baseline as a stash up front so any failure can be safely rolled back."
     },
     {
       "name": "excalidraw",
       "source": "./workflow/excalidraw",
-      "description": "Read, create, and edit Excalidraw (.excalidraw) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Not for rasterizing PNG/SVG in-process."
+      "category": "workflow",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/workflow/excalidraw",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~250 tok always-on. Read, create, and edit Excalidraw (.excalidraw) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Not for rasterizing PNG/SVG in-process."
     },
     {
       "name": "pr-description",
       "source": "./workflow/pr-description",
-      "description": "Write a PR title and body a reviewer can act on in under a minute, sized to the change and to whatever pull-request template the repo ships. Sources facts from the diff rather than the commit log, requires a 15–60 word lead before the first heading, holds the body to a measured density budget tiered on diff size, and moves the record of how the work went into a follow-up comment instead of the body. Ships a scorer the skill runs on its own draft before presenting it. Not for splitting work into commits (that is commit-story), reviewing code, or merging."
+      "category": "workflow",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/workflow/pr-description",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~193 tok always-on. Write a PR title and body a reviewer can act on in under a minute, sized to the change and to whatever pull-request template the repo ships. Sources facts from the diff rather than the commit log, requires a 15–60 word lead before the first heading, holds the body to a measured density budget tiered on diff size, and moves the record of how the work went into a follow-up comment instead of the body. Ships a scorer the skill runs on its own draft before presenting it. Not for splitting work into commits (that is commit-story), reviewing code, or merging."
     },
     {
       "name": "github-twin",
@@ -76,13 +154,24 @@
         "source": "github",
         "repo": "ChristopherDavenport/github-twin"
       },
-      "description": "Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools.",
-      "category": "workflow"
+      "category": "workflow",
+      "homepage": "https://github.com/ChristopherDavenport/github-twin",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools."
     },
     {
       "name": "guardrails",
       "source": "./safety/guardrails",
-      "description": "Containment policy for agentic sessions, built on Claude Code's OS-level sandbox rather than around it. Ships a sandbox-policy skill (settings keys, scope rules that silently ignore misplaced keys, four validated policy templates, failure modes), /guardrails-setup to generate and install a policy this repo's build actually survives, and /guardrails-doctor to check what is enforced rather than what is configured. Three hooks cover the gaps the sandbox leaves: credential shapes in outbound MCP and WebFetch payloads, Bash calls that opt out with dangerouslyDisableSandbox, an audit log, and an opt-in Stop gate that refuses to let an agent finish on a red build. A plugin cannot ship permissions or sandbox settings — only the means to write them into a scope the harness honours."
+      "category": "safety",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/safety/guardrails",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~404 tok always-on. Containment policy for agentic sessions, built on Claude Code's OS-level sandbox rather than around it. Ships a sandbox-policy skill (settings keys, scope rules that silently ignore misplaced keys, four validated policy templates, failure modes), /guardrails-setup to generate and install a policy this repo's build actually survives, and /guardrails-doctor to check what is enforced rather than what is configured. Three hooks cover the gaps the sandbox leaves: credential shapes in outbound MCP and WebFetch payloads, Bash calls that opt out with dangerouslyDisableSandbox, an audit log, and an opt-in Stop gate that refuses to let an agent finish on a red build. A plugin cannot ship permissions or sandbox settings — only the means to write them into a scope the harness honours."
     }
   ]
 }

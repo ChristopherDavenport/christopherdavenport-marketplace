@@ -62,3 +62,16 @@ jobs:
             git --no-pager diff -- COSTS.md
             exit 1
           fi
+
+      # The cost stamped into each marketplace description is what someone
+      # browsing actually sees -- COSTS.md is a repo file the browser never
+      # reads. A stale number here misinforms at the moment of the decision,
+      # which is worse than not publishing one.
+      - name: marketplace.json cost stamps are up to date
+        run: |
+          python3 scripts/plugin_costs.py --sync
+          if ! git diff --quiet -- .claude-plugin/marketplace.json; then
+            echo "::error::marketplace.json is stale. Run: python3 scripts/plugin_costs.py --sync"
+            git --no-pager diff -- .claude-plugin/marketplace.json
+            exit 1
+          fi
