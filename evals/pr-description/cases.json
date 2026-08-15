@@ -1,0 +1,208 @@
+{
+  "about": "Assertion-based eval for pr-description. The plugin's load-bearing artifact is scripts/density.py, which turns a PR body into a decision -- within budget or not -- so it is asserted directly rather than judged. Each case feeds a body and a diff size on stdin and checks two things: the pass/fail verdict, and for failures the exact set of metrics that tripped. Checking the metric set matters because a case that fails for the wrong reason still exits non-zero and would otherwise read as covered. 13 of the 24 cases assert pass, and they carry as much weight as the failures: a scorer that rejects every body would satisfy every failure case and be useless. Boundary cases sit on both sides of each cap, since an off-by-one in a comparison is the likeliest bug.",
+  "cases": [
+    {
+      "id": "lead-absent",
+      "expect": "fail",
+      "why": "a body opening on a heading gives a scanner no answer",
+      "changed_lines": 200,
+      "fails": [
+        "lead_words"
+      ],
+      "body": "## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during.\n"
+    },
+    {
+      "id": "lead-too-short",
+      "expect": "fail",
+      "why": "a 14-word lead states what but not why",
+      "changed_lines": 200,
+      "fails": [
+        "lead_words"
+      ],
+      "body": "the change adds a guard around the retry path so a stale token no.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during.\n"
+    },
+    {
+      "id": "lead-too-long",
+      "expect": "fail",
+      "why": "a 61-word lead is a section, not a lead",
+      "changed_lines": 200,
+      "fails": [
+        "lead_words"
+      ],
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during.\n"
+    },
+    {
+      "id": "empty-body",
+      "expect": "fail",
+      "why": "an empty body fails on the lead floor",
+      "changed_lines": 200,
+      "fails": [
+        "lead_words"
+      ],
+      "body": ""
+    },
+    {
+      "id": "prose-over-small-tier",
+      "expect": "fail",
+      "why": "a 20-line change does not earn 200 words",
+      "changed_lines": 20,
+      "fails": [
+        "prose_words"
+      ],
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n"
+    },
+    {
+      "id": "prose-over-normal-tier",
+      "expect": "fail",
+      "why": "over the 300-word cap on a mid-size diff",
+      "changed_lines": 200,
+      "fails": [
+        "prose_words"
+      ],
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n"
+    },
+    {
+      "id": "prose-over-large-tier",
+      "expect": "fail",
+      "why": "even a large diff caps at 500 words",
+      "changed_lines": 2000,
+      "fails": [
+        "prose_words"
+      ],
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n"
+    },
+    {
+      "id": "small-tier-boundary-50-lines",
+      "expect": "fail",
+      "why": "50 changed lines is still the small tier",
+      "changed_lines": 50,
+      "fails": [
+        "prose_words"
+      ],
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n"
+    },
+    {
+      "id": "bold-saturated",
+      "expect": "fail",
+      "why": "uniform emphasis removes the ability to skim",
+      "changed_lines": 200,
+      "fails": [
+        "bold_per_100w"
+      ],
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\n## What changed\n\n**the** **change** **adds** **a** **guard** **around** **the** **retry** **path** **so** **a** **stale** the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and.\n"
+    },
+    {
+      "id": "paragraph-wall",
+      "expect": "fail",
+      "why": "an 81-word paragraph is a wall",
+      "changed_lines": 200,
+      "fails": [
+        "max_para_words"
+      ],
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which.\n"
+    },
+    {
+      "id": "multi-failure",
+      "expect": "fail",
+      "why": "several budgets can break at once",
+      "changed_lines": 20,
+      "fails": [
+        "lead_words",
+        "prose_words",
+        "bold_per_100w",
+        "max_para_words"
+      ],
+      "body": "## What changed\n\n**the** **change** **adds** **a** **guard** **around** **the** **retry** **path** **so** **a** **stale** **token** **no** the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n"
+    },
+    {
+      "id": "good-small",
+      "expect": "pass",
+      "why": "a terse body for a tiny diff",
+      "changed_lines": 12,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a.\n\n## How to test\n\n- Apply and confirm the flag is set.\n"
+    },
+    {
+      "id": "good-normal",
+      "expect": "pass",
+      "why": "a proportionate body for a mid-size diff",
+      "changed_lines": 200,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\n## How to test\n\n- the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n"
+    },
+    {
+      "id": "normal-tier-boundary-51-lines",
+      "expect": "pass",
+      "why": "51 changed lines crosses into the normal tier",
+      "changed_lines": 51,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n"
+    },
+    {
+      "id": "lead-at-min",
+      "expect": "pass",
+      "why": "a 15-word lead is exactly at the floor",
+      "changed_lines": 200,
+      "body": "the change adds a guard around the retry path so a stale token no longer.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during.\n"
+    },
+    {
+      "id": "lead-at-max",
+      "expect": "pass",
+      "why": "a 60-word lead is exactly at the ceiling",
+      "changed_lines": 200,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during.\n"
+    },
+    {
+      "id": "paragraph-at-cap",
+      "expect": "pass",
+      "why": "an 80-word paragraph is exactly at the cap",
+      "changed_lines": 200,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic.\n"
+    },
+    {
+      "id": "checkboxes-excluded",
+      "expect": "pass",
+      "why": "author-liability checkboxes are not the author's prose",
+      "changed_lines": 200,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed.\n\n## Author liability\n- [ ] the change adds a guard around the retry\n- [ ] the change adds a guard around the retry\n- [ ] the change adds a guard around the retry\n- [ ] the change adds a guard around the retry\n- [ ] the change adds a guard around the retry\n- [ ] the change adds a guard around the retry\n- [ ] the change adds a guard around the retry\n- [ ] the change adds a guard around the retry\n- [ ] the change adds a guard around the retry\n- [ ] the change adds a guard around the retry\n"
+    },
+    {
+      "id": "html-comments-excluded",
+      "expect": "pass",
+      "why": "template instructions are not the author's prose",
+      "changed_lines": 200,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed.\n\n## What changed\n\n<!-- the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly -->\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic.\n"
+    },
+    {
+      "id": "code-fence-excluded",
+      "expect": "pass",
+      "why": "a long code block is not prose",
+      "changed_lines": 200,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed.\n\n## How to test\n\n```sh\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and\n```\n"
+    },
+    {
+      "id": "table-rows-excluded",
+      "expect": "pass",
+      "why": "KNOWN BLIND SPOT: prose relocated into a table escapes the word cap; the skill forbids the tactic in prose because the scorer structurally cannot catch it",
+      "changed_lines": 200,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed.\n\n## What changed\n\n| a | b |\n|---|---|\n| the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic | the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic |\n| the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic | the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic |\n| the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic | the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic |\n| the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic | the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic |\n| the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic | the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic |\n| the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic | the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic |\n"
+    },
+    {
+      "id": "bullets-are-not-paragraphs",
+      "expect": "pass",
+      "why": "a long bullet is not measured as a paragraph",
+      "changed_lines": 200,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed.\n\n## How to test\n\n- the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during.\n"
+    },
+    {
+      "id": "no-changed-lines-defaults-normal",
+      "expect": "pass",
+      "why": "omitting the diff size assumes the normal tier",
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n"
+    },
+    {
+      "id": "exemplar-large",
+      "expect": "pass",
+      "why": "the shipped exemplar shape for a large change",
+      "changed_lines": 629,
+      "body": "the change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent.\n\n## What changed\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly the change adds a guard around the retry path so.\n\n## How to test\n\n- the change adds a guard around the retry path so a stale token no longer escapes into the queue and.\n  - [ ] the change adds a guard around the retry path so a stale.\n\n## Notes\n\nthe change adds a guard around the retry path so a stale token no longer escapes into the queue and the caller sees a typed error instead of a panic which matters because the upstream service returns intermittent failures during its nightly rebuild window and callers must tolerate them cleanly.\n"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 Automated tests that show a plugin in this marketplace does what it claims.
 
-There are **two eval shapes**, because there are two kinds of plugin here. Skill-shipping plugins are judged on whether they improve an answer; hook-shipping plugins are asserted on the decisions they make. See [Two eval shapes](#two-eval-shapes) before adding a new plugin's eval.
+There are **two eval shapes**, because there are two kinds of plugin here. Plugins whose product is an *answer* are judged on whether they improve it; plugins whose product is a *decision* — a hook's verdict, a scorer's pass/fail — are asserted on it directly. See [Two eval shapes](#two-eval-shapes) before adding a new plugin's eval.
 
 ## Two eval shapes
 
@@ -57,6 +57,18 @@ Current assertion-based evals:
 | Plugin | Cases | Result |
 |---|---|---|
 | [`guardrails`](guardrails/result.md) | 40 hook (24 deny, 16 allow) + 46 template checks | **40/40** and **46/46**, mutation check passes — [report](guardrails/result.md) |
+| [`pr-description`](pr-description/result.md) | 24 scorer (11 failure, 13 pass) | **24/24**, mutation check passes — [report](pr-description/result.md) |
+
+`pr-description` shows the shape is not only for hooks. Any plugin whose
+product is a **decision** rather than an answer fits: its scorer takes a PR
+body and returns within-budget or not, which is assertable in exactly the way a
+hook's exit code is. The generalisation is *machine-checkable output*, not
+*hooks*.
+
+Its cases assert the **failure set**, not just the verdict — a body that trips
+the wrong metric still exits non-zero and would otherwise read as covered.
+Worth copying when a suite's artifact reports *why* it failed and not only
+*that* it did.
 
 ## Judge-based evals (skills)
 

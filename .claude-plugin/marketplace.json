@@ -66,6 +66,11 @@
       "description": "Read, create, and edit Excalidraw (.excalidraw) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Not for rasterizing PNG/SVG in-process."
     },
     {
+      "name": "pr-description",
+      "source": "./workflow/pr-description",
+      "description": "Write a PR title and body a reviewer can act on in under a minute, sized to the change and to whatever pull-request template the repo ships. Sources facts from the diff rather than the commit log, requires a 15–60 word lead before the first heading, holds the body to a measured density budget tiered on diff size, and moves the record of how the work went into a follow-up comment instead of the body. Ships a scorer the skill runs on its own draft before presenting it. Not for splitting work into commits (that is commit-story), reviewing code, or merging."
+    },
+    {
       "name": "github-twin",
       "source": {
         "source": "github",
