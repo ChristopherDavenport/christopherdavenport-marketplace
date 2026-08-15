@@ -4,18 +4,24 @@
 #   ./evals/guardrails/run.sh              # run the suite
 #   ./evals/guardrails/run.sh --mutate     # prove the suite can fail
 #
-# Deterministic and free: it feeds crafted PreToolUse payloads to the hook
-# and asserts the exit code. No model, no tokens, no network.
+# Two parts, both deterministic and free -- crafted payloads in, exit codes
+# out. No model, no tokens, no network, so this runs on every change rather
+# than on a funded sweep.
+#
+#   1. escapes.py   the hook, fed PreToolUse payloads
+#   2. templates    the policy templates the sandbox-policy skill ships,
+#                   which are now the plugin's actual product
 #
 # --mutate is not a convenience. A guardrail suite that cannot fail is not
-# testing anything, so this replaces the hook with one that always allows
-# and confirms every deny case goes red. Run it whenever the hook changes.
+# testing anything, and that failure is invisible: a green run looks the same
+# whether the hook works or is absent. This replaces the hook with one that
+# always allows and confirms every deny case goes red.
 
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN="$(cd "$HERE/../../safety/guardrails" && pwd)"
-HOOK="$PLUGIN/scripts/contain.sh"
+HOOK="$PLUGIN/scripts/escapes.py"
 CASES="$HERE/cases.json"
 
 command -v jq >/dev/null || { echo "FATAL: jq required" >&2; exit 70; }
@@ -29,9 +35,9 @@ SANDBOX="$(mktemp -d -t guardrails-eval)"
 PROJECT="$SANDBOX/project"
 OUTSIDE="$SANDBOX/outside"
 mkdir -p "$PROJECT/src" "$OUTSIDE"
+BACKUP="$(mktemp -t guardrails-hook)"
 trap 'rm -rf "$SANDBOX"; [[ $MUTATE -eq 1 ]] && cp "$BACKUP" "$HOOK" 2>/dev/null; rm -f "$BACKUP" 2>/dev/null' EXIT
 
-BACKUP="$(mktemp -t guardrails-hook)"
 if [[ $MUTATE -eq 1 ]]; then
   cp "$HOOK" "$BACKUP"
   printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$HOOK"
@@ -39,6 +45,9 @@ if [[ $MUTATE -eq 1 ]]; then
   echo "Every deny case must now FAIL. If they pass, the suite is vacuous."
   echo
 fi
+
+echo "  hook: escapes.py"
+echo
 
 pass=0; fail=0; failed=()
 n=$(jq '.cases | length' "$CASES")
@@ -78,10 +87,22 @@ for i in $(seq 0 $((n - 1))); do
 done
 
 echo
-echo "  $pass passed, $fail failed (of $n)"
-if [[ $fail -gt 0 ]]; then
-  echo "  failed: ${failed[*]}" >&2
+echo "  hook: $pass passed, $fail failed (of $n)"
+
+# Template validation is skipped under mutation -- it does not exercise the
+# hook, so its result would be identical either way and reporting it twice
+# implies coverage the mutation run does not have.
+tfail=0
+if [[ $MUTATE -eq 0 ]]; then
+  echo
+  echo "  templates: sandbox-policy/references/templates.md"
+  python3 "$HERE/validate_templates.py" || tfail=1
+fi
+
+echo
+if [[ $fail -gt 0 || $tfail -ne 0 ]]; then
+  [[ $fail -gt 0 ]] && echo "  failed: ${failed[*]}" >&2
   exit 1
 fi
 [[ $MUTATE -eq 1 ]] && echo "  Suite correctly detects a neutered hook." \
-                    || echo "  Fence holds."
+                    || echo "  Escape hatches guarded, templates sound."

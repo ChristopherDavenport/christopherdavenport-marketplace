@@ -1,10 +1,10 @@
 {
   "name": "guardrails",
-  "description": "Harness-enforced safety rails for agentic sessions: a containment hook that keeps writes inside the project and blocks network/privilege/deploy commands and pushes to off-machine remotes, an audit hook that records every tool call, and an opt-in Stop gate that refuses to let an agent finish on a red build. Enforcement lives in hooks rather than prompts, so it holds when the model is wrong. Fails closed by design — a crashed containment hook denies rather than allows. Not a replacement for permission rules: plugins cannot ship permissions, and the two layers cover different failure modes.",
-  "version": "0.1.0",
+  "description": "Containment policy for agentic sessions, built on Claude Code's OS-level sandbox rather than around it. Ships a sandbox-policy skill (settings keys, scope rules that silently ignore misplaced keys, four validated policy templates, failure modes), /guardrails-setup to generate and install a policy this repo's build actually survives, and /guardrails-doctor to check what is enforced rather than what is configured. Three hooks cover the gaps the sandbox leaves: credential shapes in outbound MCP and WebFetch payloads, Bash calls that opt out with dangerouslyDisableSandbox, an audit log, and an opt-in Stop gate that refuses to let an agent finish on a red build.",
+  "version": "0.2.0",
   "author": {
     "name": "Chris Davenport"
   },
-  "keywords": ["safety", "hooks", "containment", "audit", "guardrails"],
+  "keywords": ["safety", "sandbox", "hooks", "containment", "audit", "permissions", "guardrails"],
   "hooks": "./hooks/hooks.json"
 }

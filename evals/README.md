@@ -10,20 +10,32 @@ Most plugins here ship a **skill**, so the harness can ask the same question
 twice — once with the skill loaded, once without — and have a judge pick the
 better answer. That is the judge-based shape documented above.
 
-`guardrails` ships **hooks**. There is no answer to compare: what a hook
-produces is a *decision*. So it is evaluated by assertion instead — feed the
+`guardrails` ships **hooks and machine-checkable artifacts**. There is no
+answer to compare: what a hook produces is a *decision*, and what a policy
+template produces is a *configuration*. Both are asserted directly — feed the
 hook a `PreToolUse` payload and check the exit code (`2` = blocked,
-`0` = allowed).
+`0` = allowed); parse the templates out of the skill's reference file and
+assert the invariants they are supposed to guarantee.
+
+That second half matters because a skill's *prose* needs a judge, but the
+artifacts a skill tells you to copy do not. A template that has drifted into
+granting more access still parses, still reads as responsible, and is exactly
+the kind of rot a judge-based eval would score as fine.
 
 | | Judge-based | Assertion-based |
 |---|---|---|
-| Plugin ships | Skills | Hooks |
+| Plugin ships | Skill prose | Hooks, config artifacts |
 | Question | "Is the answer better?" | "Is the decision correct?" |
-| Scoring | Rubric + LLM judge | Exit code |
+| Scoring | Rubric + LLM judge | Exit code, invariant checks |
 | Cost | Tokens per case | **Free** — no model |
 | Determinism | Stable signal, varying text | Exact |
 | Layout | `cases.yaml` + `plugin_dir.txt` | `cases.json` + `run.sh` |
 | Run | `uv run python -m evals <plugin>` | `./evals/<plugin>/run.sh` |
+
+A plugin can need both. `guardrails` ships skills whose prose is judge-scorable
+in principle, but its load-bearing parts — the hook's decisions and the
+templates' contents — are assertable, so those are tested for free on every
+change.
 
 Because assertion-based evals are free and deterministic, they run on every
 change rather than on a funded sweep.
@@ -44,7 +56,7 @@ Current assertion-based evals:
 
 | Plugin | Cases | Result |
 |---|---|---|
-| [`guardrails`](guardrails/result.md) | 34 (24 deny, 10 allow) | **34/34**, mutation check passes — [report](guardrails/result.md) |
+| [`guardrails`](guardrails/result.md) | 40 hook (24 deny, 16 allow) + 46 template checks | **40/40** and **46/46**, mutation check passes — [report](guardrails/result.md) |
 
 ## Judge-based evals (skills)
 

@@ -13,13 +13,13 @@
         ]
       },
       {
-        "matcher": "Bash|Write|Edit.*",
+        "matcher": "Bash|WebFetch|mcp__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/contain.sh",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/escapes.py",
             "timeout": 15,
-            "statusMessage": "containment check"
+            "statusMessage": "sandbox-escape check"
           }
         ]
       }
