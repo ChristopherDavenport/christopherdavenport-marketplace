@@ -65,14 +65,19 @@
       "source": "./workflow/excalidraw",
       "description": "Read, create, and edit Excalidraw (.excalidraw) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Not for rasterizing PNG/SVG in-process."
     },
-     {
+    {
       "name": "github-twin",
       "source": {
         "source": "github",
         "repo": "ChristopherDavenport/github-twin"
       },
-     "description": "Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools.",
-     "category": "workflow"
-   }
+      "description": "Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools.",
+      "category": "workflow"
+    },
+    {
+      "name": "guardrails",
+      "source": "./safety/guardrails",
+      "description": "Containment policy for agentic sessions, built on Claude Code's OS-level sandbox rather than around it. Ships a sandbox-policy skill (settings keys, scope rules that silently ignore misplaced keys, four validated policy templates, failure modes), /guardrails-setup to generate and install a policy this repo's build actually survives, and /guardrails-doctor to check what is enforced rather than what is configured. Three hooks cover the gaps the sandbox leaves: credential shapes in outbound MCP and WebFetch payloads, Bash calls that opt out with dangerouslyDisableSandbox, an audit log, and an opt-in Stop gate that refuses to let an agent finish on a red build. A plugin cannot ship permissions or sandbox settings — only the means to write them into a scope the harness honours."
+    }
   ]
 }

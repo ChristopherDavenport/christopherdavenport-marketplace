@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/audit.sh",
+            "timeout": 10,
+            "statusMessage": "audit"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|WebFetch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/escapes.py",
+            "timeout": 15,
+            "statusMessage": "sandbox-escape check"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/verify-gate.sh",
+            "timeout": 330,
+            "statusMessage": "verify gate"
+          }
+        ]
+      }
+    ]
+  }
+}
