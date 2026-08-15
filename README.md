@@ -34,6 +34,8 @@ For example: `/plugin install go@christopherdavenport`.
 
 Each plugin's `SKILL.md` contains the full reference; the per-plugin `references/` folders break down topic-specific detail.
 
+**Before you install:** [`COSTS.md`](COSTS.md) lists what each plugin costs in context — always-on tokens (paid every session, used or not) and on-invoke tokens (paid only when it fires). All 14 together are ~1,770 tokens always-on. Budgets are enforced in CI, so those numbers can't drift.
+
 ## Evals
 
 Plugins here carry one of [two eval shapes](evals/README.md#two-eval-shapes). Plugins whose product is an *answer* use the judge-based sweep below. Plugins whose product is a *decision* — `guardrails`' hook verdicts, `pr-description`'s budget scorer — are asserted directly, which is free and deterministic, so those suites run on every change instead of appearing in this table.
