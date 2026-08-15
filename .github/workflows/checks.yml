@@ -48,6 +48,12 @@ jobs:
       - name: pr-description — mutation check
         run: ./evals/pr-description/run.sh --mutate
 
+      - name: claude-telemetry — store, backfill, MCP surface
+        run: ./evals/claude-telemetry/run.sh
+
+      - name: claude-telemetry — mutation check
+        run: ./evals/claude-telemetry/run.sh --mutate
+
       - name: Plugin context-cost budgets
         run: python3 scripts/plugin_costs.py --check
 

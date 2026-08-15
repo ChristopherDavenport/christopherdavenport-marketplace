@@ -1,0 +1,15 @@
+{
+  "name": "claude-telemetry",
+  "description": "Local observability for Claude Code: a stdlib OTLP/HTTP-JSON sink that writes live metrics, events and traces into SQLite, a backfill that imports the transcripts already on disk, and an MCP server that queries both. Answers cost, audit and per-plugin attribution questions without sending telemetry anywhere. No collector, no protobuf, no dependencies, loopback only. Not for hosted observability backends, and not a replacement for the Claude Code analytics dashboard.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Chris Davenport"
+  },
+  "keywords": ["observability", "telemetry", "otel", "cost", "audit", "sqlite", "mcp"],
+  "mcpServers": {
+    "claude-telemetry": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/mcp_server.py"]
+    }
+  }
+}

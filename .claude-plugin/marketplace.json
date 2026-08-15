@@ -149,6 +149,17 @@
       "description": "~193 tok always-on. Write a PR title and body a reviewer can act on in under a minute, sized to the change and to whatever pull-request template the repo ships. Sources facts from the diff rather than the commit log, requires a 15–60 word lead before the first heading, holds the body to a measured density budget tiered on diff size, and moves the record of how the work went into a follow-up comment instead of the body. Ships a scorer the skill runs on its own draft before presenting it. Not for splitting work into commits (that is commit-story), reviewing code, or merging."
     },
     {
+      "name": "claude-telemetry",
+      "source": "./observability/claude-telemetry",
+      "category": "observability",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/observability/claude-telemetry",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~107 tok always-on. Local observability for Claude Code: a stdlib OTLP/HTTP-JSON sink that writes live metrics, events and traces into SQLite, a backfill that imports the transcripts already on disk, and an MCP server that queries both. Answers cost, audit and per-plugin attribution questions without sending telemetry anywhere. No collector, no protobuf, no dependencies, loopback only. Not for hosted observability backends, and not a replacement for the Claude Code analytics dashboard."
+    },
+    {
       "name": "github-twin",
       "source": {
         "source": "github",
