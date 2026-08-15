@@ -1,0 +1,27 @@
+{
+  "_about": [
+    "Always-on token budgets, enforced by `python3 scripts/plugin_costs.py --check`.",
+    "Always-on is what a plugin costs on every session whether or not it is used, so",
+    "it is the number worth capping. On-invoke and lazy reference material are not",
+    "budgeted: they are paid only when the component fires, and pushing bulk into",
+    "references/ is something to encourage rather than penalise.",
+    "",
+    "The default is deliberately tight. A plugin that needs more gets an explicit",
+    "override here, which shows up in the diff and has to be argued for in review --",
+    "that is the whole mechanism. Raising a number to make CI green is a decision,",
+    "not a fix, and it should look like one.",
+    "",
+    "Overrides sit roughly 10% above current cost: enough that reformatting a",
+    "description does not fail the build, tight enough that a new paragraph does."
+  ],
+
+  "default_always_on": 150,
+  "total_always_on": 2000,
+
+  "plugins": {
+    "guardrails": 450,
+    "excalidraw": 275,
+    "commit-story": 225,
+    "pr-description": 215
+  }
+}

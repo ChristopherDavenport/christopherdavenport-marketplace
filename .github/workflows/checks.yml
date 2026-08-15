@@ -1,0 +1,64 @@
+name: checks
+
+# Everything here is deterministic and free -- no model, no tokens, no network
+# -- which is the whole reason it can run on every push instead of on a funded
+# sweep. The judge-based evals under evals/<plugin>/cases.yaml are NOT run here:
+# they cost real money per case and are invoked by hand.
+#
+# Until this file existed, the assertion suites described themselves as running
+# "on every change" and nothing ran them. A guardrails manifest shipped broken
+# and stayed broken through a merge because of it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assertions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Both suites need jq; ubuntu-latest ships it, so this is a guard against
+      # a future runner image dropping it rather than an install step.
+      - name: Check prerequisites
+        run: |
+          command -v jq >/dev/null || { echo "::error::jq missing from runner"; exit 1; }
+          command -v python3 >/dev/null || { echo "::error::python3 missing"; exit 1; }
+
+      - name: guardrails — hooks, templates, manifests
+        run: ./evals/guardrails/run.sh
+
+      - name: guardrails — mutation check
+        run: ./evals/guardrails/run.sh --mutate
+
+      - name: pr-description — scorer
+        run: ./evals/pr-description/run.sh
+
+      - name: pr-description — mutation check
+        run: ./evals/pr-description/run.sh --mutate
+
+      - name: Plugin context-cost budgets
+        run: python3 scripts/plugin_costs.py --check
+
+      # COSTS.md is generated. If a plugin's descriptions changed without it
+      # being regenerated, the published numbers are lying to anyone deciding
+      # whether to install.
+      - name: COSTS.md is up to date
+        run: |
+          python3 scripts/plugin_costs.py --write
+          if ! git diff --quiet -- COSTS.md; then
+            echo "::error::COSTS.md is stale. Run: python3 scripts/plugin_costs.py --write"
+            git --no-pager diff -- COSTS.md
+            exit 1
+          fi
