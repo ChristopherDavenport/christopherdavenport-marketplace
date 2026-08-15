@@ -29,6 +29,7 @@ For example: `/plugin install go@christopherdavenport`.
 | [`pubsub`](backend/pubsub) | backend | Google Cloud Pub/Sub best practices — topics & schemas, subscription types, delivery guarantees, ordering, dead-letter, ack deadline / lease, publisher batching, and the Go client SDK. |
 | [`commit-story`](workflow/commit-story) | workflow | Split a batch of uncommitted work into a sequence of meaningful, individually-reviewable commits with reviewer-grade messages, guaranteeing the final tree is byte-identical to the start. |
 | [`excalidraw`](workflow/excalidraw) | workflow | Read, create, and edit Excalidraw (`.excalidraw`) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Export to PNG/SVG is documented (external tooling), not performed in-process. |
+| [`pr-description`](workflow/pr-description) | workflow | Write a PR title and body a reviewer can act on in under a minute, sized to the change and to whatever pull-request template the repo ships. Requires a 15–60 word lead before the first heading, holds the body to a density budget tiered on diff size, and moves the record of how the work went into a follow-up comment. Ships a scorer the skill runs on its own draft before presenting it. |
 
 Each plugin's `SKILL.md` contains the full reference; the per-plugin `references/` folders break down topic-specific detail.
 
