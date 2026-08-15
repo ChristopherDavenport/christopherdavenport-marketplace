@@ -65,7 +65,7 @@
       "source": "./workflow/excalidraw",
       "description": "Read, create, and edit Excalidraw (.excalidraw) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Not for rasterizing PNG/SVG in-process."
     },
-     {
+    {
       "name": "pr-description",
       "source": "./workflow/pr-description",
       "description": "Write a PR title and body a reviewer can act on in under a minute, sized to the change and to whatever pull-request template the repo ships. Sources facts from the diff rather than the commit log, requires a 15–60 word lead before the first heading, holds the body to a measured density budget tiered on diff size, and moves the record of how the work went into a follow-up comment instead of the body. Ships a scorer the skill runs on its own draft before presenting it. Not for splitting work into commits (that is commit-story), reviewing code, or merging."
@@ -76,8 +76,13 @@
         "source": "github",
         "repo": "ChristopherDavenport/github-twin"
       },
-     "description": "Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools.",
-     "category": "workflow"
-   }
+      "description": "Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools.",
+      "category": "workflow"
+    },
+    {
+      "name": "guardrails",
+      "source": "./safety/guardrails",
+      "description": "Containment policy for agentic sessions, built on Claude Code's OS-level sandbox rather than around it. Ships a sandbox-policy skill (settings keys, scope rules that silently ignore misplaced keys, four validated policy templates, failure modes), /guardrails-setup to generate and install a policy this repo's build actually survives, and /guardrails-doctor to check what is enforced rather than what is configured. Three hooks cover the gaps the sandbox leaves: credential shapes in outbound MCP and WebFetch payloads, Bash calls that opt out with dangerouslyDisableSandbox, an audit log, and an opt-in Stop gate that refuses to let an agent finish on a red build. A plugin cannot ship permissions or sandbox settings — only the means to write them into a scope the harness honours."
+    }
   ]
 }

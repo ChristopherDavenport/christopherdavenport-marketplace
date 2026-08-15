@@ -1,6 +1,6 @@
 # christopherdavenport-marketplace
 
-Chris Davenport's personal [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace — a collection of skills covering frontend (Lit, Jack Henry Design System), backend (Go, TypeScript, SQLite, Spanner, Pub/Sub), and financial-services knowledge (US regulations, accounting fundamentals).
+Chris Davenport's personal [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace — a collection of skills covering frontend (Lit, Jack Henry Design System), backend (Go, TypeScript, SQLite, Spanner, Pub/Sub), financial-services knowledge (US regulations, accounting fundamentals), and safety (harness-enforced guardrails for agentic sessions).
 
 ## Install
 
@@ -30,6 +30,7 @@ For example: `/plugin install go@christopherdavenport`.
 | [`commit-story`](workflow/commit-story) | workflow | Split a batch of uncommitted work into a sequence of meaningful, individually-reviewable commits with reviewer-grade messages, guaranteeing the final tree is byte-identical to the start. |
 | [`excalidraw`](workflow/excalidraw) | workflow | Read, create, and edit Excalidraw (`.excalidraw`) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Export to PNG/SVG is documented (external tooling), not performed in-process. |
 | [`pr-description`](workflow/pr-description) | workflow | Write a PR title and body a reviewer can act on in under a minute, sized to the change and to whatever pull-request template the repo ships. Requires a 15–60 word lead before the first heading, holds the body to a density budget tiered on diff size, and moves the record of how the work went into a follow-up comment. Ships a scorer the skill runs on its own draft before presenting it. |
+| [`guardrails`](safety/guardrails) | safety | Containment for agentic sessions, built on Claude Code's OS-level sandbox rather than around it — a `sandbox-policy` skill covering the settings keys, the scopes that silently ignore misplaced keys, and four validated policy templates; `/guardrails-setup` to generate and install a policy the repo's build survives; `/guardrails-doctor` to report what is enforced rather than what is configured. Hooks cover only what the sandbox can't see: credential shapes in outbound MCP/`WebFetch` payloads, Bash calls that opt out with `dangerouslyDisableSandbox`, an audit log, and an opt-in `Stop` gate that refuses to let an agent finish on a red build. |
 
 Each plugin's `SKILL.md` contains the full reference; the per-plugin `references/` folders break down topic-specific detail.
 
