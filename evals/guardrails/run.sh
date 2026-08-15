@@ -89,20 +89,30 @@ done
 echo
 echo "  hook: $pass passed, $fail failed (of $n)"
 
-# Template validation is skipped under mutation -- it does not exercise the
-# hook, so its result would be identical either way and reporting it twice
-# implies coverage the mutation run does not have.
+# Template and manifest validation are skipped under mutation -- neither
+# exercises the hook, so their results would be identical either way and
+# reporting them twice implies coverage the mutation run does not have.
 tfail=0
+mfail=0
 if [[ $MUTATE -eq 0 ]]; then
   echo
   echo "  templates: sandbox-policy/references/templates.md"
   python3 "$HERE/validate_templates.py" || tfail=1
+
+  # A plugin that cannot load is the failure this whole plugin exists to
+  # prevent, and it is invisible to the checks above: `claude plugin validate
+  # --strict` passes on a duplicate-hooks manifest, and the hook cases run
+  # escapes.py directly rather than through the plugin loader. Shipped broken
+  # once already; now asserted.
+  echo
+  echo "  manifests: every plugin.json in this marketplace"
+  python3 "$HERE/validate_manifests.py" || mfail=1
 fi
 
 echo
-if [[ $fail -gt 0 || $tfail -ne 0 ]]; then
+if [[ $fail -gt 0 || $tfail -ne 0 || $mfail -ne 0 ]]; then
   [[ $fail -gt 0 ]] && echo "  failed: ${failed[*]}" >&2
   exit 1
 fi
 [[ $MUTATE -eq 1 ]] && echo "  Suite correctly detects a neutered hook." \
-                    || echo "  Escape hatches guarded, templates sound."
+                    || echo "  Escape hatches guarded, templates sound, manifests loadable."
