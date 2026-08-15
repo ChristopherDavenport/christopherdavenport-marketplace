@@ -1,7 +1,8 @@
 # guardrails — assertion eval
 
 **40/40 hook cases** (24 deny, 16 allow), **46/46 template checks** across
-4 templates, and **14/14 plugin manifests loadable**. Mutation check passes.
+4 templates, **14/14 plugin manifests loadable**, and **3/3 hooks runnable**.
+Mutation check passes.
 
 Deterministic and free: crafted `PreToolUse` payloads in, exit codes out, plus
 a parse-and-assert pass over the policy templates and every plugin manifest in
@@ -114,12 +115,38 @@ asserts it, across every plugin in the marketplace rather than just this one,
 since the hazard belongs to the manifest format. Verified in both directions:
 reintroducing the key drops the run to 13/14 and names the offending file.
 
+## Hook runnability
+
+Added after `audit.sh` and `verify-gate.sh` were found to have shipped with mode
+`100644`. The harness executes a `type: command` hook, so both failed with
+"permission denied" on **every tool call since the plugin landed** — and per the
+hooks contract a non-zero exit that is not `2` is a *non-blocking error*, so the
+call proceeds. The audit log was never written once and the Stop gate never ran.
+
+Every existing check agreed things were fine. `claude plugin validate --strict`
+does not look at mode bits. The 40 hook cases invoke `escapes.py` via
+`python3 "$HOOK"`, which does not need the executable bit, so they passed
+against a file the harness could not run. The other two hooks had no cases at
+all — listed under "Not covered" below, where the gap was documented and still
+concealed a total failure of two thirds of the plugin.
+
+It was found by telemetry rather than by tests: `hook_execution_complete`
+reported `num_non_blocking_error: 1` on both `PreToolUse` and `Stop`.
+
+`validate_hooks.py` now checks, for every command in `hooks.json`: the file
+exists, is executable, is recorded in git as `100755` (a local `chmod` does not
+travel to a clone or an install), and execs cleanly when run directly the way
+the harness runs it. Verified in both directions — reverting one mode bit drops
+the run to 2/3 and names the file.
+
 ## Not covered
 
 Stated rather than implied, because an eval's silence reads as coverage:
 
-- **`audit.sh` and `verify-gate.sh`** have no cases. Both were exercised by
-  hand; neither is a decision-maker, so an exit-code assertion says little.
+- **`audit.sh` and `verify-gate.sh` have no behavioural cases.** They are now
+  asserted to be *runnable*, which is what was actually broken, but nothing
+  checks that the audit log contains the right fields or that the Stop gate
+  blocks on a red build. Both were exercised by hand.
 - **The skills' prose** is not scored. `sandbox-policy`, `/guardrails-setup`,
   and `/guardrails-doctor` are judge-shaped work that has not been run — only
   the templates they ship are asserted.
