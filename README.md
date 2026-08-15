@@ -29,6 +29,7 @@ For example: `/plugin install go@christopherdavenport`.
 | [`pubsub`](backend/pubsub) | backend | Google Cloud Pub/Sub best practices — topics & schemas, subscription types, delivery guarantees, ordering, dead-letter, ack deadline / lease, publisher batching, and the Go client SDK. |
 | [`commit-story`](workflow/commit-story) | workflow | Split a batch of uncommitted work into a sequence of meaningful, individually-reviewable commits with reviewer-grade messages, guaranteeing the final tree is byte-identical to the start. |
 | [`excalidraw`](workflow/excalidraw) | workflow | Read, create, and edit Excalidraw (`.excalidraw`) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Export to PNG/SVG is documented (external tooling), not performed in-process. |
+| [`guardrails`](safety/guardrails) | safety | Containment for agentic sessions, built on Claude Code's OS-level sandbox rather than around it — a `sandbox-policy` skill covering the settings keys, the scopes that silently ignore misplaced keys, and four validated policy templates; `/guardrails-setup` to generate and install a policy the repo's build survives; `/guardrails-doctor` to report what is enforced rather than what is configured. Hooks cover only what the sandbox can't see: credential shapes in outbound MCP/`WebFetch` payloads, Bash calls that opt out with `dangerouslyDisableSandbox`, an audit log, and an opt-in `Stop` gate that refuses to let an agent finish on a red build. |
 
 Each plugin's `SKILL.md` contains the full reference; the per-plugin `references/` folders break down topic-specific detail.
 
@@ -50,7 +51,6 @@ Latest results — judge wins per model (`skill / baseline / tie` out of 8–10 
 | [`jh-design-system`](evals/jh-design-system/result.md) | 7 / 1 / 0 | 6 / 1 / 1 | **7 / 0 / 1** | [report](evals/jh-design-system/result.md) |
 | [`financial-regs`](evals/financial-regs/result.md) | 7 / 2 / 0 | 7 / 1 / 1 | 6 / 2 / 1 | [report](evals/financial-regs/result.md) |
 | [`financial-accounting`](evals/financial-accounting/result.md) | 7 / 2 / 0 | 6 / 1 / 2 | **8 / 0 / 1** | [report](evals/financial-accounting/result.md) |
-| [`guardrails`](safety/guardrails) | safety | Containment for agentic sessions, built on Claude Code's OS-level sandbox rather than around it — a `sandbox-policy` skill covering the settings keys, the scopes that silently ignore misplaced keys, and four validated policy templates; `/guardrails-setup` to generate and install a policy the repo's build survives; `/guardrails-doctor` to report what is enforced rather than what is configured. Hooks cover only what the sandbox can't see: credential shapes in outbound MCP/`WebFetch` payloads, Bash calls that opt out with `dangerouslyDisableSandbox`, an audit log, and an opt-in `Stop` gate that refuses to let an agent finish on a red build. |
 
 **Bold** = no baseline wins (skill never made answers worse). ¹ Opus does not accept the `temperature` parameter — its column is an indicator, not a measurement (re-runs may flip individual verdicts).
 
