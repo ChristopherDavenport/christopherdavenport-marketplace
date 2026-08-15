@@ -1,11 +1,12 @@
 # guardrails — assertion eval
 
-**40/40 hook cases** (24 deny, 16 allow) and **46/46 template checks** across
-4 templates. Mutation check passes.
+**40/40 hook cases** (24 deny, 16 allow), **46/46 template checks** across
+4 templates, and **14/14 plugin manifests loadable**. Mutation check passes.
 
 Deterministic and free: crafted `PreToolUse` payloads in, exit codes out, plus
-a parse-and-assert pass over the policy templates. No model, no tokens, no
-network — so this runs on every change rather than on a funded sweep.
+a parse-and-assert pass over the policy templates and every plugin manifest in
+the marketplace. No model, no tokens, no network — so this runs on every change
+rather than on a funded sweep.
 
 ```
 ./evals/guardrails/run.sh              # the suite
@@ -94,6 +95,24 @@ Two real bugs of exactly this shape were caught by earlier versions of this
 suite: a timeout wrapper that silently no-op'd on macOS so a test never
 executed and reported success, and a relative-traversal case that was never
 checked at all.
+
+## Manifest loadability
+
+Added after v0.2.0 shipped with a manifest that could not load. `plugin.json`
+declared `"hooks": "./hooks/hooks.json"`, a path the harness already loads by
+convention, so the harness refused the duplicate and **the entire plugin failed
+to load** — no hooks, no enforcement.
+
+Both existing green checks agreed it was fine. `claude plugin validate --strict`
+passes on such a manifest, and the 40 hook cases run `escapes.py` directly
+rather than through the plugin loader, so they passed against a plugin that was
+never loading in a real session.
+
+That is precisely the failure this plugin exists to prevent — an unloaded guard
+is indistinguishable from a permissive one — so `validate_manifests.py` now
+asserts it, across every plugin in the marketplace rather than just this one,
+since the hazard belongs to the manifest format. Verified in both directions:
+reintroducing the key drops the run to 13/14 and names the offending file.
 
 ## Not covered
 
