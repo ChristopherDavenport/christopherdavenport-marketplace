@@ -24,9 +24,16 @@ command -v python3 >/dev/null || { echo "FATAL: python3 required" >&2; exit 70; 
 MUTATE=0
 [[ "${1:-}" == "--mutate" ]] && MUTATE=1
 
-WORK="$(mktemp -d -t claude-telemetry-eval)"
+# `mktemp -t foo` is a BSD/macOS spelling; GNU coreutils rejects a template with
+# no X's, returns empty, and the script then happily writes to /. Caught only in
+# CI, because it works fine on the machine this was written on. Use the explicit
+# XXXXXX form, which both accept, and refuse to continue if it still fails.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/claude-telemetry-eval.XXXXXX")" || WORK=""
+BACKUP="$(mktemp "${TMPDIR:-/tmp}/ct-mcp.XXXXXX")" || BACKUP=""
+if [[ -z "$WORK" || ! -d "$WORK" || -z "$BACKUP" ]]; then
+  echo "FATAL: could not create a temp workspace" >&2; exit 70
+fi
 DB="$WORK/t.db"
-BACKUP="$(mktemp -t ct-mcp)"
 trap 'rm -rf "$WORK"; [[ $MUTATE -eq 1 ]] && cp "$BACKUP" "$SCRIPTS/mcp_server.py" 2>/dev/null; rm -f "$BACKUP" 2>/dev/null' EXIT
 
 if [[ $MUTATE -eq 1 ]]; then
