@@ -261,6 +261,40 @@ def t_plugin_costs(conn, **_):
     }
 
 
+def t_hook_health(conn, since=None, limit=25, **_):
+    """Are the hooks actually running?
+
+    A hook that exits non-zero with anything other than 2 is a *non-blocking
+    error* per the contract: the tool call proceeds. So a hook can fail on every
+    invocation with no visible symptom — no error in the session, no failed
+    command, nothing. `num_errors` is how you find out.
+    """
+    where, params = ["1=1"], []
+    if since:
+        where.append("ts >= ?"); params.append(since)
+    w = " AND ".join(where)
+    summary = _rows(conn.execute(
+        f"SELECT hook_name, hook_event, count(*) runs, sum(num_hooks) hooks_invoked,"
+        f" sum(num_success) succeeded, sum(num_errors) errored,"
+        f" sum(num_blocking) blocked, round(avg(duration_ms),1) avg_ms"
+        f" FROM hook_runs WHERE {w} GROUP BY hook_name, hook_event"
+        f" ORDER BY errored DESC, runs DESC", params), int(limit))
+    failing = [r for r in summary if (r["errored"] or 0) > 0]
+    total = conn.execute(
+        f"SELECT count(*) runs, sum(num_errors) errs FROM hook_runs WHERE {w}",
+        params).fetchone()
+    verdict = "no hook telemetry yet — hooks are only reported by OTel, so start sink.py"
+    if total["runs"]:
+        verdict = ("every hook run completed cleanly" if not (total["errs"] or 0)
+                   else f"{len(failing)} hook(s) are erroring; the tool calls they "
+                        f"guard proceeded anyway")
+    return {"verdict": verdict, "runs": total["runs"], "total_errors": total["errs"] or 0,
+            "failing": failing, "by_hook": summary,
+            "note": ("A non-blocking error means the guarded tool call still ran. "
+                     "Any non-zero 'errored' here is a guard that silently did not "
+                     "apply, not a cosmetic warning.")}
+
+
 def t_sql(conn, query="", limit=200, **_):
     """Read-only escape hatch."""
     if not SELECT_ONLY.match(query or "") or FORBIDDEN.search(query or "") or ";" in query:
@@ -304,6 +338,11 @@ TOOLS = [
     ("telemetry_plugin_costs", "Per-plugin spend, what is blinded by OTel's third-party "
      "redaction, and the un-redacted skill/agent invocations recovered from transcripts.",
      {"type": "object", "properties": {}}, t_plugin_costs),
+    ("telemetry_hook_health", "Whether hooks are actually running. A hook erroring is a "
+     "non-blocking error, so the guarded tool call proceeds and nothing looks wrong — "
+     "this is the only way to see it.",
+     {"type": "object", "properties": {
+         "since": {"type": "string"}, "limit": {"type": "integer"}}}, t_hook_health),
     ("telemetry_sql", "Read-only SELECT against the store. Rejects anything else.",
      {"type": "object", "properties": {
          "query": {"type": "string"}, "limit": {"type": "integer"}},

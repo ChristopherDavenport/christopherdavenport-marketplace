@@ -27,8 +27,15 @@ what period, which determines whether a question is answerable at all.
 
 Then `telemetry_cost` (grouped by model, day, plugin, session, cwd, branch…),
 `telemetry_sessions`, `telemetry_tool_audit`, `telemetry_trace`,
-`telemetry_plugin_costs`, `telemetry_run_query` for arbitrary group-bys, and
-`telemetry_sql` as a read-only escape hatch.
+`telemetry_plugin_costs`, `telemetry_hook_health`, `telemetry_run_query` for
+arbitrary group-bys, and `telemetry_sql` as a read-only escape hatch.
+
+**Run `telemetry_hook_health` whenever hooks are in question.** A hook that
+exits non-zero with anything but `2` is a non-blocking error: the guarded tool
+call proceeds and the session looks entirely normal. There is no other way to
+notice. This is how two of three guardrails hooks were found to have never
+executed across two merged releases — `num_errors` was non-zero from the first
+session ever recorded.
 
 ## Two facts that change every answer
 

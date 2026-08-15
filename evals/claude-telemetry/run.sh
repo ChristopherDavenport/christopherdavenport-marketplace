@@ -105,6 +105,56 @@ c=sqlite3.connect('$DB')
 print(c.execute(\"select count(*) from events where name like 'transcript.%_invoked'\").fetchone()[0])")
 [[ "$skills" -ge 1 ]] && check "un-redacted skill/agent invocations captured" 1 || check "un-redacted skill/agent invocations captured" 0
 
+# --- OTel path ---------------------------------------------------------------
+# Cost, permission decisions and hook outcomes exist only in OTel; a transcript
+# never carries them, so the fixture above cannot reach this code at all.
+python3 "$HERE/make_otlp_fixture.py" "$WORK/logs.json" || {
+  echo "FATAL: OTLP fixture generation failed" >&2; exit 70; }
+python3 - "$SCRIPTS" "$DB" "$WORK/logs.json" <<'PY'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import store, sink
+conn = store.init(sys.argv[2])
+sink.handle_logs(conn, json.load(open(sys.argv[3])))
+conn.commit()
+PY
+ok=0; [[ $? -eq 0 ]] && ok=1
+check "sink ingests an OTLP logs payload" $ok
+
+cost=$(python3 -c "
+import sqlite3
+c=sqlite3.connect('$DB')
+print(c.execute(\"select cost_usd from api_requests where request_id='req_otel_1'\").fetchone()[0])")
+[[ "$cost" == "0.0421" ]] && check "cost_usd captured from OTel ($cost)" 1 || check "cost_usd captured from OTel (got $cost)" 0
+
+dec=$(python3 -c "
+import sqlite3
+c=sqlite3.connect('$DB')
+r=c.execute(\"select decision, decision_source from tool_calls where tool_use_id='toolu_otel_1'\").fetchone()
+print('%s/%s' % r if r else 'none')")
+[[ "$dec" == "accept/config" ]] && check "permission decision captured ($dec)" 1 || check "permission decision captured (got $dec)" 0
+
+# The reason hook_runs exists: a hook erroring is invisible in a session,
+# because the contract lets the guarded tool call proceed regardless.
+errs=$(python3 -c "
+import sqlite3
+c=sqlite3.connect('$DB')
+print(c.execute('select count(*) from hook_runs where num_errors > 0').fetchone()[0])")
+[[ "$errs" -eq 2 ]] && check "failing hooks recorded ($errs)" 1 || check "failing hooks recorded (got $errs, want 2)" 0
+
+verdict=$(python3 -c "
+import sys; sys.path.insert(0,'$SCRIPTS')
+import mcp_server, sqlite3
+c=sqlite3.connect('file:$DB?mode=ro', uri=True); c.row_factory=sqlite3.Row
+print('yes' if mcp_server.t_hook_health(c)['total_errors'] == 2 else 'no')")
+[[ "$verdict" == "yes" ]] && check "hook_health surfaces the failures" 1 || check "hook_health surfaces the failures" 0
+
+blinded=$(python3 -c "
+import sqlite3
+c=sqlite3.connect('$DB')
+print(c.execute(\"select count(*) from plugin_loads where plugin_name='third-party'\").fetchone()[0])")
+[[ "$blinded" -ge 1 ]] && check "third-party redaction recorded with its hash" 1 || check "third-party redaction recorded with its hash" 0
+
 # --- MCP surface -------------------------------------------------------------
 # Skipped under mutation: the server's own selftest asserts the guard too, so it
 # would fail for the reason the mutation is deliberately creating, and reporting

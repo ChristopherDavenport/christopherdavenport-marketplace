@@ -182,6 +182,35 @@ CREATE TABLE IF NOT EXISTS plugin_loads (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS ix_pl_hash ON plugin_loads(plugin_id_hash);
 
+-- Hook executions. Promoted out of `events` to a table of its own because
+-- `num_errors` is the single highest-value signal in the whole store and it
+-- needs to be cheap to query.
+--
+-- Per the hooks contract, a hook exiting non-zero with anything other than 2 is
+-- a *non-blocking error*: the tool call proceeds. So a hook can be failing on
+-- every single invocation while the session looks completely normal. That is
+-- how two of the three guardrails hooks ran for two merged PRs without ever
+-- executing — found here, by `num_errors > 0`, not by any test.
+CREATE TABLE IF NOT EXISTS hook_runs (
+    id            INTEGER PRIMARY KEY,
+    ts            TEXT NOT NULL,
+    session_id    TEXT,
+    prompt_id     TEXT,
+    hook_event    TEXT,
+    hook_name     TEXT,
+    hook_source   TEXT,
+    num_hooks     INTEGER,
+    num_success   INTEGER,
+    num_blocking  INTEGER,
+    num_errors    INTEGER,
+    num_cancelled INTEGER,
+    duration_ms   INTEGER,
+    UNIQUE(ts, session_id, hook_name)
+) STRICT;
+CREATE INDEX IF NOT EXISTS ix_hook_ts     ON hook_runs(ts);
+CREATE INDEX IF NOT EXISTS ix_hook_errors ON hook_runs(num_errors);
+CREATE INDEX IF NOT EXISTS ix_hook_name   ON hook_runs(hook_name);
+
 -- The de-anonymisation map. Hand-built or inferred; see doctor.py.
 CREATE TABLE IF NOT EXISTS plugin_alias (
     plugin_id_hash TEXT PRIMARY KEY,
@@ -234,7 +263,7 @@ def init(db_path: Path | None = None) -> sqlite3.Connection:
 def stats(conn: sqlite3.Connection) -> dict:
     out = {}
     for table in ("api_requests", "tool_calls", "events", "spans", "metrics",
-                  "sessions", "plugin_loads", "plugin_alias"):
+                  "sessions", "plugin_loads", "plugin_alias", "hook_runs"):
         out[table] = conn.execute(f"SELECT count(*) c FROM {table}").fetchone()["c"]
     row = conn.execute(
         "SELECT min(ts) lo, max(ts) hi, sum(cost_usd) cost FROM api_requests"

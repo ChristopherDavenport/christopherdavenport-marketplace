@@ -10,7 +10,7 @@ What each plugin costs you in context, so you can decide before installing.
 | [`excalidraw`](workflow/excalidraw) | workflow | 250 | 3778 | 54k | excalidraw |
 | [`commit-story`](workflow/commit-story) | workflow | 201 | 4541 | 43k | commit-story |
 | [`pr-description`](workflow/pr-description) | workflow | 193 | 2906 | 16k | pr-description |
-| [`claude-telemetry`](observability/claude-telemetry) | observability | 107 | 857 | — | claude-telemetry + mcpServers |
+| [`claude-telemetry`](observability/claude-telemetry) | observability | 107 | 967 | — | claude-telemetry + mcpServers |
 | [`lit`](frontend/lit) | frontend | 86 | 3565 | 109k | lit |
 | [`financial-accounting`](knowledge/financial-accounting) | knowledge | 78 | 2484 | 66k | financial-accounting |
 | [`sqlite`](backend/sqlite) | backend | 78 | 4107 | 68k | sqlite |
@@ -21,7 +21,7 @@ What each plugin costs you in context, so you can decide before installing.
 | [`financial-regs`](knowledge/financial-regs) | knowledge | 69 | 1922 | 61k | financial-regs |
 | [`typescript`](backend/typescript) | backend | 69 | 4093 | 174k | typescript |
 | [`go`](backend/go) | backend | 52 | 2758 | 132k | go |
-| **All 15 together** | | **1877** | 48781 | | |
+| **All 15 together** | | **1877** | 48891 | | |
 
 ## Reading this
 

@@ -194,6 +194,23 @@ def handle_logs(conn, payload: dict) -> int:
                             as_int(a.get("tool_result_size_bytes")),
                             a.get("mcp_server_scope"), None, "otel",
                         ))
+                elif name == "hook_execution_complete":
+                    # num_non_blocking_error is the reason this gets a table.
+                    # A hook erroring on every call is invisible in a session:
+                    # the contract says the tool proceeds anyway.
+                    conn.execute(
+                        "INSERT OR IGNORE INTO hook_runs (ts, session_id, prompt_id,"
+                        " hook_event, hook_name, hook_source, num_hooks, num_success,"
+                        " num_blocking, num_errors, num_cancelled, duration_ms)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (ts, sid, a.get("prompt.id"), a.get("hook_event"),
+                         a.get("hook_name"), a.get("hook_source"),
+                         as_int(a.get("num_hooks")), as_int(a.get("num_success")),
+                         as_int(a.get("num_blocking")),
+                         as_int(a.get("num_non_blocking_error")),
+                         as_int(a.get("num_cancelled")),
+                         as_int(a.get("total_duration_ms"))),
+                    )
                 elif name == "plugin_loaded":
                     conn.execute(
                         "INSERT OR IGNORE INTO plugin_loads (ts, session_id, plugin_id_hash,"
