@@ -36,7 +36,9 @@ Each plugin's `SKILL.md` contains the full reference; the per-plugin `references
 
 ## Evals
 
-Every plugin ships with an automated eval that compares Claude's answers with and without the skill loaded across three models — Haiku 4.5, Sonnet 4.6, and Opus 4.7. For each (case × model) the harness calls the model twice via the SDK at `temperature=0` (Sonnet/Haiku) — once with no system prompt, once with the plugin's `SKILL.md` injected — grades both answers with deterministic rubric checks, and asks `claude-sonnet-4-6` to pick the better answer head-to-head with anonymized A/B labels. See [`evals/README.md`](evals/README.md) for full mechanics.
+Plugins here carry one of [two eval shapes](evals/README.md#two-eval-shapes). Plugins whose product is an *answer* use the judge-based sweep below. Plugins whose product is a *decision* — `guardrails`' hook verdicts, `pr-description`'s budget scorer — are asserted directly, which is free and deterministic, so those suites run on every change instead of appearing in this table.
+
+The judge-based harness compares Claude's answers with and without the skill loaded across three models — Haiku 4.5, Sonnet 4.6, and Opus 4.7. For each (case × model) the harness calls the model twice via the SDK at `temperature=0` (Sonnet/Haiku) — once with no system prompt, once with the plugin's `SKILL.md` injected — grades both answers with deterministic rubric checks, and asks `claude-sonnet-4-6` to pick the better answer head-to-head with anonymized A/B labels. See [`evals/README.md`](evals/README.md) for full mechanics.
 
 Latest results — judge wins per model (`skill / baseline / tie` out of 8–10 cases):
 
