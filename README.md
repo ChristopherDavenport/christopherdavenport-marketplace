@@ -1,6 +1,6 @@
 # christopherdavenport-marketplace
 
-Chris Davenport's personal [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace — a collection of skills covering frontend (Lit, Jack Henry Design System), backend (Go, TypeScript, SQLite, Spanner, Pub/Sub), financial-services knowledge (US regulations, accounting fundamentals), and safety (harness-enforced guardrails for agentic sessions).
+Chris Davenport's personal [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace — a collection of skills covering frontend (Lit, Jack Henry Design System), backend (Go, TypeScript, SQLite, Spanner, Pub/Sub), financial-services knowledge (US regulations, accounting fundamentals), safety (harness-enforced guardrails for agentic sessions), and observability (local telemetry for your own Claude Code sessions).
 
 ## Install
 
@@ -30,11 +30,15 @@ For example: `/plugin install go@christopherdavenport`.
 | [`commit-story`](workflow/commit-story) | workflow | Split a batch of uncommitted work into a sequence of meaningful, individually-reviewable commits with reviewer-grade messages, guaranteeing the final tree is byte-identical to the start. |
 | [`excalidraw`](workflow/excalidraw) | workflow | Read, create, and edit Excalidraw (`.excalidraw`) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Export to PNG/SVG is documented (external tooling), not performed in-process. |
 | [`pr-description`](workflow/pr-description) | workflow | Write a PR title and body a reviewer can act on in under a minute, sized to the change and to whatever pull-request template the repo ships. Requires a 15–60 word lead before the first heading, holds the body to a density budget tiered on diff size, and moves the record of how the work went into a follow-up comment. Ships a scorer the skill runs on its own draft before presenting it. |
+| [`claude-local-telemetry`](https://github.com/ChristopherDavenport/claude-local-telemetry) † | observability | Local observability for Claude Code — an OTLP/HTTP-JSON sink, a backfill that imports the transcripts already on disk, an MCP server and a dashboard, all over one SQLite file. Ask what your sessions cost, what tools ran, which agents and workflows the work was delegated to, and whether your hooks are actually firing, without sending telemetry anywhere. Node 24, no collector, loopback only. |
+| [`github-twin`](https://github.com/ChristopherDavenport/github-twin) † | workflow | Personal RAG over your GitHub history (commits, code, review comments), served over MCP — `find_code`, `find_reviews`, `predict_review_outcome`, `house_rules`, `developer_profile`. |
 | [`guardrails`](safety/guardrails) | safety | Containment for agentic sessions, built on Claude Code's OS-level sandbox rather than around it — a `sandbox-policy` skill covering the settings keys, the scopes that silently ignore misplaced keys, and four validated policy templates; `/guardrails-setup` to generate and install a policy the repo's build survives; `/guardrails-doctor` to report what is enforced rather than what is configured. Hooks cover only what the sandbox can't see: credential shapes in outbound MCP/`WebFetch` payloads, Bash calls that opt out with `dangerouslyDisableSandbox`, an audit log, and an opt-in `Stop` gate that refuses to let an agent finish on a red build. |
+
+† Lives in its own repo rather than a directory here; `/plugin install` works the same way.
 
 Each plugin's `SKILL.md` contains the full reference; the per-plugin `references/` folders break down topic-specific detail.
 
-**Before you install:** [`COSTS.md`](COSTS.md) lists what each plugin costs in context — always-on tokens (paid every session, used or not) and on-invoke tokens (paid only when it fires). All 14 together are ~1,770 tokens always-on. Budgets are enforced in CI, so those numbers can't drift.
+**Before you install:** [`COSTS.md`](COSTS.md) lists what each plugin costs in context — always-on tokens (paid every session, used or not) and on-invoke tokens (paid only when it fires). All 16 together are ~2,067 tokens always-on. Budgets are enforced in CI, so those numbers can't drift.
 
 ## Evals
 

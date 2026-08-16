@@ -1,0 +1,47 @@
+{
+  "claude-local-telemetry": {
+    "chars": {
+      "always_on": 421,
+      "on_invoke": 3874
+    },
+    "commit": "249a7d8dce657e8272e0d6d4e1067370d3eb3046",
+    "components": [
+      {
+        "chars": {
+          "always_on": 421,
+          "on_invoke": 3874
+        },
+        "kind": "skill",
+        "lazy_chars": 0,
+        "lazy_files": 0,
+        "name": "claude-local-telemetry"
+      }
+    ],
+    "harness_only": [
+      "mcpServers"
+    ],
+    "lazy_chars": 0,
+    "repo": "ChristopherDavenport/claude-local-telemetry",
+    "tokens": {
+      "always_on": 109,
+      "on_invoke": 983
+    }
+  },
+  "github-twin": {
+    "chars": {
+      "always_on": 0,
+      "on_invoke": 0
+    },
+    "commit": "a078be83beae606725e48fe10227c6b7a5020662",
+    "components": [],
+    "harness_only": [
+      "mcpServers"
+    ],
+    "lazy_chars": 0,
+    "repo": "ChristopherDavenport/github-twin",
+    "tokens": {
+      "always_on": 0,
+      "on_invoke": 0
+    }
+  }
+}

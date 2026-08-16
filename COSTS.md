@@ -12,6 +12,7 @@ What each plugin costs you in context, so you can decide before installing.
 | [`pr-description`](workflow/pr-description) | workflow | 193 | 2906 | 16k | pr-description |
 | [`typescript`](backend/typescript) | backend | 114 | 4093 | 174k | typescript |
 | [`financial-accounting`](knowledge/financial-accounting) | knowledge | 109 | 2484 | 66k | financial-accounting |
+| [`claude-local-telemetry`](https://github.com/ChristopherDavenport/claude-local-telemetry) † | observability | 109 | 983 | — | claude-local-telemetry + mcpServers |
 | [`financial-regs`](knowledge/financial-regs) | knowledge | 106 | 1922 | 61k | financial-regs |
 | [`sqlite`](backend/sqlite) | backend | 97 | 4107 | 68k | sqlite |
 | [`lit`](frontend/lit) | frontend | 96 | 3565 | 109k | lit |
@@ -20,14 +21,17 @@ What each plugin costs you in context, so you can decide before installing.
 | [`lit-router`](frontend/lit-router) | frontend | 85 | 3407 | 57k | lit-router |
 | [`pubsub`](backend/pubsub) | backend | 72 | 3783 | 81k | pubsub |
 | [`go`](backend/go) | backend | 52 | 2758 | 132k | go |
-| **All 14 together** | | **1958** | 47924 | | |
+| [`github-twin`](https://github.com/ChristopherDavenport/github-twin) † | workflow | 0 | 0 | — | mcpServers |
+| **All 16 together** | | **2067** | 48907 | | |
+
+† Lives in its own repo. Measured at [`claude-local-telemetry` v0.1.2](https://github.com/ChristopherDavenport/claude-local-telemetry/tree/249a7d8), [`github-twin`](https://github.com/ChristopherDavenport/github-twin/tree/a078be8) and cached in [`scripts/remote-costs.json`](scripts/remote-costs.json); refresh with `python3 scripts/plugin_costs.py --refresh-remote`. The marketplace entry for `claude-local-telemetry` pins that exact commit, so the number describes the tree you install; `--check` fails if the pin and the measurement drift apart.
 
 ## Reading this
 
 **Always-on** is the number that matters. It is paid on every session whether
 or not you use the plugin — a tax on unrelated work — and it is the sum of each
 component's name and description, which the harness lists so the model knows the
-component exists. Enable every plugin here and you spend ~1958 tokens
+component exists. Enable every plugin here and you spend ~2067 tokens
 before typing anything.
 
 **On-invoke** is paid each time a skill or agent actually fires, and only then.
