@@ -2,9 +2,9 @@
 
 Automated tests that show a plugin in this marketplace does what it claims.
 
-There are **two eval shapes**, because there are two kinds of plugin here. Plugins whose product is an *answer* are judged on whether they improve it; plugins whose product is a *decision* — a hook's verdict, a scorer's pass/fail — are asserted on it directly. See [Two eval shapes](#two-eval-shapes) before adding a new plugin's eval.
+There are **three eval shapes**, because there are three questions worth asking. Plugins whose product is an *answer* are judged on whether they improve it; plugins whose product is a *decision* — a hook's verdict, a scorer's pass/fail — are asserted on it directly; and every skill, whatever it ships, can be asked the prior question of whether it *loads at all*. See [Three eval shapes](#three-eval-shapes) before adding a new plugin's eval.
 
-## Two eval shapes
+## Three eval shapes
 
 Most plugins here ship a **skill**, so the harness can ask the same question
 twice — once with the skill loaded, once without — and have a judge pick the
@@ -22,15 +22,34 @@ artifacts a skill tells you to copy do not. A template that has drifted into
 granting more access still parses, still reads as responsible, and is exactly
 the kind of rot a judge-based eval would score as fine.
 
-| | Judge-based | Assertion-based |
-|---|---|---|
-| Plugin ships | Skill prose | Hooks, config artifacts |
-| Question | "Is the answer better?" | "Is the decision correct?" |
-| Scoring | Rubric + LLM judge | Exit code, invariant checks |
-| Cost | Tokens per case | **Free** — no model |
-| Determinism | Stable signal, varying text | Exact |
-| Layout | `cases.yaml` + `plugin_dir.txt` | `cases.json` + `run.sh` |
-| Run | `uv run python -m evals <plugin>` | `./evals/<plugin>/run.sh` |
+The third shape covers a blind spot the first two share. The judge-based
+harness *injects* SKILL.md into the system prompt
+([`inference.py`](src/evals/inference.py)), so the model never chooses the
+skill — it measures prose quality on the assumption the skill loaded. A skill
+whose description talks it out of firing scores perfectly there and never runs
+in production. **Trigger evals** ask the prior question: scaffold a realistic
+project, load the *competing* sibling plugins together, prompt in the overlap
+zone, and assert on which skills were actually invoked.
+
+| | Judge-based | Assertion-based | Trigger |
+|---|---|---|---|
+| Plugin ships | Skill prose | Hooks, config artifacts | Any skill |
+| Question | "Is the answer better?" | "Is the decision correct?" | "Does it load at all?" |
+| Scoring | Rubric + LLM judge | Exit code, invariant checks | Skill-tool invocations |
+| Cost | Tokens per case | **Free** — no model | ~$0.3–1 per run |
+| Determinism | Stable signal, varying text | Exact | Stochastic — report a fire rate over N |
+| Layout | `cases.yaml` + `plugin_dir.txt` | `cases.json` + `run.sh` | `triggering/cases.yaml` + `scaffolds/` |
+| Run | `uv run python -m evals <plugin>` | `./evals/<plugin>/run.sh` | `uv run python triggering/run.py` |
+
+Trigger evals have an `--arm both` mode that runs the working tree against the
+installed copy in `~/.claude/plugins/cache/`, which still holds the previous
+release's description — so a rewrite can be measured rather than asserted.
+
+> **Do not add `--bare` to the trigger runner.** It forces a three-tool
+> allowlist with no `Skill` tool and ignores `--tools`, so nothing can ever
+> fire and every case reports a confident, meaningless zero. The runner guards
+> against this and fails loudly; the guard exists because this suite was first
+> written with `--bare` and produced exactly that.
 
 A plugin can need both. `guardrails` ships skills whose prose is judge-scorable
 in principle, but its load-bearing parts — the hook's decisions and the

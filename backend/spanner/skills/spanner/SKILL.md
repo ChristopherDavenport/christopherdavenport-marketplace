@@ -2,9 +2,11 @@
 name: spanner
 description: >
   Google Cloud Spanner: schema design, primary key / hotspot strategy,
-  interleaving, transactions, query optimization, Go client SDK. Use for
-  GoogleSQL DDL, Spanner emulator work, or Go code importing
-  cloud.google.com/go/spanner. Not for the sqlite skill or generic SQL.
+  interleaving, transactions, query optimization, Go client SDK. Load when
+  writing GoogleSQL DDL, picking a primary key or interleaving strategy,
+  doing Spanner emulator work, or in code importing
+  cloud.google.com/go/spanner. For local SQLite, use the sqlite skill
+  instead.
 ---
 
 # Google Cloud Spanner Best Practices

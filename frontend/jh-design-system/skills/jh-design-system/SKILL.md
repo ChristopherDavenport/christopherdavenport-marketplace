@@ -3,8 +3,9 @@ name: jh-design-system
 description: >
   Jack Henry Design System (jackhenry.design/v2): the @jack-henry/jh-ui
   Lit components (jh-* tags), @jack-henry/jh-core design tokens, and
-  @jack-henry/jh-icons. Use for files importing from any @jack-henry/jh-*
-  package. Not for the lit skill (generic Lit) or other design systems.
+  @jack-henry/jh-icons. Load when authoring or reviewing any file
+  importing from a @jack-henry/jh-* package — including alongside the lit
+  skill, which covers the underlying LitElement patterns.
 ---
 
 # Jack Henry Design System

@@ -3,9 +3,10 @@ name: lit
 description: >
   Lit web component library: LitElement, reactive properties, templates,
   reactive controllers, @lit/task, @lit/context, directives, Shadow DOM
-  a11y. Use for files importing from 'lit', 'lit/decorators.js',
-  '@lit/task', '@lit/context', or 'lit/directive.js'. Not for the
-  lit-router, web-component-router, or jh-design-system skills.
+  a11y. Load when authoring or reviewing any file importing from 'lit',
+  'lit/decorators.js', '@lit/task', '@lit/context', or 'lit/directive.js'
+  — including alongside a router or design-system skill, which cover
+  different ground.
 ---
 
 # Lit Web Component Library

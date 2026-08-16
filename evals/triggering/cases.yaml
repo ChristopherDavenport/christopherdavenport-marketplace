@@ -1,0 +1,102 @@
+# Trigger eval cases.
+#
+# These answer a question the judge-based evals structurally cannot: *would
+# this skill ever load?* The judge-based harness injects SKILL.md into the
+# system prompt (evals/src/evals/inference.py), so the model never chooses —
+# a skill whose description suppresses it scores perfectly and never fires in
+# real use. That gap is how `lit` and `typescript` went unused across a long run
+# of sessions in a Lit + TypeScript codebase without any eval going red.
+#
+# Shape: scaffold a realistic project, load the *competing* sibling plugins
+# together, give a prompt squarely in the overlap zone, and assert on which
+# skills the model actually invoked. Answer quality is not scored here.
+#
+# `expect` MUST fire. `permitted` may fire without failing the case. Anything
+# else invoked is reported but not failed — over-triggering is a separate
+# concern from the suppression this suite exists to catch.
+
+- id: lit-alongside-design-system-and-router
+  why: >
+    The regression case. `lit` used to say "Not for the lit-router,
+    web-component-router, or jh-design-system skills" while jh-design-system
+    said "Not for the lit skill" — mutual suppression. A Lit dashboard using
+    jh-ui and @lit-labs/router is all three at once, so `lit` never fired.
+  scaffold: lit-jh-router
+  plugins:
+    - frontend/lit
+    - frontend/lit-router
+    - frontend/jh-design-system
+    - backend/typescript
+  prompt: |
+    Add a new src/components/tl-table.ts LitElement. It takes a `rows` array
+    property and must re-render when rows change. Match the conventions
+    already in this project.
+  expect:
+    - lit:lit
+  permitted:
+    - jh-design-system:jh-design-system
+    - lit-router:lit-router
+    - typescript:typescript
+
+- id: lit-under-design-system-framing
+  why: >
+    Closer to the real-world usage that exposed this: the request leads with
+    the design system, so jh-design-system is the obvious first pick. Under
+    the old text that pick actively disclaimed `lit` ("Not for the lit skill"),
+    and `lit` disclaimed it back. This is the case that should discriminate the
+    two arms — the plain lit-alongside case fires in both.
+  scaffold: lit-jh-router
+  plugins:
+    - frontend/lit
+    - frontend/lit-router
+    - frontend/jh-design-system
+    - backend/typescript
+  prompt: |
+    Build out the dashboard shell using the Jack Henry design system — jh-ui
+    components and jh-core tokens throughout, wired into the existing router.
+    While you're in there, the stat component's array property isn't
+    re-rendering on update; sort that out too.
+  expect:
+    - lit:lit
+    - jh-design-system:jh-design-system
+  permitted:
+    - lit-router:lit-router
+    - typescript:typescript
+
+- id: typescript-on-type-design
+  why: >
+    `typescript` used to trigger on "authoring or reviewing .ts/.tsx files or
+    projects with tsconfig.json" — a condition true of nearly every session,
+    which carries no signal about when the skill helps. Now scoped to type
+    design and strictness work.
+  scaffold: lit-jh-router
+  plugins:
+    - backend/typescript
+    - frontend/lit
+  prompt: |
+    The `rows` property in src/components/tl-stat.ts is untyped. Model the row
+    shape as a discriminated union over a `kind` field with exhaustive
+    handling, and turn on the tsconfig strictness flags that would have caught
+    this.
+  expect:
+    - typescript:typescript
+  permitted:
+    - lit:lit
+
+- id: financial-pair-co-occurring
+  why: >
+    financial-accounting and financial-regs disclaimed each other, but a
+    deposit product has both a GAAP treatment and a Reg DD disclosure
+    obligation. Whichever loaded first suppressed the other.
+  scaffold: none
+  plugins:
+    - knowledge/financial-accounting
+    - knowledge/financial-regs
+  prompt: |
+    We're launching a tiered-rate savings account. Walk me through both the
+    GL treatment for accrued interest and the Reg DD disclosure obligations
+    for the rate tiers.
+  expect:
+    - financial-accounting:financial-accounting
+    - financial-regs:financial-regs
+  permitted: []

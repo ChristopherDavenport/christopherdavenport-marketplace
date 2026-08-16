@@ -12,11 +12,20 @@
     "not a fix, and it should look like one.",
     "",
     "Overrides sit roughly 10% above current cost: enough that reformatting a",
-    "description does not fail the build, tight enough that a new paragraph does."
+    "description does not fail the build, tight enough that a new paragraph does.",
+    "",
+    "total_always_on raised 2000 -> 4000 (2026-08-16). Descriptions across lit,",
+    "jh-design-system, lit-router, typescript, financial-accounting, financial-regs,",
+    "sqlite and spanner were rewritten from descriptive to prescriptive triggers and",
+    "had mutual 'Not for the X skill' suppressors removed, costing +188 always-on.",
+    "A skill that never loads still charges its always-on tokens and returns",
+    "nothing for them, so trigger reliability buys more per token than terseness",
+    "does. The total is set well above current cost deliberately -- the per-plugin",
+    "caps stay tight and remain the real gate."
   ],
 
   "default_always_on": 150,
-  "total_always_on": 2000,
+  "total_always_on": 4000,
 
   "plugins": {
     "guardrails": 450,
