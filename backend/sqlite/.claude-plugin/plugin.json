@@ -1,7 +1,7 @@
 {
   "name": "sqlite",
   "description": "SQLite best practices — schema design and STRICT tables, the must-set pragmas (journal_mode=WAL, busy_timeout, foreign_keys, synchronous=NORMAL), the locking model and BEGIN IMMEDIATE vs DEFERRED, indexes and EXPLAIN QUERY PLAN, JSON1/JSONB with generated-column indexing, the Go client (database/sql with mattn/go-sqlite3 or modernc.org/sqlite, two-pool writer/reader pattern, DSN pragma syntax), and server-side production use (Litestream/LiteFS/Turso patterns, online backup, schema migration on a live database).",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "Chris Davenport"
   }

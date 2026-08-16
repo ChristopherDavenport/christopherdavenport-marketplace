@@ -10,24 +10,24 @@ What each plugin costs you in context, so you can decide before installing.
 | [`excalidraw`](workflow/excalidraw) | workflow | 250 | 3778 | 54k | excalidraw |
 | [`commit-story`](workflow/commit-story) | workflow | 201 | 4541 | 43k | commit-story |
 | [`pr-description`](workflow/pr-description) | workflow | 193 | 2906 | 16k | pr-description |
-| [`lit`](frontend/lit) | frontend | 86 | 3565 | 109k | lit |
-| [`financial-accounting`](knowledge/financial-accounting) | knowledge | 78 | 2484 | 66k | financial-accounting |
-| [`sqlite`](backend/sqlite) | backend | 78 | 4107 | 68k | sqlite |
-| [`jh-design-system`](frontend/jh-design-system) | frontend | 76 | 2107 | 19k | jh-design-system |
-| [`spanner`](backend/spanner) | backend | 72 | 3041 | 67k | spanner |
+| [`typescript`](backend/typescript) | backend | 114 | 4093 | 174k | typescript |
+| [`financial-accounting`](knowledge/financial-accounting) | knowledge | 109 | 2484 | 66k | financial-accounting |
+| [`financial-regs`](knowledge/financial-regs) | knowledge | 106 | 1922 | 61k | financial-regs |
+| [`sqlite`](backend/sqlite) | backend | 97 | 4107 | 68k | sqlite |
+| [`lit`](frontend/lit) | frontend | 96 | 3565 | 109k | lit |
+| [`spanner`](backend/spanner) | backend | 90 | 3041 | 67k | spanner |
+| [`jh-design-system`](frontend/jh-design-system) | frontend | 89 | 2107 | 19k | jh-design-system |
+| [`lit-router`](frontend/lit-router) | frontend | 85 | 3407 | 57k | lit-router |
 | [`pubsub`](backend/pubsub) | backend | 72 | 3783 | 81k | pubsub |
-| [`lit-router`](frontend/lit-router) | frontend | 70 | 3407 | 57k | lit-router |
-| [`financial-regs`](knowledge/financial-regs) | knowledge | 69 | 1922 | 61k | financial-regs |
-| [`typescript`](backend/typescript) | backend | 69 | 4093 | 174k | typescript |
 | [`go`](backend/go) | backend | 52 | 2758 | 132k | go |
-| **All 14 together** | | **1770** | 47924 | | |
+| **All 14 together** | | **1958** | 47924 | | |
 
 ## Reading this
 
 **Always-on** is the number that matters. It is paid on every session whether
 or not you use the plugin — a tax on unrelated work — and it is the sum of each
 component's name and description, which the harness lists so the model knows the
-component exists. Enable every plugin here and you spend ~1770 tokens
+component exists. Enable every plugin here and you spend ~1958 tokens
 before typing anything.
 
 **On-invoke** is paid each time a skill or agent actually fires, and only then.
@@ -70,7 +70,7 @@ stale number shown at the moment of the decision is worse than no number.
 `scripts/plugin_costs.py --check` fails when a plugin exceeds its always-on
 budget, so growth has to be deliberate rather than accidental. Budgets live in
 [`scripts/cost-budgets.json`](scripts/cost-budgets.json): default
-150 tokens per plugin and 2000
+150 tokens per plugin and 4000
 across the marketplace, with per-plugin overrides for the ones that have
 earned more.
 

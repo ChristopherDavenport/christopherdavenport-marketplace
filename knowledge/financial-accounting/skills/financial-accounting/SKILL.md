@@ -4,7 +4,9 @@ description: >
   Financial-institution accounting reference: journal entries, GL
   structure, sub-ledger / control accounts, reconciliation, plus US GAAP
   (FASB ASC) for FI topics — loans, securities, CECL, hedging, deposits.
-  Not for the financial-regs skill (consumer compliance), tax, or insurance.
+  Load when the question turns on accounting treatment or GL mechanics —
+  including alongside financial-regs, which covers the consumer-compliance
+  rules for the same product. Not for tax or insurance.
 ---
 
 # Financial Institution Accounting

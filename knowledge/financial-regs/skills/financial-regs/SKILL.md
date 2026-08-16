@@ -3,8 +3,10 @@ name: financial-regs
 description: >
   US consumer financial regulation lookup and compliance analysis: Reg DD,
   Reg E, Reg Z, Reg CC, BSA/AML, Dodd-Frank UDAAP and Section 1033.
-  Always fetches current rule text. Not for the financial-accounting skill
-  (GAAP), securities, insurance, or tax.
+  Always fetches current rule text. Load when the question turns on a
+  disclosure, timing, or consumer-protection requirement — including
+  alongside financial-accounting, which covers the GAAP treatment for the
+  same product. Not for securities, insurance, or tax.
 ---
 
 # US Financial Regulations

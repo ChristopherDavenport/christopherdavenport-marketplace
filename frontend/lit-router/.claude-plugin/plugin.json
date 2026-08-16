@@ -1,7 +1,7 @@
 {
   "name": "lit-router",
   "description": "Client routing for Lit components via @lit-labs/router — Router/Routes reactive controllers, URLPattern matching, nested routing, navigation, lifecycle, and pitfalls",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "Chris Davenport"
   }
