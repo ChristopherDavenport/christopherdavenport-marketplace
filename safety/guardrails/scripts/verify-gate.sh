@@ -38,26 +38,67 @@ fi
 PROJECT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 TIMEOUT="${CLAUDE_GUARDRAILS_VERIFY_TIMEOUT:-300}"
 
-log=$(mktemp -t guardrails-verify)
+# Spell the template out rather than using `-t`, the same way the eval harness
+# has to: BSD mktemp takes the argument as a bare prefix, GNU mktemp rejects a
+# template with no trailing X's outright. `mktemp -t name` therefore dies on
+# Linux, and on any macOS whose PATH prefers GNU coreutils over the system
+# tools -- taking the gate with it, since an empty $log fails every redirect
+# below and reports a passing build as a failing one.
+log=$(mktemp "${TMPDIR:-/tmp}/guardrails-verify.XXXXXX")
 trap 'rm -f "$log"' EXIT
 
-# macOS ships neither `timeout` nor `gtimeout`, so a naive wrapper silently
-# no-ops there and the gate never actually runs. Background + watchdog works
-# everywhere.
-(
-  cd "$PROJECT" || exit 1
-  eval "$VERIFY"
-) >"$log" 2>&1 &
-pid=$!
-( sleep "$TIMEOUT"; kill -TERM "$pid" 2>/dev/null ) &
-watcher=$!
-wait "$pid" 2>/dev/null; rc=$?
-kill -TERM "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+# Prefer a real `timeout`: it returns the instant the verify command finishes,
+# where a `sleep`-based watchdog goes on sleeping through the rest of its budget
+# after a build that already passed. Coreutils installs it as `timeout`, and as
+# `gtimeout` when it is kept out of the way of a BSD userland, so probe both by
+# PATH -- this script is non-interactive, so a shell alias for either name is
+# not visible here. Stock macOS has neither, so the background + sleep watchdog
+# stays as the portable fallback.
+TIMEOUT_BIN=""
+for candidate in timeout gtimeout; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    TIMEOUT_BIN="$candidate"
+    break
+  fi
+done
+
+if [[ -n "$TIMEOUT_BIN" ]]; then
+  (
+    cd "$PROJECT" || exit 1
+    exec "$TIMEOUT_BIN" -k 10 "$TIMEOUT" bash -c "$VERIFY"
+  ) >"$log" 2>&1
+  rc=$?
+else
+  # `set -m` gives the job its own process group, so the deadline kill below can
+  # signal the whole build tree rather than just the subshell -- TERMing the
+  # subshell alone orphans whatever it was waiting on.
+  set -m
+  (
+    cd "$PROJECT" || exit 1
+    eval "$VERIFY"
+  ) >"$log" 2>&1 &
+  pid=$!
+  set +m
+  # Poll on a deadline instead of backgrounding `sleep "$TIMEOUT"`: TERMing a
+  # subshell that is waiting on a long `sleep` does not stop the `sleep`, which
+  # then lingers holding this script's stdio open long after the build passed.
+  waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if [[ $waited -ge $TIMEOUT ]]; then
+      kill -TERM "-$pid" 2>/dev/null
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$pid" 2>/dev/null; rc=$?
+fi
 
 [[ $rc -eq 0 ]] && exit 0
 
 {
-  if [[ $rc -eq 143 ]]; then
+  # 124 = `timeout` fired; 137/143 = the child took KILL/TERM from either path.
+  if [[ $rc -eq 124 || $rc -eq 137 || $rc -eq 143 ]]; then
     echo "verify-gate: '$VERIFY' timed out after ${TIMEOUT}s."
   else
     echo "verify-gate: '$VERIFY' is failing, so the work is not done."
