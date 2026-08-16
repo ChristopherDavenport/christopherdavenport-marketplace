@@ -12,7 +12,7 @@ What each plugin costs you in context, so you can decide before installing.
 | [`pr-description`](workflow/pr-description) | workflow | 193 | 2906 | 16k | pr-description |
 | [`typescript`](backend/typescript) | backend | 114 | 4093 | 174k | typescript |
 | [`financial-accounting`](knowledge/financial-accounting) | knowledge | 109 | 2484 | 66k | financial-accounting |
-| [`claude-local-telemetry`](https://github.com/ChristopherDavenport/claude-local-telemetry) † | observability | 109 | 983 | — | claude-local-telemetry + mcpServers |
+| [`claude-local-telemetry`](https://github.com/ChristopherDavenport/claude-local-telemetry) † | observability | 109 | 1318 | — | claude-local-telemetry + mcpServers |
 | [`financial-regs`](knowledge/financial-regs) | knowledge | 106 | 1922 | 61k | financial-regs |
 | [`sqlite`](backend/sqlite) | backend | 97 | 4107 | 68k | sqlite |
 | [`lit`](frontend/lit) | frontend | 96 | 3565 | 109k | lit |
@@ -22,9 +22,9 @@ What each plugin costs you in context, so you can decide before installing.
 | [`pubsub`](backend/pubsub) | backend | 72 | 3783 | 81k | pubsub |
 | [`go`](backend/go) | backend | 52 | 2758 | 132k | go |
 | [`github-twin`](https://github.com/ChristopherDavenport/github-twin) † | workflow | 0 | 0 | — | mcpServers |
-| **All 16 together** | | **2067** | 48907 | | |
+| **All 16 together** | | **2067** | 49242 | | |
 
-† Lives in its own repo. Measured at [`claude-local-telemetry` v0.1.2](https://github.com/ChristopherDavenport/claude-local-telemetry/tree/249a7d8), [`github-twin`](https://github.com/ChristopherDavenport/github-twin/tree/a078be8) and cached in [`scripts/remote-costs.json`](scripts/remote-costs.json); refresh with `python3 scripts/plugin_costs.py --refresh-remote`. The marketplace entry for `claude-local-telemetry` pins that exact commit, so the number describes the tree you install; `--check` fails if the pin and the measurement drift apart.
+† Lives in its own repo. Measured at [`claude-local-telemetry` v0.1.3](https://github.com/ChristopherDavenport/claude-local-telemetry/tree/f01dbad), [`github-twin`](https://github.com/ChristopherDavenport/github-twin/tree/a078be8) and cached in [`scripts/remote-costs.json`](scripts/remote-costs.json); refresh with `python3 scripts/plugin_costs.py --refresh-remote`. The marketplace entry for `claude-local-telemetry` pins that exact commit, so the number describes the tree you install; `--check` fails if the pin and the measurement drift apart.
 
 ## Reading this
 

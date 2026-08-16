@@ -2,14 +2,14 @@
   "claude-local-telemetry": {
     "chars": {
       "always_on": 421,
-      "on_invoke": 3874
+      "on_invoke": 5198
     },
-    "commit": "249a7d8dce657e8272e0d6d4e1067370d3eb3046",
+    "commit": "f01dbad69542d47a9a4c63addb4c2bc0d9694e8f",
     "components": [
       {
         "chars": {
           "always_on": 421,
-          "on_invoke": 3874
+          "on_invoke": 5198
         },
         "kind": "skill",
         "lazy_chars": 0,
@@ -24,7 +24,7 @@
     "repo": "ChristopherDavenport/claude-local-telemetry",
     "tokens": {
       "always_on": 109,
-      "on_invoke": 983
+      "on_invoke": 1318
     }
   },
   "github-twin": {
