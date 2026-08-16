@@ -65,6 +65,10 @@ BUDGETS = Path(__file__).resolve().parent / "cost-budgets.json"
 # read time: --write and --sync are asserted byte-identical in CI, so measuring a
 # remote live would turn this repo red whenever an unrelated repo was pushed to.
 # Refresh it deliberately with --refresh-remote.
+#
+# A remote entry that pins `sha` is measured at that commit, not at the default
+# branch, and --check fails when the two disagree. Without that, pinning would
+# make things worse: the published number would describe a tree nobody installs.
 REMOTE_COSTS = Path(__file__).resolve().parent / "remote-costs.json"
 COSTS_MD = ROOT / "COSTS.md"
 
@@ -232,11 +236,22 @@ def collect() -> list[dict]:
             "remote": True,
             "repo": repo,
             "commit": cache.get("commit"),
+            # What the marketplace pins, as distinct from what was measured.
+            # --check asserts they agree; render shows the ref because a tag is
+            # what a reader recognises, and links the sha because that is exact.
+            "ref": source.get("ref"),
+            "sha": source.get("sha"),
             **{k: cache[k] for k in MEASURED_KEYS},
         })
 
     plugins.sort(key=lambda p: -p["tokens"]["always_on"])
     return plugins
+
+
+def git_head(repo_dir: Path) -> str:
+    import subprocess
+    return subprocess.run(["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
 
 
 def find_plugin_root(repo_dir: Path) -> Path | None:
@@ -255,6 +270,10 @@ def refresh_remote(dry_run: bool = False) -> int:
     The only part of this script that touches the network, and it is never run
     by CI. The recorded commit is what makes the cached number auditable: it
     says exactly which tree was measured.
+
+    An entry that pins `ref`/`sha` is measured at the pin rather than at the
+    default branch, so the published number describes the tree that actually
+    installs. An unpinned entry tracks the default branch as before.
     """
     import subprocess
     import tempfile
@@ -265,26 +284,42 @@ def refresh_remote(dry_run: bool = False) -> int:
         src = entry.get("source")
         if not isinstance(src, dict) or src.get("source") != "github" or not src.get("repo"):
             continue
-        repo = src["repo"]
+        repo, ref, pinned = src["repo"], src.get("ref"), src.get("sha")
         with tempfile.TemporaryDirectory() as tmp:
             dest = Path(tmp) / "r"
-            clone = subprocess.run(
-                ["git", "clone", "--depth", "1", "--quiet",
-                 f"https://github.com/{repo}.git", str(dest)],
-                capture_output=True, text=True)
+            cmd = ["git", "clone", "--depth", "1", "--quiet"]
+            if ref:
+                cmd += ["--branch", ref]
+            clone = subprocess.run(cmd + [f"https://github.com/{repo}.git", str(dest)],
+                                   capture_output=True, text=True)
             if clone.returncode != 0:
                 print(f"  FAIL {repo}: {clone.stderr.strip()}", file=sys.stderr)
                 return 1
-            sha = subprocess.run(["git", "-C", str(dest), "rev-parse", "HEAD"],
-                                 capture_output=True, text=True).stdout.strip()
+            sha = git_head(dest)
+            # `ref` alone can move, and `sha` is the effective pin for Claude
+            # Code, so correct to it when the two disagree. GitHub serves a
+            # fetch by commit, which keeps this shallow.
+            if pinned and sha != pinned:
+                fetch = subprocess.run(
+                    ["git", "-C", str(dest), "fetch", "--depth", "1", "--quiet",
+                     "origin", pinned],
+                    capture_output=True, text=True)
+                if fetch.returncode != 0:
+                    print(f"  FAIL {repo}: cannot fetch pinned {pinned[:12]}: "
+                          f"{fetch.stderr.strip()}", file=sys.stderr)
+                    return 1
+                subprocess.run(["git", "-C", str(dest), "checkout", "--quiet",
+                                "--detach", "FETCH_HEAD"], check=True,
+                               capture_output=True, text=True)
+                sha = git_head(dest)
             root_dir = find_plugin_root(dest)
             if root_dir is None:
                 print(f"  FAIL {repo}: no .claude-plugin/plugin.json", file=sys.stderr)
                 return 1
             m = measure(root_dir)
         out[entry["name"]] = {"repo": repo, "commit": sha, **m}
-        print(f"  {entry['name']:<24}{m['tokens']['always_on']:>6} tok always-on"
-              f"   @ {sha[:12]}")
+        at = f"{ref} @ {sha[:12]}" if ref else f"{sha[:12]} (unpinned)"
+        print(f"  {entry['name']:<24}{m['tokens']['always_on']:>6} tok always-on   {at}")
 
     if not out:
         print("  no remote plugins in marketplace.json")
@@ -382,6 +417,20 @@ def check(plugins: list[dict]) -> int:
             )
         print(f"  {mark:<4}  {p['name']:<24}{got:>6} tok   cap {cap}")
 
+    # A pin the measurement does not match is the one way pinning can make this
+    # worse than tracking a branch: the published number would describe a tree
+    # nobody installs, and it would look more authoritative for being pinned.
+    # Deterministic and offline, so CI runs it alongside the budgets.
+    for p in plugins:
+        if not p.get("remote") or not p.get("sha"):
+            continue
+        if p["commit"] != p["sha"]:
+            failures.append(
+                f'{p["name"]}: marketplace pins {p["sha"][:12]} but the cached cost '
+                f'was measured at {(p["commit"] or "nothing")[:12]}. Run '
+                f"`python3 scripts/plugin_costs.py --refresh-remote`."
+            )
+
     total_cap = b.get("total_always_on")
     total = sum(p["tokens"]["always_on"] for p in plugins)
     if total_cap is not None:
@@ -442,14 +491,26 @@ def render_markdown(plugins: list[dict]) -> str:
         "",
     ]
     if remotes:
-        lines += [
-            "† Lives in its own repo. Measured at "
-            + ", ".join(f"[`{p['name']}`]({p['homepage']}/tree/{(p['commit'] or '')[:7]})"
-                        for p in remotes)
-            + " and cached in [`scripts/remote-costs.json`](scripts/remote-costs.json);"
-              " refresh with `python3 scripts/plugin_costs.py --refresh-remote`.",
-            "",
-        ]
+        # Label with the ref when the entry pins one — a tag is what a reader
+        # recognises — but always link the commit, which is what installs.
+        def at(p: dict) -> str:
+            commit = (p.get("commit") or "")[:7]
+            return (f"[`{p['name']}` {p['ref']}]({p['homepage']}/tree/{commit})"
+                    if p.get("ref") else
+                    f"[`{p['name']}`]({p['homepage']}/tree/{commit})")
+
+        pinned = [p["name"] for p in remotes if p.get("sha")]
+        note = ("† Lives in its own repo. Measured at "
+                + ", ".join(at(p) for p in remotes)
+                + " and cached in [`scripts/remote-costs.json`](scripts/remote-costs.json);"
+                  " refresh with `python3 scripts/plugin_costs.py --refresh-remote`.")
+        if pinned:
+            note += (" The marketplace entry for "
+                     + ", ".join(f"`{n}`" for n in pinned)
+                     + " pins that exact commit, so the number describes the tree you"
+                       " install; `--check` fails if the pin and the measurement drift"
+                       " apart.")
+        lines += [note, ""]
     lines += [
         "## Reading this",
         "",

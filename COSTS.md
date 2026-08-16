@@ -24,7 +24,7 @@ What each plugin costs you in context, so you can decide before installing.
 | [`github-twin`](https://github.com/ChristopherDavenport/github-twin) † | workflow | 0 | 0 | — | mcpServers |
 | **All 16 together** | | **2067** | 48907 | | |
 
-† Lives in its own repo. Measured at [`claude-local-telemetry`](https://github.com/ChristopherDavenport/claude-local-telemetry/tree/72c461b), [`github-twin`](https://github.com/ChristopherDavenport/github-twin/tree/a078be8) and cached in [`scripts/remote-costs.json`](scripts/remote-costs.json); refresh with `python3 scripts/plugin_costs.py --refresh-remote`.
+† Lives in its own repo. Measured at [`claude-local-telemetry` v0.1.2](https://github.com/ChristopherDavenport/claude-local-telemetry/tree/249a7d8), [`github-twin`](https://github.com/ChristopherDavenport/github-twin/tree/a078be8) and cached in [`scripts/remote-costs.json`](scripts/remote-costs.json); refresh with `python3 scripts/plugin_costs.py --refresh-remote`. The marketplace entry for `claude-local-telemetry` pins that exact commit, so the number describes the tree you install; `--check` fails if the pin and the measurement drift apart.
 
 ## Reading this
 
