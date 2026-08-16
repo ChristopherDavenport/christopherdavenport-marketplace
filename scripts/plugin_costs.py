@@ -61,6 +61,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
 BUDGETS = Path(__file__).resolve().parent / "cost-budgets.json"
+# Measurements for plugins hosted in their own repos. Committed, not fetched at
+# read time: --write and --sync are asserted byte-identical in CI, so measuring a
+# remote live would turn this repo red whenever an unrelated repo was pushed to.
+# Refresh it deliberately with --refresh-remote.
+REMOTE_COSTS = Path(__file__).resolve().parent / "remote-costs.json"
 COSTS_MD = ROOT / "COSTS.md"
 
 CHARS_PER_TOKEN = 3.95
@@ -164,34 +169,132 @@ def harness_only(plugin_dir: Path) -> list[str]:
     return out
 
 
+def measure(plugin_dir: Path) -> dict:
+    """The cost of one plugin directory, wherever it came from."""
+    comps = component_costs(plugin_dir)
+    always = sum(c["chars"]["always_on"] for c in comps)
+    invoke = sum(c["chars"]["on_invoke"] for c in comps)
+    return {
+        "components": comps,
+        "harness_only": harness_only(plugin_dir),
+        "chars": {"always_on": always, "on_invoke": invoke},
+        "lazy_chars": sum(c["lazy_chars"] for c in comps),
+        "tokens": {
+            "always_on": to_tokens(always, len(comps)),
+            "on_invoke": to_tokens(invoke, len(comps)),
+        },
+    }
+
+
+def load_remote_costs() -> dict:
+    if not REMOTE_COSTS.exists():
+        return {}
+    return json.loads(REMOTE_COSTS.read_text(encoding="utf-8"))
+
+
+MEASURED_KEYS = ("components", "harness_only", "chars", "lazy_chars", "tokens")
+
+
 def collect() -> list[dict]:
+    """Every plugin in the marketplace, local ones measured now and remote ones
+    read from the committed cache. A remote with no cache entry is skipped —
+    silently absent is better than a confident zero, and --refresh-remote fixes it."""
     entries = json.loads(MARKETPLACE.read_text(encoding="utf-8"))["plugins"]
+    cached = load_remote_costs()
     plugins = []
     for entry in entries:
         source = entry.get("source")
-        if not isinstance(source, str):
-            continue  # remote plugin — not ours to measure
-        plugin_dir = (ROOT / source.lstrip("./")).resolve()
-        if not plugin_dir.is_dir():
+
+        if isinstance(source, str):
+            plugin_dir = (ROOT / source.lstrip("./")).resolve()
+            if not plugin_dir.is_dir():
+                continue
+            path = source.lstrip("./")
+            plugins.append({
+                "name": entry["name"],
+                "path": path,
+                "homepage": f"{REPO_URL}/tree/main/{path}",
+                "category": plugin_dir.parent.name,
+                "remote": False,
+                **measure(plugin_dir),
+            })
             continue
-        comps = component_costs(plugin_dir)
-        always = sum(c["chars"]["always_on"] for c in comps)
-        invoke = sum(c["chars"]["on_invoke"] for c in comps)
+
+        repo = source.get("repo") if isinstance(source, dict) else None
+        cache = cached.get(entry["name"])
+        if not repo or not cache:
+            continue
         plugins.append({
             "name": entry["name"],
-            "path": source.lstrip("./"),
-            "category": plugin_dir.parent.name,
-            "components": comps,
-            "harness_only": harness_only(plugin_dir),
-            "chars": {"always_on": always, "on_invoke": invoke},
-            "lazy_chars": sum(c["lazy_chars"] for c in comps),
-            "tokens": {
-                "always_on": to_tokens(always, len(comps)),
-                "on_invoke": to_tokens(invoke, len(comps)),
-            },
+            "path": None,
+            "homepage": f"https://github.com/{repo}",
+            "category": entry.get("category") or "workflow",
+            "remote": True,
+            "repo": repo,
+            "commit": cache.get("commit"),
+            **{k: cache[k] for k in MEASURED_KEYS},
         })
+
     plugins.sort(key=lambda p: -p["tokens"]["always_on"])
     return plugins
+
+
+def find_plugin_root(repo_dir: Path) -> Path | None:
+    """Where the plugin manifest lives — repo root for both of ours, but a repo
+    may nest it."""
+    if (repo_dir / ".claude-plugin" / "plugin.json").exists():
+        return repo_dir
+    for cand in sorted(repo_dir.glob("*/.claude-plugin/plugin.json")):
+        return cand.parent.parent
+    return None
+
+
+def refresh_remote(dry_run: bool = False) -> int:
+    """Shallow-clone each remote plugin, measure it, record the result.
+
+    The only part of this script that touches the network, and it is never run
+    by CI. The recorded commit is what makes the cached number auditable: it
+    says exactly which tree was measured.
+    """
+    import subprocess
+    import tempfile
+
+    entries = json.loads(MARKETPLACE.read_text(encoding="utf-8"))["plugins"]
+    out: dict[str, dict] = {}
+    for entry in entries:
+        src = entry.get("source")
+        if not isinstance(src, dict) or src.get("source") != "github" or not src.get("repo"):
+            continue
+        repo = src["repo"]
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "r"
+            clone = subprocess.run(
+                ["git", "clone", "--depth", "1", "--quiet",
+                 f"https://github.com/{repo}.git", str(dest)],
+                capture_output=True, text=True)
+            if clone.returncode != 0:
+                print(f"  FAIL {repo}: {clone.stderr.strip()}", file=sys.stderr)
+                return 1
+            sha = subprocess.run(["git", "-C", str(dest), "rev-parse", "HEAD"],
+                                 capture_output=True, text=True).stdout.strip()
+            root_dir = find_plugin_root(dest)
+            if root_dir is None:
+                print(f"  FAIL {repo}: no .claude-plugin/plugin.json", file=sys.stderr)
+                return 1
+            m = measure(root_dir)
+        out[entry["name"]] = {"repo": repo, "commit": sha, **m}
+        print(f"  {entry['name']:<24}{m['tokens']['always_on']:>6} tok always-on"
+              f"   @ {sha[:12]}")
+
+    if not out:
+        print("  no remote plugins in marketplace.json")
+        return 0
+    if not dry_run:
+        REMOTE_COSTS.write_text(
+            json.dumps(out, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8")
+        print(f"\nwrote {REMOTE_COSTS.relative_to(ROOT)} ({len(out)} remote plugins)")
+    return 0
 
 
 def sync_marketplace(plugins: list[dict], dry_run: bool = False) -> tuple[str, str]:
@@ -228,10 +331,10 @@ def sync_marketplace(plugins: list[dict], dry_run: bool = False) -> tuple[str, s
         if measured:
             entry["description"] = f"~{measured['tokens']['always_on']} tok always-on. {desc}"
             entry["category"] = measured["category"]
-            entry["homepage"] = f"{REPO_URL}/tree/main/{measured['path']}"
+            entry["homepage"] = measured["homepage"]
         else:
-            # Remote source: real cost is unmeasurable from here, so claim nothing
-            # rather than stamp a wrong or zero number.
+            # No measurement: a remote whose cache entry is missing. Claim
+            # nothing rather than stamp a zero.
             entry["description"] = desc
             src = entry.get("source")
             if isinstance(src, dict) and src.get("repo"):
@@ -315,18 +418,39 @@ def render_markdown(plugins: list[dict]) -> str:
         "| --- | --- | ---: | ---: | ---: | --- |",
     ]
     for p in plugins:
-        comps = ", ".join(f"{c['name']}" for c in p["components"]) or "—"
-        extra = f" + {'/'.join(p['harness_only'])}" if p["harness_only"] else ""
+        named = ", ".join(f"{c['name']}" for c in p["components"])
+        harness = "/".join(p["harness_only"])
+        # A plugin can be all harness and no context — an MCP server with no
+        # skills costs nothing always-on. "— + mcpServers" reads as a gap; the
+        # bare harness list reads as the fact.
+        comps = named or harness or "—"
+        extra = f" + {harness}" if named and harness else ""
         lazy = f"{p['lazy_chars'] // 1000}k" if p["lazy_chars"] >= 1000 else (
             str(p["lazy_chars"]) if p["lazy_chars"] else "—")
+        # Remote plugins link out to their own repo and are marked, because their
+        # number is a cached measurement of another tree rather than of this one.
+        target = p["path"] if not p["remote"] else p["homepage"]
+        mark = " †" if p["remote"] else ""
         lines.append(
-            f"| [`{p['name']}`]({p['path']}) | {p['category']} "
+            f"| [`{p['name']}`]({target}){mark} | {p['category']} "
             f"| {p['tokens']['always_on']} | {p['tokens']['on_invoke']} | {lazy} "
             f"| {comps}{extra} |"
         )
+    remotes = [p for p in plugins if p["remote"]]
     lines += [
         f"| **All {len(plugins)} together** | | **{total_a}** | {total_i} | | |",
         "",
+    ]
+    if remotes:
+        lines += [
+            "† Lives in its own repo. Measured at "
+            + ", ".join(f"[`{p['name']}`]({p['homepage']}/tree/{(p['commit'] or '')[:7]})"
+                        for p in remotes)
+            + " and cached in [`scripts/remote-costs.json`](scripts/remote-costs.json);"
+              " refresh with `python3 scripts/plugin_costs.py --refresh-remote`.",
+            "",
+        ]
+    lines += [
         "## Reading this",
         "",
         "**Always-on** is the number that matters. It is paid on every session whether",
@@ -412,11 +536,16 @@ def main() -> int:
                    help="stamp cost + category/homepage/author into marketplace.json")
     g.add_argument("--check", action="store_true", help="assert budgets; exit 1 if over")
     g.add_argument("--json", action="store_true", help="machine-readable output")
+    g.add_argument("--refresh-remote", action="store_true",
+                   help="clone remote plugins and re-record their cost (network)")
     args = ap.parse_args()
+
+    if args.refresh_remote:
+        return refresh_remote()
 
     plugins = collect()
     if not plugins:
-        print("FATAL: no local plugins found in marketplace.json", file=sys.stderr)
+        print("FATAL: no plugins found in marketplace.json", file=sys.stderr)
         return 70
 
     if args.json:

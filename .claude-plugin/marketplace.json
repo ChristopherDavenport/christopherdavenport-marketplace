@@ -160,7 +160,21 @@
         "name": "Chris Davenport",
         "url": "https://github.com/ChristopherDavenport"
       },
-      "description": "Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools."
+      "description": "~0 tok always-on. Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools."
+    },
+    {
+      "name": "claude-local-telemetry",
+      "source": {
+        "source": "github",
+        "repo": "ChristopherDavenport/claude-local-telemetry"
+      },
+      "category": "observability",
+      "homepage": "https://github.com/ChristopherDavenport/claude-local-telemetry",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~109 tok always-on. Local observability for Claude Code. An OTLP/HTTP-JSON sink, a backfill that imports the transcripts already on disk, an MCP server and a dashboard, all over one SQLite file — so you can ask what your sessions cost, what tools ran, which agents and workflows the work was delegated to, and whether your hooks are actually firing, without sending telemetry anywhere. Node 24, no collector, loopback only."
     },
     {
       "name": "guardrails",
