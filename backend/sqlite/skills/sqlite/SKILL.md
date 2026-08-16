@@ -3,9 +3,10 @@ name: sqlite
 description: >
   SQLite best practices: pragmas (WAL, busy_timeout, foreign_keys), locking
   model, BEGIN modes, index design, JSON1, Go client patterns, Litestream /
-  LiteFS / D1. Use for .sqlite/.db files or Go code importing
-  modernc.org/sqlite or mattn/go-sqlite3. Not for the spanner skill or
-  client/server SQL.
+  LiteFS / D1. Load when working on a .sqlite/.db file, choosing pragmas or
+  a locking/BEGIN mode, or in code importing modernc.org/sqlite,
+  mattn/go-sqlite3, or node:sqlite. For Cloud Spanner, use the spanner
+  skill instead.
 ---
 
 # SQLite Best Practices

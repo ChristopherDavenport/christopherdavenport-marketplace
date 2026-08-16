@@ -14,7 +14,7 @@
         "name": "Chris Davenport",
         "url": "https://github.com/ChristopherDavenport"
       },
-      "description": "~78 tok always-on. Financial institution accounting fundamentals (journals, ledgers, sub-ledgers, chart of accounts) and US GAAP (FASB ASC) reference for FI operations."
+      "description": "~109 tok always-on. Financial institution accounting fundamentals (journals, ledgers, sub-ledgers, chart of accounts) and US GAAP (FASB ASC) reference for FI operations."
     },
     {
       "name": "financial-regs",
@@ -25,7 +25,7 @@
         "name": "Chris Davenport",
         "url": "https://github.com/ChristopherDavenport"
       },
-      "description": "~69 tok always-on. US financial regulation lookup and compliance analysis."
+      "description": "~106 tok always-on. US financial regulation lookup and compliance analysis."
     },
     {
       "name": "lit",
@@ -36,7 +36,7 @@
         "name": "Chris Davenport",
         "url": "https://github.com/ChristopherDavenport"
       },
-      "description": "~86 tok always-on. Lit web component library expertise."
+      "description": "~96 tok always-on. Lit web component library expertise."
     },
     {
       "name": "lit-router",
@@ -47,7 +47,7 @@
         "name": "Chris Davenport",
         "url": "https://github.com/ChristopherDavenport"
       },
-      "description": "~70 tok always-on. @lit-labs/router expertise."
+      "description": "~85 tok always-on. @lit-labs/router expertise."
     },
     {
       "name": "jh-design-system",
@@ -58,7 +58,7 @@
         "name": "Chris Davenport",
         "url": "https://github.com/ChristopherDavenport"
       },
-      "description": "~76 tok always-on. Jack Henry Design System (jackhenry.design/v2) — components, foundations, tokens, content."
+      "description": "~89 tok always-on. Jack Henry Design System (jackhenry.design/v2) — components, foundations, tokens, content."
     },
     {
       "name": "go",
@@ -80,7 +80,7 @@
         "name": "Chris Davenport",
         "url": "https://github.com/ChristopherDavenport"
       },
-      "description": "~72 tok always-on. Google Cloud Spanner best practices — schema design, interleaving, indexes, transactions, query/DML optimization, schema evolution, and the Go client SDK."
+      "description": "~90 tok always-on. Google Cloud Spanner best practices — schema design, interleaving, indexes, transactions, query/DML optimization, schema evolution, and the Go client SDK."
     },
     {
       "name": "sqlite",
@@ -91,7 +91,7 @@
         "name": "Chris Davenport",
         "url": "https://github.com/ChristopherDavenport"
       },
-      "description": "~78 tok always-on. SQLite best practices — STRICT tables, the must-set pragmas (WAL, busy_timeout, foreign_keys, synchronous=NORMAL), BEGIN IMMEDIATE vs DEFERRED, indexes and EXPLAIN QUERY PLAN, JSON1/JSONB with generated-column indexing, the Go client (database/sql with mattn/go-sqlite3 or modernc.org/sqlite), and server-side production use (Litestream/LiteFS/Turso/D1)."
+      "description": "~97 tok always-on. SQLite best practices — STRICT tables, the must-set pragmas (WAL, busy_timeout, foreign_keys, synchronous=NORMAL), BEGIN IMMEDIATE vs DEFERRED, indexes and EXPLAIN QUERY PLAN, JSON1/JSONB with generated-column indexing, the Go client (database/sql with mattn/go-sqlite3 or modernc.org/sqlite), and server-side production use (Litestream/LiteFS/Turso/D1)."
     },
     {
       "name": "pubsub",
@@ -113,7 +113,7 @@
         "name": "Chris Davenport",
         "url": "https://github.com/ChristopherDavenport"
       },
-      "description": "~69 tok always-on. TypeScript best practices — type system, generics, utility & advanced types, discriminated unions, classes & OOP, error handling, async & cancellation, immutability, modules, strict tsconfig, naming, testing, plus a dedicated section on functional patterns."
+      "description": "~114 tok always-on. TypeScript best practices — type system, generics, utility & advanced types, discriminated unions, classes & OOP, error handling, async & cancellation, immutability, modules, strict tsconfig, naming, testing, plus a dedicated section on functional patterns."
     },
     {
       "name": "commit-story",

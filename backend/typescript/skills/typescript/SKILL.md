@@ -3,8 +3,10 @@ name: typescript
 description: >
   Idiomatic TypeScript: generics, discriminated unions with exhaustiveness,
   utility/conditional/mapped types, strict tsconfig flags, ESM conventions,
-  optional functional patterns. Use when authoring or reviewing .ts/.tsx
-  files or projects with tsconfig.json.
+  optional functional patterns. Load when designing the types for a new
+  .ts/.tsx module, tightening tsconfig strictness, modeling a discriminated
+  union, or resolving an inference or exhaustiveness error — including
+  alongside a framework skill, which covers that framework's own idioms.
 ---
 
 # TypeScript Best Practices

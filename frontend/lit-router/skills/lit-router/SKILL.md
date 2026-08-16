@@ -3,8 +3,9 @@ name: lit-router
 description: >
   Client routing for Lit via @lit-labs/router — Router and Routes
   controllers, URLPattern matching, nested routes, History API navigation.
-  Use for files importing from '@lit-labs/router'. Not for the
-  web-component-router skill (Banno/JH stack) or other routers.
+  Load when authoring or reviewing a file importing from
+  '@lit-labs/router' — including alongside the lit skill. For the Banno/JH
+  stack's own router, use web-component-router instead.
 ---
 
 # @lit-labs/router
