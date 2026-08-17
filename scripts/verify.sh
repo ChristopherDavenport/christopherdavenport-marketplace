@@ -68,6 +68,14 @@ step_generated() {
 command -v jq      >/dev/null || { echo "jq missing";      exit 1; }
 command -v python3 >/dev/null || { echo "python3 missing"; exit 1; }
 
+# Flagged, not fatal. Adding eval cases is ordinary work and drift here is
+# usually just an un-re-baselined manifest, so failing the Stop gate on it
+# would punish normal development. CI enforces it; this line is so whoever --
+# or whatever -- just edited a scorer finds out immediately rather than at
+# review. See scripts/integrity.sh.
+printf '\n=== integrity ===\n'
+./scripts/integrity.sh || printf '  (not fatal here -- CI enforces it)\n'
+
 step "guardrails — hooks, templates, manifests" ./evals/guardrails/run.sh
 step "guardrails — mutation check"              ./evals/guardrails/run.sh --mutate
 step "pr-description — scorer"                  ./evals/pr-description/run.sh
