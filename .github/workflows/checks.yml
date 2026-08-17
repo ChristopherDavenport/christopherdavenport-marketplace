@@ -36,6 +36,12 @@ jobs:
           command -v jq >/dev/null || { echo "::error::jq missing from runner"; exit 1; }
           command -v python3 >/dev/null || { echo "::error::python3 missing"; exit 1; }
 
+      # Before the suites, not after: a scorer that was edited is a scorer
+      # whose green means nothing. See scripts/integrity.sh for why the
+      # committed manifest, rather than the check, is the load-bearing part.
+      - name: Scoring machinery matches the committed manifest
+        run: ./scripts/integrity.sh
+
       - name: guardrails — hooks, templates, manifests
         run: ./evals/guardrails/run.sh
 
