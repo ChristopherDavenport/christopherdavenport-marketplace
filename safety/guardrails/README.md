@@ -90,12 +90,40 @@ exactly those two gaps and nothing else:
 2. **Bash calls carrying `dangerouslyDisableSandbox: true`** — the documented
    escape hatch, where the command runs on the host with no isolation. Rare
    and explicitly marked, so a conservative check is proportionate here in a
-   way it never was on every call. Ordinary sandboxed Bash is ignored
-   completely, including `rm -rf /` — that is the kernel's job now, and the
-   eval asserts the hook stays out of the way.
+   way it never was on every call. Ordinary sandboxed Bash is otherwise
+   ignored, including `rm -rf /` — that is the kernel's job now, and the eval
+   asserts the hook stays out of the way.
+
+3. **Every Bash call, for irreversible outward operations** — a small,
+   deliberately narrow set that neither of the layers above actually covers:
+
+   - `sandbox.excludedCommands` runs a binary with **no isolation and no
+     flag** on the tool call, so branch 2 never sees it. Such a binary is
+     outside the sandbox *and* outside this hook unless something screens it
+     unconditionally.
+   - A properly sandboxed command still reaches every host in
+     `sandbox.network.allowedDomains`. The sandbox was never what stopped
+     `gh pr merge`; `github.com` is on that allowlist by necessity.
+
+   `gh` is the motivating case, and a permission rule cannot substitute:
+   a rule naming `gh pr merge` does not match
+   `gh api --method PUT repos/o/r/pulls/1/merge`, which merges the same pull
+   request — and `gh api` is the dominant idiom in real use, so the
+   subcommand spelling is the rare path rather than the common one. Merging,
+   deleting a repo, publishing a release, writing a secret and `gh api
+   DELETE` are denied. Reading, listing, `gh run watch` and **opening** a pull
+   request stay allowed; a PR you can close is the autonomy target, not a
+   threat.
 
 Set `"allowUnsandboxedCommands": false` and branch 2 can never fire, which is
 the correct end state. It's a backstop for sessions not yet locked down.
+Branch 3 is unaffected by that setting, by design.
+
+`docker` is deliberately absent from branch 2's binary list — it is the
+canonical `excludedCommands` entry and `docker build` has to keep working, or
+the entry gets deleted within a day. What is denied is the flag set that hands
+the container the host: a bind mount of `/`, the docker socket, a host
+namespace, or `--privileged`.
 
 `escapes.py` still **fails closed**: per the hooks contract, an exit 1 or a
 timeout is a "non-blocking error" and the call proceeds, so a hook guarding an
