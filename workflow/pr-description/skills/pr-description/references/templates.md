@@ -47,7 +47,8 @@ Check for a convention before writing one:
 
 ```sh
 git log --oneline -20
-gh pr list --state merged --limit 20 --json title -q '.[].title'
+mcp__github__search_pull_requests  query: "repo:<owner>/<repo> is:merged"  perPage: 20
+#   read the titles off the results
 ```
 
 Repos vary between Conventional Commits (`feat:`, `fix:`), a product or area prefix, and free prose. Match what is there; do not impose a convention the repo does not use, and do not drop one it does.

@@ -24,7 +24,7 @@ Most of what an agent produces answers *no* to the first question. That is not a
 
 ## Why a comment and not a wiki page
 
-The comment sits on the artifact it describes, it is searchable from the PR, it survives the branch being deleted, and it costs one `gh pr comment` call. A wiki page needs a home, a link, and someone to maintain it. If the material outgrows a comment, it has become a document and should be written as one — but that is a separate decision, made deliberately, not something a PR body should drift into.
+The comment sits on the artifact it describes, it is searchable from the PR, it survives the branch being deleted, and it costs one `mcp__github__add_issue_comment` call. A wiki page needs a home, a link, and someone to maintain it. If the material outgrows a comment, it has become a document and should be written as one — but that is a separate decision, made deliberately, not something a PR body should drift into.
 
 State the split in one line so it does not look like the body is hiding something:
 
