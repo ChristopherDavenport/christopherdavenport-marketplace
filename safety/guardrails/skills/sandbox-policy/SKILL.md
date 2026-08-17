@@ -47,13 +47,24 @@ Defaults you get immediately:
   temp directory (`$TMPDIR` is repointed there for sandboxed commands).
 - **Network**: nothing pre-allowed. The first connection to a new domain
   prompts; `allowedDomains` pre-approves.
-- **Read**: **the entire computer.** This is the default people are surprised
-  by — `~/.ssh` and `~/.aws/credentials` are readable unless you say otherwise.
-  See [Close the read gap](#close-the-read-gap).
+- **Read**: **nearly the entire computer.** This is the default people are
+  surprised by — `~/.aws/credentials` is readable unless you say otherwise.
+  Measured exception: `~/.ssh` is denied wholesale, directory listing included,
+  so private keys, `config` and `known_hosts` are all unreadable. Do not read
+  that as a general credential deny; it is one path. See
+  [Close the read gap](#close-the-read-gap).
 - **Protected paths**: writes to `.claude/settings*`, `.claude/hooks`,
   `.claude/skills`, `.mcp.json`, `.git/config`, `.bashrc`, and `~/.claude` are
   denied even inside writable directories, so a command can't grant itself
   more access for the next call. No `allowWrite` entry lifts this.
+- **Protected paths are scoped to the project directory**, which is easy to
+  miss and changes what a policy actually buys you. Measured on 2.1.233: under
+  the project dir, `.git/config` and `.git/hooks/**` are denied while the rest
+  of `.git/` (`index`, `refs/`, `objects/`, `logs/`, `info/exclude`) stays
+  writable. *Outside* the project dir — an `allowWrite` path such as a
+  workspace root — the whole of `.git/` is writable, `config` and `hooks`
+  included. So `git clone` into the workspace just works with no exemption,
+  and the clone it produces is **not** protected the way an in-project repo is.
 
 ## Close the read gap
 
@@ -130,12 +141,48 @@ Prefer `allowWrite` every time it will do. `excludedCommands` also has no
 managed-only lockdown — a developer can always append to it — so in an org
 policy keep that list short and specific.
 
+### How entries actually match — the part that bites
+
+An entry is a **prefix glob over the Bash tool call as a whole**, not a lookup
+on the binary. Three consequences, all measured on 2.1.233 and all silent when
+you get them wrong:
+
+- **A bare command name matches nothing useful.** `"gh"` does not match
+  `gh api user`; you need `"gh *"`. An entry that never fires looks identical
+  to one that works until the command fails.
+- **A flag before the subcommand breaks the prefix.** `"git fetch *"` does not
+  match `git -C /path fetch origin`, which is the idiomatic form. List both:
+  `"git fetch *"` and `"git -C * fetch *"`. (`*` does span `/`.)
+- **Compound and scripted forms never match.** `cd x && git fetch`,
+  `( cd x && … )`, a loop body, or anything inside `bash script.sh` runs
+  sandboxed, because the tool call starts with something else.
+
+Do **not** fix that last one with a leading wildcard. `"*git fetch*"` matches
+any command *containing* the substring, so appending `&& git fetch` to
+anything exempts the entire call from the sandbox — an arbitrary-code-execution
+hole, and the reason prefix-only matching is worth keeping. Reshape the callers
+so each network command is its own tool call instead.
+
 Known cases that genuinely need `excludedCommands`:
 
 - `docker` — incompatible with the sandbox outright.
 - Go-based CLIs on macOS (`gh`, `gcloud`, `terraform`) — TLS verification
-  fails under Seatbelt. (If you run a MITM proxy with a custom CA via
-  `httpProxyPort`, set `network.enableWeakerNetworkIsolation` instead.)
+  fails under Seatbelt with `x509: OSStatus -26276`, because the Go verifier
+  needs `com.apple.trustd.agent` and the sandbox denies the mach lookup.
+  `curl` on the same host succeeds, which makes this look like a credential
+  problem rather than a sandbox one. (If you run a MITM proxy with a custom CA
+  via `httpProxyPort`, set `network.enableWeakerNetworkIsolation` instead —
+  it opens exactly that mach lookup, and its own docs call it a
+  data-exfiltration vector.)
+- **git over SSH on macOS** — cannot work at all, for two independent reasons.
+  The harness injects `ProxyCommand='nc -X 5 -x localhost:PORT %h %p'`, and
+  Apple's `nc` has no SOCKS-auth flag (OpenBSD's `-P` is not exposed), so it
+  cannot authenticate to the harness's own auth-requiring proxy; every
+  connection dies with *"This proxy requires authentication"*. Even a fixed
+  ProxyCommand would not help, because `~/.ssh` is read-denied, so no key is
+  loadable. `GIT_SSH_COMMAND` is injected and beats both `core.sshCommand` and
+  `settings.env`, so it cannot be overridden from config. Exempt git's network
+  subcommands, or use HTTPS.
 - `open` / `osascript` / browser auth flows on macOS fail with error `-600`
   because Apple Events are blocked. `allowAppleEvents: true` fixes it but
   removes code-execution isolation — a sandboxed command can then launch
