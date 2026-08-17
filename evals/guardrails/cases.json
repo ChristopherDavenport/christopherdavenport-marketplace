@@ -594,6 +594,43 @@
         "tool_name": "Bash",
         "tool_input": { "command": "gh run watch 12345" }
       }
+    },
+
+    {
+      "id": "gh-api-data-commit-blob-allowed",
+      "expect": "allow",
+      "why": "the Git Data API commit path is how work lands when a clone is not possible; a blob is inert until a ref points at it",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "gh api --method POST repos/o/r/git/blobs -f content=x -f encoding=utf-8" }
+      }
+    },
+    {
+      "id": "gh-api-ref-feature-branch-allowed",
+      "expect": "allow",
+      "why": "moving a feature branch is reversible -- same test as opening a PR, and blocking it breaks the Data API route entirely",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "gh api --method PATCH repos/o/r/git/refs/heads/add-thing -f sha=abc123" }
+      }
+    },
+    {
+      "id": "gh-api-ref-default-branch",
+      "expect": "deny",
+      "why": "writing straight to the default branch lands work without review",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "gh api --method PATCH repos/o/r/git/refs/heads/main -f sha=abc123" }
+      }
+    },
+    {
+      "id": "gh-api-ref-force",
+      "expect": "deny",
+      "why": "force-updating a ref is `git push --force` by another name, which the permission rules already deny in its shell form",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "gh api --method PATCH repos/o/r/git/refs/heads/feat -f sha=abc123 -F force=true" }
+      }
     }
   ]
 }

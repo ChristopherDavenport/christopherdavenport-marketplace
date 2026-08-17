@@ -115,6 +115,14 @@ exactly those two gaps and nothing else:
    request stay allowed; a PR you can close is the autonomy target, not a
    threat.
 
+   Ref updates get the reversibility test rather than a blanket block, because
+   the Git Data API is how work lands when a clone is not possible — a real
+   constraint, not a hypothetical. Moving a feature branch is allowed;
+   force-updating a ref, or writing straight to `main` / `master` / `trunk` /
+   `develop`, is not. A blanket rule here would have denied the fifth step of
+   a four-step-allowed sequence, which is the shape of a rule that gets
+   worked around.
+
 Set `"allowUnsandboxedCommands": false` and branch 2 can never fire, which is
 the correct end state. It's a backstop for sessions not yet locked down.
 Branch 3 is unaffected by that setting, by design.
