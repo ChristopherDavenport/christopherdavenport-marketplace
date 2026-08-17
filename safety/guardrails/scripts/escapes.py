@@ -143,14 +143,67 @@ FORBIDDEN_CMD = re.compile(
     r"""(?:^|[\s;&|(`])(
           sudo|doas|su
         | curl|wget|nc|ncat|telnet|ssh|scp|sftp|rsync
-        | kubectl|helm|terraform|aws|az
+        | kubectl|helm|terraform|aws|az|gcloud
         | launchctl|crontab|systemctl
     )(?:$|[\s;&|)])""",
+    re.VERBOSE,
+)
+
+# docker is deliberately NOT in the list above: it is the canonical
+# excludedCommands case and `docker build` has to keep working, or the entry
+# gets deleted. What matters is not the binary but the flags that hand the
+# container the host -- a bind mount of /, the docker socket, host namespaces,
+# or --privileged. Those are a sandbox escape wearing a container.
+DOCKER_ESCAPE = re.compile(
+    r"""\bdocker\b[^|;&]*?(?:
+          --privileged
+        | --(?:net|network|pid|ipc|uts)[=\s]+host
+        | (?:-v|--volume)[=\s]+/(?::|\s|$)
+        | /var/run/docker\.sock
+    )""",
     re.VERBOSE,
 )
 PUBLISH_CMD = re.compile(
     r"\b(npm|pnpm|yarn|cargo|uv|pip|poetry)\s+publish\b|\bpip\s+upload\b"
 )
+
+# ---------------------------- always-on: irreversible work the sandbox permits
+#
+# Branch 1 only inspects calls carrying `dangerouslyDisableSandbox`. Two kinds
+# of command slip past that gate while still doing something unrecoverable:
+#
+#   1. `sandbox.excludedCommands` entries run with no isolation and set nothing
+#      on the tool call, so the flag check never fires. Such a binary is outside
+#      the sandbox AND outside this hook -- the worst of both.
+#   2. A *sandboxed* command still reaches every host in
+#      `sandbox.network.allowedDomains`. The sandbox was never what stopped
+#      `gh pr merge`; github.com is on the allowlist by necessity.
+#
+# So these are screened on every Bash call, sandboxed or not.
+#
+# gh is the motivating case, and permission rules cannot cover it: a rule
+# naming `gh pr merge` is not matched by
+#   gh api --method PUT repos/o/r/pulls/1/merge
+# which merges the same pull request. `gh api` is the dominant idiom in
+# practice, so the subcommand spelling is the *rare* path, not the common one.
+
+GH_IRREVERSIBLE_SUB = re.compile(
+    r"""\bgh\s+(?:
+          pr\s+merge
+        | repo\s+(?:delete|archive|rename)
+        | release\s+(?:create|delete)
+        | secret\s+set
+        | ssh-key\s+add
+    )\b""",
+    re.VERBOSE,
+)
+# Stop at a shell separator: the method belongs to *this* gh api call, not to
+# some later command in a chain.
+GH_API_METHOD = re.compile(r"\bgh\s+api\b[^|;&]*?(?:-X|--method)[=\s]+([A-Za-z]+)")
+GH_API_DANGER_PATH = re.compile(
+    r"/pulls/\d+/merge|/git/refs/|/actions/secrets/|/releases\b"
+)
+
 WRITE_VERB = re.compile(
     r"(?:^|[\s;&|(`])(rm|mv|cp|mkdir|rmdir|touch|ln|install|truncate|dd|chmod|chown|tee|sed)\b"
 )
@@ -234,6 +287,38 @@ def check_git_push(tokens: list[str]) -> None:
         emit_deny(f"git remote {remote!r} -> {url!r} resolves outside the project")
 
 
+def check_always(cmd: str) -> None:
+    """Screen every Bash call for outward actions that cannot be undone.
+
+    Runs regardless of `dangerouslyDisableSandbox`, because neither the sandbox
+    nor a permissions rule reliably covers these -- see the ALWAYS-ON note.
+    Deliberately narrow: it denies operations whose effect is visible to other
+    people and not revertible by the agent, and nothing else. Reading, listing,
+    checking out and opening a pull request all stay allowed.
+    """
+    if GH_IRREVERSIBLE_SUB.search(cmd):
+        emit_deny(
+            f"irreversible outward gh operation: {cmd[:200]!r}. Merging, deleting, "
+            "renaming, releasing and writing secrets reach other people and cannot "
+            "be undone by the agent -- run it yourself."
+        )
+
+    m = GH_API_METHOD.search(cmd)
+    if m:
+        method = m.group(1).upper()
+        if method == "DELETE":
+            emit_deny(
+                f"gh api DELETE is irreversible by definition: {cmd[:200]!r}. "
+                "Run it yourself if it is intended."
+            )
+        if method in ("PUT", "POST", "PATCH") and GH_API_DANGER_PATH.search(cmd):
+            emit_deny(
+                f"gh api {method} against a merge/ref/secret/release endpoint: "
+                f"{cmd[:200]!r}. This is the spelling that routes around a "
+                "permissions rule naming the subcommand."
+            )
+
+
 def check_unsandboxed_bash(cmd: str) -> None:
     if FORBIDDEN_CMD.search(cmd):
         emit_deny(
@@ -243,6 +328,12 @@ def check_unsandboxed_bash(cmd: str) -> None:
         )
     if PUBLISH_CMD.search(cmd):
         emit_deny(f"unsandboxed publish command blocked: {cmd[:200]!r}")
+    if DOCKER_ESCAPE.search(cmd):
+        emit_deny(
+            f"unsandboxed docker handing the container the host: {cmd[:200]!r}. "
+            "A bind mount of /, the docker socket, a host namespace or "
+            "--privileged undoes the isolation the sandbox provides."
+        )
 
     try:
         tokens = shlex.split(cmd, comments=False)
@@ -295,13 +386,19 @@ def main() -> None:
     ti = data.get("tool_input") or {}
 
     if tool == "Bash":
-        # The whole point: a sandboxed Bash call is the OS's problem, not
-        # ours. Only inspect the ones that opted out.
-        if not ti.get("dangerouslyDisableSandbox"):
-            sys.exit(0)
         cmd = ti.get("command", "")
         if not isinstance(cmd, str):
             emit_deny("Bash tool_input.command was not a string")
+
+        # First, the checks that apply however the command runs. An
+        # excludedCommands binary carries no flag, and a sandboxed command can
+        # still reach every allowed host, so neither is covered below.
+        check_always(cmd)
+
+        # Then the sandbox-escape checks proper: an ordinary sandboxed call is
+        # the OS's problem, not ours. Only inspect the ones that opted out.
+        if not ti.get("dangerouslyDisableSandbox"):
+            sys.exit(0)
         check_unsandboxed_bash(cmd)
     elif tool == "WebFetch" or tool.startswith("mcp__"):
         check_outbound(tool, ti)
