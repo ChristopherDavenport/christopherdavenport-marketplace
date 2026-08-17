@@ -9,7 +9,7 @@ What each plugin costs you in context, so you can decide before installing.
 | [`guardrails`](safety/guardrails) | safety | 404 | 5432 | 12k | guardrails-doctor, guardrails-setup, sandbox-policy + hooks |
 | [`excalidraw`](workflow/excalidraw) | workflow | 250 | 3778 | 54k | excalidraw |
 | [`commit-story`](workflow/commit-story) | workflow | 201 | 4541 | 43k | commit-story |
-| [`pr-description`](workflow/pr-description) | workflow | 193 | 2906 | 16k | pr-description |
+| [`pr-description`](workflow/pr-description) | workflow | 193 | 2944 | 16k | pr-description |
 | [`typescript`](backend/typescript) | backend | 114 | 4093 | 174k | typescript |
 | [`financial-accounting`](knowledge/financial-accounting) | knowledge | 109 | 2484 | 66k | financial-accounting |
 | [`claude-local-telemetry`](https://github.com/ChristopherDavenport/claude-local-telemetry) † | observability | 109 | 1318 | — | claude-local-telemetry + mcpServers |
@@ -17,12 +17,12 @@ What each plugin costs you in context, so you can decide before installing.
 | [`sqlite`](backend/sqlite) | backend | 97 | 4107 | 68k | sqlite |
 | [`lit`](frontend/lit) | frontend | 96 | 3565 | 109k | lit |
 | [`spanner`](backend/spanner) | backend | 90 | 3041 | 67k | spanner |
-| [`jh-design-system`](frontend/jh-design-system) | frontend | 89 | 2107 | 19k | jh-design-system |
+| [`jh-design-system`](frontend/jh-design-system) | frontend | 89 | 2125 | 19k | jh-design-system |
 | [`lit-router`](frontend/lit-router) | frontend | 85 | 3407 | 57k | lit-router |
 | [`pubsub`](backend/pubsub) | backend | 72 | 3783 | 81k | pubsub |
 | [`go`](backend/go) | backend | 52 | 2758 | 132k | go |
 | [`github-twin`](https://github.com/ChristopherDavenport/github-twin) † | workflow | 0 | 0 | — | mcpServers |
-| **All 16 together** | | **2067** | 49242 | | |
+| **All 16 together** | | **2067** | 49298 | | |
 
 † Lives in its own repo. Measured at [`claude-local-telemetry` v0.2.1](https://github.com/ChristopherDavenport/claude-local-telemetry/tree/7769789), [`github-twin`](https://github.com/ChristopherDavenport/github-twin/tree/a078be8) and cached in [`scripts/remote-costs.json`](scripts/remote-costs.json); refresh with `python3 scripts/plugin_costs.py --refresh-remote`. The marketplace entry for `claude-local-telemetry` pins that exact commit, so the number describes the tree you install; `--check` fails if the pin and the measurement drift apart.
 

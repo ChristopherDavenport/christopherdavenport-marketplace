@@ -89,8 +89,8 @@ When a user asks "how does X look / when do I use it?", quote from sections 1, 3
 | "What attributes / properties / slots / events does it have?" | Storybook docs page **or** `custom-elements.json` (preferred for accuracy) |
 | "Show me a code example" | Storybook (the `--docs` page renders a live example) |
 | "What CSS custom properties can I override?" | `custom-elements.json` (`cssProperties` array) |
-| "Why does it behave like X? Is there a bug?" | `gh issue list -R Banno/jack-henry-design-system` and the source `.js` file |
-| "What version is shipped?" | `gh api repos/Banno/jack-henry-design-system/contents/packages/jh-ui/package.json` → `version` |
+| "Why does it behave like X? Is there a bug?" | `mcp__github__list_issues` (`owner: Banno`, `repo: jack-henry-design-system`) and the source `.js` file |
+| "What version is shipped?" | `mcp__github__get_file_contents` (`owner: Banno`, `repo: jack-henry-design-system`, `path: packages/jh-ui/package.json`) → `version` |
 
 ## Importing a component
 

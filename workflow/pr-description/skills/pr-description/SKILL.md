@@ -23,7 +23,7 @@ Agent-written descriptions fail in a characteristic way. They are not wrong; the
 
 **Covers.** Drafting a PR title and body for a branch, against whatever template the repo ships. Includes reading the diff to source facts, sizing the body to the change, holding a measured density budget, deciding what belongs in the body versus a follow-up comment, honouring the repo's template semantics, and running the scorer before presenting. Also covers rewriting an existing over-dense description.
 
-**Out of scope.** Splitting work into commits (that is `commit-story`), reviewing the code, running the build, pushing, merging, requesting reviewers, resolving conflicts, and setting labels or ticking checkboxes on the author's behalf. Drafting the body is the deliverable; `gh pr create` is the user's call unless they explicitly ask for it.
+**Out of scope.** Splitting work into commits (that is `commit-story`), reviewing the code, running the build, pushing, merging, requesting reviewers, resolving conflicts, and setting labels or ticking checkboxes on the author's behalf. Drafting the body is the deliverable; actually opening the PR is the user's call unless they explicitly ask for it.
 
 ## When This Skill Is Triggered
 
@@ -95,7 +95,7 @@ Fix every failure and re-run. The scorer reports prose words against the tier ca
 
 ### Phase 6 — Present
 
-Show the user the title, the body, and — separately — the follow-up comment. Say which labels need applying and which checkboxes you deliberately left unticked. Then stop. Do not run `gh pr create` unless the user asked you to open the PR, and if they did, post the follow-up comment immediately after.
+Show the user the title, the body, and — separately — the follow-up comment. Say which labels need applying and which checkboxes you deliberately left unticked. Then stop. Do not open the PR (`mcp__github__create_pull_request`) unless the user asked you to, and if they did, post the follow-up comment immediately after.
 
 ## Examples
 
@@ -128,8 +128,9 @@ The follow-up comment gets: the phase plan, the evidence that the three failures
 User points at an existing PR and says the reviewers find it impenetrable.
 
 ```sh
-gh pr view <n> --json body -q .body > /tmp/pr-body.md
-gh pr view <n> --json additions,deletions
+mcp__github__pull_request_read   owner: <owner>  repo: <repo>  pullNumber: <n>
+#   returns the body plus additions/deletions; write the body to /tmp/pr-body.md
+#   yourself if you want to pipe it into the density scorer
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/pr-description/scripts/density.py /tmp/pr-body.md --changed-lines <N>
 ```
 

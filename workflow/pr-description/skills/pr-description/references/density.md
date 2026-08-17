@@ -41,7 +41,8 @@ Scored against these caps, the corpus passes **0 of 12**. That is the finding, n
 ```sh
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/pr-description/scripts/density.py draft.md --changed-lines 320
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/pr-description/scripts/density.py draft.md --changed-lines 320 --json
-gh pr view 42 --json body -q .body | python3 ${CLAUDE_PLUGIN_ROOT}/skills/pr-description/scripts/density.py --changed-lines 320
+# Read the body with mcp__github__pull_request_read (owner/repo/pullNumber), save it, then score:
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/pr-description/scripts/density.py --changed-lines 320 < /tmp/pr-body.md
 ```
 
 Exit status is 1 while any hard budget is exceeded, so it gates a workflow or a pre-push hook. Omitting `--changed-lines` assumes the normal tier.

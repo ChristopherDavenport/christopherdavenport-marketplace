@@ -52,10 +52,10 @@ Always fetch rather than recall. Prefer these sources:
 
 - Use `gh` CLI, not WebFetch.
 - Default branch is `next`.
-- Source for a jh-ui component: `gh api repos/Banno/jack-henry-design-system/contents/packages/jh-ui/components/{name}` (entries: `{name}.js`, `{name}.mdx`, `{name}.stories.js`).
+- Source for a jh-ui component: `mcp__github__get_file_contents` with `owner: Banno`, `repo: jack-henry-design-system`, `path: packages/jh-ui/components/{name}` (entries: `{name}.js`, `{name}.mdx`, `{name}.stories.js`).
 - Authoritative component API: `https://raw.githubusercontent.com/Banno/jack-henry-design-system/next/packages/jh-ui/custom-elements.json`
 - Theme CSS source: `https://raw.githubusercontent.com/Banno/jack-henry-design-system/next/packages/jh-core/platforms/web/css/jh-theme-light.css` (and `…/jh-theme-dark.css`).
-- Issues: `gh issue list -R Banno/jack-henry-design-system`.
+- Issues: `mcp__github__list_issues` with `owner: Banno`, `repo: jack-henry-design-system`.
 
 If a fetch fails, say so and fall back to the structural information in the relevant reference file rather than guessing.
 

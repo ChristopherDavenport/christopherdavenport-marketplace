@@ -11,7 +11,8 @@ instruct them. What counts is what a reviewer has to read.
 
     python3 density.py < body.md
     python3 density.py body.md --changed-lines 800
-    gh pr view 123 --json body -q .body | python3 density.py --json
+    python3 density.py --json < /tmp/pr-body.md
+    (get the body with mcp__github__pull_request_read and save it first)
 
 Exit status is 1 if any hard budget is exceeded, so it can gate a workflow.
 """
