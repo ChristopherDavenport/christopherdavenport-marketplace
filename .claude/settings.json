@@ -1,0 +1,18 @@
+{
+  "$comment": [
+    "Names the verify command for this repo, which arms the guardrails plugin's",
+    "Stop gate: an agent may not declare itself done on a red build.",
+    "",
+    "The gate is opt-in by design and stays inert until CLAUDE_GUARDRAILS_VERIFY",
+    "is set, because a Stop hook that guesses a verify command would block every",
+    "turn in every repo that hasn't got one. Scoping it here rather than in",
+    "~/.claude/settings.json is the point -- it applies exactly where a real",
+    "verify target exists.",
+    "",
+    "scripts/verify.sh is the local mirror of .github/workflows/checks.yml, so",
+    "the same bar gates an agent, a push, and a PR. ~11s, deterministic, free."
+  ],
+  "env": {
+    "CLAUDE_GUARDRAILS_VERIFY": "./scripts/verify.sh"
+  }
+}
