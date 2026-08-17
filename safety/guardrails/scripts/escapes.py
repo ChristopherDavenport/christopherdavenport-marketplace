@@ -201,8 +201,17 @@ GH_IRREVERSIBLE_SUB = re.compile(
 # some later command in a chain.
 GH_API_METHOD = re.compile(r"\bgh\s+api\b[^|;&]*?(?:-X|--method)[=\s]+([A-Za-z]+)")
 GH_API_DANGER_PATH = re.compile(
-    r"/pulls/\d+/merge|/git/refs/|/actions/secrets/|/releases\b"
+    r"/pulls/\d+/merge|/actions/secrets/|/releases\b"
 )
+# Ref updates are the Data API's push, so the same reversibility test applies
+# rather than a blanket block. Moving a feature branch is how you land work
+# when a clone is not available -- undoable, and the autonomy target. Rewriting
+# history, or writing straight to the default branch and skipping review, is
+# not. `force` here is the API spelling of `git push --force`, which the
+# permission rules already deny in its shell form.
+GH_API_REF = re.compile(r"/git/refs/heads/(\S+?)(?:['\"]|\s|$)")
+GH_API_FORCE = re.compile(r"\bforce\s*[=:]\s*true\b|\"force\"\s*:\s*true")
+GH_DEFAULT_BRANCH = re.compile(r"^(?:main|master|trunk|develop)$")
 
 WRITE_VERB = re.compile(
     r"(?:^|[\s;&|(`])(rm|mv|cp|mkdir|rmdir|touch|ln|install|truncate|dd|chmod|chown|tee|sed)\b"
@@ -311,12 +320,26 @@ def check_always(cmd: str) -> None:
                 f"gh api DELETE is irreversible by definition: {cmd[:200]!r}. "
                 "Run it yourself if it is intended."
             )
-        if method in ("PUT", "POST", "PATCH") and GH_API_DANGER_PATH.search(cmd):
-            emit_deny(
-                f"gh api {method} against a merge/ref/secret/release endpoint: "
-                f"{cmd[:200]!r}. This is the spelling that routes around a "
-                "permissions rule naming the subcommand."
-            )
+        if method in ("PUT", "POST", "PATCH"):
+            if GH_API_DANGER_PATH.search(cmd):
+                emit_deny(
+                    f"gh api {method} against a merge/secret/release endpoint: "
+                    f"{cmd[:200]!r}. This is the spelling that routes around a "
+                    "permissions rule naming the subcommand."
+                )
+            ref = GH_API_REF.search(cmd)
+            if ref:
+                if GH_API_FORCE.search(cmd):
+                    emit_deny(
+                        f"gh api {method} force-updating a ref rewrites history: "
+                        f"{cmd[:200]!r}. This is `git push --force` by another name."
+                    )
+                if GH_DEFAULT_BRANCH.match(ref.group(1)):
+                    emit_deny(
+                        f"gh api {method} writing straight to {ref.group(1)!r}: "
+                        f"{cmd[:200]!r}. That lands work without review. Move a "
+                        "feature branch and open a pull request instead."
+                    )
 
 
 def check_unsandboxed_bash(cmd: str) -> None:
