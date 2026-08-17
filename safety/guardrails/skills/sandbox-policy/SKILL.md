@@ -45,6 +45,12 @@ Defaults you get immediately:
 
 - **Write**: only the working directory, its subdirectories, and the session
   temp directory (`$TMPDIR` is repointed there for sandboxed commands).
+  **`/tmp` itself stays denied, and an `allowWrite` entry for it does not lift
+  that** — measured on 2.1.233, with other `allowWrite` paths in the same
+  policy working normally, so this is `/tmp` being special-cased rather than
+  the list being ignored. Whether the entry is dropped or overridden is not
+  established; either way, write to `$TMPDIR` and never hardcode `/tmp/foo`.
+  A `/tmp` entry in `allowWrite` is dead weight that reads like protection.
 - **Network**: nothing pre-allowed. The first connection to a new domain
   prompts; `allowedDomains` pre-approves.
 - **Read**: **nearly the entire computer.** This is the default people are
