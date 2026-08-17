@@ -15,5 +15,5 @@ a0cf375feba162967e192fa70c0a4ab64b030c941dd84295c048ccdec1a49d81  evals/guardrai
 826832576e257552fd9db4111cf2e8aa1778edc36837a4a9e95c391fe968bc6a  evals/pr-description/run.sh
 fe8a57ccfd8b8866f073fefc7df9ff063c0f58b05e9f09c66d6616e954293e47  .github/workflows/checks.yml
 # assertions -- change often; the question is whether one was weakened
-5585b37c51c25af28e37c533949f909e0524811cb08d4adee522407d63a0aed8  evals/guardrails/cases.json
+6a46f598a14b8c986c7f5ba7cd6d315369f0cc7b1be8ac3f848657006920435d  evals/guardrails/cases.json
 f72a94a008a7cc793d10d68a8094072602ca839c5a13351b1c7fa823115005ef  evals/pr-description/cases.json

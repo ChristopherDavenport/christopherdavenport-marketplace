@@ -137,6 +137,64 @@ def check_outbound(tool: str, tool_input: object) -> None:
             )
 
 
+# --------------------------- irreversible work via the GitHub MCP server
+#
+# The Bash screen below catches `gh pr merge` and friends. That screen stopped
+# covering the fleet the moment the plugins moved off `gh`: `gh` cannot reach
+# the network from a sandboxed session at all (its Go TLS stack needs the macOS
+# trust daemon, which the sandbox blocks), so the same operations now arrive as
+# mcp__github__* tool calls -- which run in Claude Code's own process, outside
+# both the sandbox and the Bash screen.
+#
+# A permission rule can deny a tool by NAME, and `mcp__github__merge_pull_request`
+# is denied that way already. What a permission rule cannot see is an ARGUMENT,
+# and that is where the interesting half lives: `push_files` is exactly the tool
+# you want an agent using on a feature branch, and exactly the one that must not
+# write to `main`. Same tool, opposite verdicts, decided by `branch`.
+#
+# So this mirrors the reversibility test the ref check below already applies --
+# moving a feature branch is the autonomy target; writing straight to the
+# default branch and skipping review is not.
+
+MCP_GH_IRREVERSIBLE = {
+    "mcp__github__merge_pull_request",
+}
+# Tools that commit content. Harmless on a topic branch, unreviewable on main.
+MCP_GH_CONTENT_WRITE = {
+    "mcp__github__push_files",
+    "mcp__github__create_or_update_file",
+    "mcp__github__delete_file",
+}
+
+
+def check_github_mcp(tool: str, tool_input: object) -> None:
+    if tool in MCP_GH_IRREVERSIBLE:
+        emit_deny(
+            f"{tool} is irreversible and reaches other people -- run it yourself. "
+            "This is the MCP spelling of `gh pr merge`, which the Bash screen "
+            "already denies."
+        )
+
+    if tool not in MCP_GH_CONTENT_WRITE:
+        return
+    if not isinstance(tool_input, dict):
+        return
+
+    branch = tool_input.get("branch")
+    # create_or_update_file/delete_file default to the repo's default branch
+    # when `branch` is omitted, so absence is the dangerous case, not a pass.
+    if branch is None:
+        emit_deny(
+            f"{tool} without an explicit `branch` commits to the repository's "
+            "default branch, skipping review. Name a topic branch."
+        )
+    if isinstance(branch, str) and GH_DEFAULT_BRANCH.match(branch.strip()):
+        emit_deny(
+            f"{tool} targeting {branch!r} writes straight to the default branch "
+            "and skips review. Push to a topic branch and open a pull request."
+        )
+
+
 # ------------------------------------- branch 1: unsandboxed Bash execution
 
 FORBIDDEN_CMD = re.compile(
@@ -425,6 +483,8 @@ def main() -> None:
         check_unsandboxed_bash(cmd)
     elif tool == "WebFetch" or tool.startswith("mcp__"):
         check_outbound(tool, ti)
+        if tool.startswith("mcp__github__"):
+            check_github_mcp(tool, ti)
 
     sys.exit(0)
 

@@ -123,6 +123,26 @@ exactly those two gaps and nothing else:
    a four-step-allowed sequence, which is the shape of a rule that gets
    worked around.
 
+4. **Every `mcp__github__*` call, for the same operations.** Branch 3 screens
+   Bash. It stopped covering the fleet the moment the plugins moved off the
+   CLI: the same operations now arrive as MCP tool calls, which run in Claude
+   Code's own process — outside the sandbox *and* outside the Bash screen.
+   That is not a reason to go back to the CLI: `gh` only runs sandboxed at all
+   via an `excludedCommands` entry, which exempts it wholly. MCP needs no
+   exemption, so the sensible move is to screen it here rather than widen the
+   sandbox there.
+
+   A permission rule can deny a tool by **name**, and
+   `mcp__github__merge_pull_request` is denied that way already. What it
+   cannot see is an **argument** — and that is where the interesting half
+   lives. `push_files` is exactly the tool you want an agent using on a topic
+   branch, and exactly the one that must not touch `main`. Same tool, opposite
+   verdicts, decided by `branch`. So `push_files`, `create_or_update_file` and
+   `delete_file` are denied when `branch` names a default branch, and denied
+   when `branch` is **omitted** — absence resolves to the default branch, so
+   absence is the dangerous case rather than a pass. On a topic branch they
+   are allowed, matching the ref rule above.
+
 Set `"allowUnsandboxedCommands": false` and branch 2 can never fire, which is
 the correct end state. It's a backstop for sessions not yet locked down.
 Branch 3 is unaffected by that setting, by design.
