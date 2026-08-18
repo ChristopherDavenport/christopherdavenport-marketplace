@@ -657,6 +657,49 @@ def check_excluded_mix(cmd: str) -> None:
                 continue
             check_target(target, "redirect target in a sandbox-exempt call")
 
+    # The destructive checks branch 1 runs. They were written for
+    # `dangerouslyDisableSandbox`, but an excludedCommands call is unsandboxed
+    # in exactly the same way -- and once `allowUnsandboxedCommands: false` is
+    # set, branch 1 can never fire again, so this is the only place they run.
+    # Without this, turning on strict sandbox mode *removes* the docker-escape
+    # guard rather than tightening it, because the only way docker can run at
+    # all under strict mode is an excludedCommands entry.
+    if DOCKER_ESCAPE.search(cmd):
+        emit_deny(
+            f"unsandboxed docker handing the container the host: {cmd[:200]!r}. "
+            "A bind mount of /, the docker socket, a host namespace or "
+            "--privileged undoes the isolation the sandbox provides. This call "
+            f"is exempt via its {exempt[0].split()[0]!r} segment, so nothing "
+            "below this hook is enforcing anything."
+        )
+
+    # FORBIDDEN_CMD is deliberately NOT run here, though branch 1 runs it.
+    # It matches a bare binary name with whitespace on either side, which is
+    # fine on a command that already declared itself unsandboxed and is rare.
+    # Replayed across 802 real calls touching an excluded command it fired on
+    # `echo "=== ssh reachability under sandbox ==="` -- the word `ssh` inside
+    # a quoted string -- and on a `curl` to an already-allowlisted host. On
+    # this path the population is ordinary work rather than a flagged escape,
+    # so the same regex goes from acceptable to a nuisance, and a nuisance
+    # gets the hook switched off. The precise checks below stay.
+    for seg in others:
+        if PUBLISH_CMD.search(seg):
+            emit_deny(f"unsandboxed publish command blocked: {seg[:120]!r}")
+        if re.search(r"\brm\b.*-[a-zA-Z]*[rf]", seg):
+            try:
+                tokens = shlex.split(seg, comments=False)
+            except ValueError:
+                tokens = seg.split()
+            for t in tokens:
+                if t.startswith("-"):
+                    continue
+                p = resolve(t)
+                if p and (p == ROOT or p in ROOT.parents or p == Path("/")):
+                    emit_deny(
+                        f"rm -rf targeting {p} would destroy the project or its "
+                        "parents, in a call the sandbox is not policing"
+                    )
+
 
 def check_unsandboxed_bash(cmd: str) -> None:
     if FORBIDDEN_CMD.search(cmd):
