@@ -163,6 +163,17 @@
       "description": "~0 tok always-on. Personal RAG over your GitHub history (commits, code, review comments), served to Claude Code over MCP. Provides find_code, find_reviews, predict_review_outcome, house_rules, developer_profile, and related tools."
     },
     {
+      "name": "deep-research",
+      "source": "./workflow/deep-research",
+      "category": "workflow",
+      "homepage": "https://github.com/ChristopherDavenport/christopherdavenport-marketplace/tree/main/workflow/deep-research",
+      "author": {
+        "name": "Chris Davenport",
+        "url": "https://github.com/ChristopherDavenport"
+      },
+      "description": "~0 tok always-on. A multi-source web research workflow that verifies before it reports. Decomposes a question into search angles, fans out parallel searches, deduplicates by URL authority, extracts falsifiable claims from the sources it fetches, then puts every claim to a three-vote adversarial panel that must be refuted twice to be dropped — so what survives into the cited report is what three independent skeptics failed to kill. Ships as a workflow rather than a skill because the verification is a fan-out the model cannot reliably drive by hand. Not a codebase search: it reads the web, and for exploring a repository the built-in Explore agent is the right tool."
+    },
+    {
       "name": "claude-local-telemetry",
       "source": {
         "source": "github",
