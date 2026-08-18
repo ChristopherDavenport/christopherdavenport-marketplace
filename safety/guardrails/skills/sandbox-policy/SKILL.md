@@ -103,12 +103,21 @@ here; it is much less likely to break a build than a blanket `denyRead`.
 
 There is **no built-in credential deny list** — only what you enumerate is
 blocked. `envVars` deny unsets the variable for sandboxed commands; note that
-it therefore breaks tools that need it (`gh`, `npm`). If you need the tool to
+it therefore breaks tools that need it (`npm`, `gh`). If you need the tool to
 keep working, use `mode: "mask"` instead — the command sees a per-session
 sentinel and the sandbox proxy swaps in the real value only for the hosts in
 `injectHosts`. Masking requires `network.tlsTerminate` (the proxy has to see
 request contents to substitute), and is honored only from user, managed, or
 `--settings` scopes — never from a repo's `.claude/settings.json`.
+
+`mask` does **not** rescue `gh` on macOS, and reaching for it there wastes a
+lot of time. gh's problem is not the token — it cannot complete a TLS
+handshake under Seatbelt at all (see the Go-CLI entry under
+[excludedCommands](#how-entries-actually-match--the-part-that-bites)). The
+"invalid token in keyring" message it prints is downstream of that and reads
+like a credential fault. Confirm which one you have before changing anything:
+`curl -o /dev/null -w '%{http_code}' https://api.github.com` returning 200
+while `gh api user` fails means it is the sandbox, not the credential.
 
 Platform caveat: `mask` on a *file* substitutes a sentinel copy on Linux/WSL2,
 but on **macOS it just blocks the file**, same as `deny`.
@@ -155,7 +164,12 @@ you get them wrong:
 
 - **A bare command name matches nothing useful.** `"gh"` does not match
   `gh api user`; you need `"gh *"`. An entry that never fires looks identical
-  to one that works until the command fails.
+  to one that works until the command fails. Measured 2026-08-17: a policy
+  shipped with `excludedCommands: ["gh"]` and was a total no-op for a week —
+  it read as an exemption and exempted nothing.
+  If the bare invocation is also possible (`gh`, `docker`), list **both**
+  forms: `["gh", "gh *"]`. The glob requires the trailing space, so it does
+  not cover the argument-less call.
 - **A flag before the subcommand breaks the prefix.** `"git fetch *"` does not
   match `git -C /path fetch origin`, which is the idiomatic form. List both:
   `"git fetch *"` and `"git -C * fetch *"`. (`*` does span `/`.)
@@ -180,6 +194,21 @@ Known cases that genuinely need `excludedCommands`:
   via `httpProxyPort`, set `network.enableWeakerNetworkIsolation` instead —
   it opens exactly that mach lookup, and its own docs call it a
   data-exfiltration vector.)
+
+  **Excluding it voids the credential rule you wrote for it.** This is the
+  trap, because the tool you most want to exempt is usually the tool you most
+  wanted to constrain. An excluded command runs outside *every* layer, so a
+  `credentials.envVars` deny on `GITHUB_TOKEN` stops applying the moment `gh`
+  lands in `excludedCommands` — and gh prefers `GITHUB_TOKEN` over its
+  keyring, so it picks the variable straight back up. Permission rules are
+  the only layer left, and they match on prefixes, so `cd x && gh pr merge`
+  walks past `Bash(gh pr merge:*)`.
+
+  What actually holds is the credential's own scope: give agent sessions a
+  read-only fine-grained PAT and keep the write-capable one on a profile a
+  human switches to. Capability scoping has no spelling; pattern matching
+  does. Write the reasoning into the settings file — the next reader will
+  otherwise see the deny rules and assume they are the boundary.
 - **git over SSH on macOS** — cannot work at all, for two independent reasons.
   The harness injects `ProxyCommand='nc -X 5 -x localhost:PORT %h %p'`, and
   Apple's `nc` has no SOCKS-auth flag (OpenBSD's `-P` is not exposed), so it
