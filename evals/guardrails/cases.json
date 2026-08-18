@@ -834,6 +834,244 @@
           "message": "x"
         }
       }
+    },
+    {
+      "id": "excluded-mix-env-dump",
+      "expect": "deny",
+      "why": "excludedCommands exempts the WHOLE call, so `env` here prints masked vars",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh --version; env"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-mix-env-dump-gh-last",
+      "expect": "deny",
+      "why": "position is irrelevant -- a match anywhere exempts the call",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "printenv | grep TOKEN; gh --version"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-mix-and-separator",
+      "expect": "deny",
+      "why": "`&&` behaves the same as `;` -- the old card claimed otherwise",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd /tmp && printenv && gh --version"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-mix-token-var",
+      "expect": "deny",
+      "why": "reading a masked credential var in a call that is exempt from masking",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh api user; echo \"$GITHUB_TOKEN\""
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-mix-credential-file",
+      "expect": "deny",
+      "why": "credentials.files blocks are void in an exempt call; ~/.ssh is default-denied",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh --version; cat ~/.ssh/id_rsa"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-mix-write-outside",
+      "expect": "deny",
+      "why": "a write outside the project, in a call the sandbox is not policing",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh --version; echo x > @OUTSIDE@/loot"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "gh-auth-token-prints-credential",
+      "expect": "deny",
+      "why": "gh auth token writes a live credential into the transcript",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh auth token"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "gh-auth-token-compound",
+      "expect": "deny",
+      "why": "the compound spelling a prefix permission rule cannot match",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "echo hi; gh auth token"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "gh-auth-status-show-token",
+      "expect": "deny",
+      "why": "--show-token is a moving flag, so only a hook can catch it",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh auth status --show-token"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-pipe-to-formatter",
+      "expect": "allow",
+      "why": "gh piped into a formatter reads nothing and writes nowhere",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh api repos/o/r --jq .content | base64 -d | head -70"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-multiple-gh-with-echo",
+      "expect": "allow",
+      "why": "several gh calls with echo separators is the normal shape, not an escape",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh api a --jq .x; echo \"===\"; gh api b --jq .y"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-loop-over-gh",
+      "expect": "allow",
+      "why": "a loop body invoking gh is ordinary work",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "for R in a b; do gh api repos/$R --jq .name; done"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-heredoc-body-is-data",
+      "expect": "allow",
+      "why": "prose in a PR body is not shell -- a `>` in it is not a redirect",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh pr create --title t --body-file - <<'BODY'\nsome > prose and $STUFF\nBODY"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-write-inside-project",
+      "expect": "allow",
+      "why": "writing inside the project is fine however the call is sandboxed",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh api x > @PROJECT@/out.json"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-devnull-redirect",
+      "expect": "allow",
+      "why": "/dev/null is not a write worth denying",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh --version >/dev/null 2>&1"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
+    },
+    {
+      "id": "excluded-none-configured",
+      "expect": "allow",
+      "why": "with no exemptions declared (isolated HOME) the branch is inert",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "gh --version; env"
+        }
+      },
+      "env": {
+        "HOME": "@PROJECT@"
+      }
+    },
+    {
+      "id": "env-dump-without-excluded-segment",
+      "expect": "allow",
+      "why": "a sandboxed env dump shows masked values -- the sandbox has it",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "env; cat ~/.ssh/id_rsa"
+        }
+      },
+      "env": {
+        "CLAUDE_GUARDRAILS_EXCLUDED": "gh:gh *"
+      }
     }
   ]
 }

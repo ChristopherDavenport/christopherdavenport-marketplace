@@ -37,6 +37,11 @@ Every unexpected exception routes to deny().
 Configuration (environment):
   CLAUDE_GUARDRAILS_ALLOW  colon-separated extra writable roots for the
                            unsandboxed-Bash branch, e.g. "/tmp:/var/folders".
+  CLAUDE_GUARDRAILS_EXCLUDED
+                           colon-separated sandbox.excludedCommands patterns,
+                           merged with what the settings files declare. Only
+                           needed when the exemption lives somewhere this hook
+                           cannot read, such as managed settings.
   CLAUDE_GUARDRAILS_OFF    "1" disables enforcement. Auditing is a separate
                            hook and keeps running.
 """
@@ -400,6 +405,236 @@ def check_always(cmd: str) -> None:
                     )
 
 
+# ------------------- branch 3: the OTHER escape hatch, excludedCommands
+#
+# `dangerouslyDisableSandbox` is the documented way out of the sandbox and it
+# arrives as a flag on the tool call, so branch 1 can see it. excludedCommands
+# is the undocumented one: it carries no flag, and it exempts far more than it
+# names. Measured on 2.1.233 with ["gh", "gh *"] -- a match on ANY top-level
+# segment runs the WHOLE tool call on the host, in any position, across `;`
+# and `&&`. So `gh --version; env` prints every variable that
+# sandbox.credentials.envVars masks, and no permission rule catches it,
+# because the rule matches the call's prefix and the call opens with `gh`.
+#
+# The obvious rule -- deny any call mixing an excluded segment with other
+# work -- is unusable. Replayed against 96 real gh calls from this machine's
+# telemetry, it denies roughly seven in ten: `gh api ... | base64 -d | head`,
+# `gh api ...; echo ===; gh api ...`, and `for r in ...; do gh api ...; done`
+# are the normal shapes, and none of them are the problem. A hook that fires
+# on 70% of legitimate use is switched off within a day, which is the failure
+# this file's docstring is written against.
+#
+# So this denies on CONSEQUENCE, not on shape: a non-excluded segment that
+# harvests the environment, names a masked credential, or prints the token.
+# A pipe into a formatter reads nothing and writes nowhere, and stays allowed.
+
+ENV_DUMP = re.compile(
+    r"(?:^|[|;&]|\bdo\b|\bthen\b)\s*"
+    r"(?:env|printenv|set|declare\s+-x|export\s+-p)\s*(?:$|[|;&<>])"
+)
+
+# `gh auth token` prints the credential; `--show-token` does it via a flag
+# that moves, which is exactly what a prefix permission rule cannot express.
+TOKEN_PRINT = re.compile(
+    r"\bgh\s+auth\s+(?:token\b|status\b[^;&|]*(?:--show-token|\s-t\b))"
+)
+
+HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def strip_heredocs(cmd: str) -> str:
+    """Remove heredoc bodies before any analysis.
+
+    A heredoc body is data, not commands. Replaying an earlier version of this
+    check over 107 real calls produced exactly one false positive, and it was
+    this: a `gh pr create --body-file - <<'BODY'` whose prose contained a
+    `>` that read as a redirect. Prose in a PR description is not a shell
+    operator, and a guard that denies writing a PR body is a guard someone
+    turns off.
+    """
+    out, pos = [], 0
+    while True:
+        m = HEREDOC_START.search(cmd, pos)
+        if not m:
+            out.append(cmd[pos:])
+            break
+        marker = m.group(2)
+        # Keep the command up to and including the redirection operator, so the
+        # segment still parses; drop the body up to its terminator.
+        out.append(cmd[pos:m.start()])
+        nl = cmd.find("\n", m.end())
+        if nl == -1:
+            break
+        end = re.search(rf"^\s*{re.escape(marker)}\s*$", cmd[nl:], re.M)
+        pos = nl + (end.end() if end else len(cmd[nl:]))
+    return "".join(out)
+
+
+def split_segments(cmd: str) -> list[str]:
+    """Split a command into top-level segments, ignoring separators in quotes.
+
+    Deliberately not a shell parser. It only has to agree with the harness
+    about where one command ends and the next begins; anything it gets wrong
+    falls through to the existing checks rather than opening a hole.
+    """
+    segs: list[str] = []
+    cur: list[str] = []
+    quote, esc = "", False
+    i = 0
+    while i < len(cmd):
+        ch = cmd[i]
+        if esc:
+            cur.append(ch); esc = False; i += 1; continue
+        if ch == "\\":
+            cur.append(ch); esc = True; i += 1; continue
+        if quote:
+            cur.append(ch)
+            if ch == quote:
+                quote = ""
+            i += 1
+            continue
+        if ch in "'\"":
+            quote = ch; cur.append(ch); i += 1; continue
+        if cmd.startswith("&&", i) or cmd.startswith("||", i):
+            segs.append("".join(cur)); cur = []; i += 2; continue
+        if ch in ";|\n":
+            segs.append("".join(cur)); cur = []; i += 1; continue
+        cur.append(ch); i += 1
+    segs.append("".join(cur))
+    return [s.strip() for s in segs if s.strip()]
+
+
+def _settings_paths() -> list[Path]:
+    root = ROOT
+    return [
+        Path(os.path.expanduser("~/.claude/settings.json")),
+        root / ".claude" / "settings.json",
+        root / ".claude" / "settings.local.json",
+    ]
+
+
+def sandbox_config() -> tuple[list[str], list[str], list[str]]:
+    """Merged excludedCommands, masked env-var names and credential files.
+
+    Arrays merge across every settings scope, so read them all. A failure to
+    read is not a failure to guard: an unreadable settings file means we do
+    not know what is exempt, and the caller treats that as "assume nothing is"
+    rather than "assume everything is".
+    """
+    excluded: list[str] = []
+    masked: list[str] = []
+    files: list[str] = []
+
+    # Env override, colon-separated, in the same idiom as
+    # CLAUDE_GUARDRAILS_ALLOW. Two reasons it exists rather than always
+    # reading settings: the eval suite needs a deterministic exemption list
+    # that does not depend on whose laptop it runs on -- without it these
+    # cases pass locally and silently no-op in CI, where ~/.claude has no
+    # settings and the check returns early -- and a user with an exemption
+    # declared in managed settings this hook cannot read can still name it.
+    override = os.environ.get("CLAUDE_GUARDRAILS_EXCLUDED", "")
+    if override.strip():
+        excluded.extend(e.strip() for e in override.split(":") if e.strip())
+
+    for p in _settings_paths():
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        sb = data.get("sandbox") or {}
+        for e in sb.get("excludedCommands") or []:
+            if isinstance(e, str):
+                excluded.append(e)
+        creds = sb.get("credentials") or {}
+        for entry in creds.get("envVars") or []:
+            name = (entry or {}).get("name")
+            if isinstance(name, str) and (entry or {}).get("mode") in ("deny", "mask"):
+                masked.append(name)
+        for entry in creds.get("files") or []:
+            path = (entry or {}).get("path")
+            if isinstance(path, str):
+                files.append(path)
+    # ~/.ssh is denied by default rather than by configuration, so it never
+    # appears in credentials.files and would otherwise be the one credential
+    # path this check misses.
+    files.append("~/.ssh")
+    return excluded, masked, files
+
+
+def segment_excluded(seg: str, patterns: list[str]) -> bool:
+    """Prefix-glob match, the way excludedCommands matches within a segment."""
+    import fnmatch
+    for pat in patterns:
+        if seg == pat or fnmatch.fnmatchcase(seg, pat if "*" in pat else pat):
+            return True
+        if pat.endswith(" *") and seg.startswith(pat[:-1]):
+            return True
+    return False
+
+
+def check_excluded_mix(cmd: str) -> None:
+    excluded, masked, cred_files = sandbox_config()
+    if not excluded:
+        return
+
+    cmd = strip_heredocs(cmd)
+    segments = split_segments(cmd)
+    exempt = [s for s in segments if segment_excluded(s, excluded)]
+    if not exempt:
+        return
+
+    # From here the whole call is running on the host, whatever it looks like.
+    others = [s for s in segments if s not in exempt]
+
+    if TOKEN_PRINT.search(cmd):
+        emit_deny(
+            "this call prints an authentication token, and because it contains "
+            f"an excludedCommands segment ({exempt[0].split()[0]!r}) the whole "
+            "call runs outside the sandbox with the real credential in scope. "
+            "The token would land in the transcript. Use the credential "
+            "without printing it."
+        )
+
+    for seg in others:
+        if ENV_DUMP.search(seg):
+            emit_deny(
+                f"{seg[:80]!r} dumps the environment, and this call is exempt "
+                f"from the sandbox because of its {exempt[0].split()[0]!r} "
+                "segment -- so credentials.envVars masking does not apply and "
+                "real secrets would be printed. Split the commands into "
+                "separate tool calls; the one without the excluded command "
+                "runs sandboxed and shows masked values."
+            )
+        for name in masked:
+            if re.search(r"\$\{?" + re.escape(name) + r"\b", seg):
+                emit_deny(
+                    f"{seg[:80]!r} reads ${name}, which sandbox.credentials "
+                    "masks -- but this call is exempt from the sandbox because "
+                    f"of its {exempt[0].split()[0]!r} segment, so the real "
+                    "value is present. Run it as its own tool call."
+                )
+        for cf in cred_files:
+            stem = os.path.expanduser(cf).rstrip("/")
+            short = cf.rstrip("/")
+            if stem in seg or short in seg:
+                emit_deny(
+                    f"{seg[:80]!r} reads {short}, a path sandbox.credentials "
+                    "blocks -- but the block does not apply here, because this "
+                    f"call is exempt via its {exempt[0].split()[0]!r} segment. "
+                    "Run it as its own tool call and the deny takes effect."
+                )
+
+    # Writes outside the allowed roots are already understood by check_target;
+    # they simply were not reachable here before, because this call never set
+    # dangerouslyDisableSandbox and so never entered branch 1.
+    for seg in others:
+        for m in REDIRECT.finditer(seg):
+            target = m.group(1)
+            if target.startswith("&") or target in ("/dev/null", "/dev/stderr", "/dev/stdout"):
+                continue
+            check_target(target, "redirect target in a sandbox-exempt call")
+
+
 def check_unsandboxed_bash(cmd: str) -> None:
     if FORBIDDEN_CMD.search(cmd):
         emit_deny(
@@ -475,6 +710,10 @@ def main() -> None:
         # excludedCommands binary carries no flag, and a sandboxed command can
         # still reach every allowed host, so neither is covered below.
         check_always(cmd)
+
+        # Then the second escape hatch, which carries no flag: a call is also
+        # unsandboxed if any of its segments matches sandbox.excludedCommands.
+        check_excluded_mix(cmd)
 
         # Then the sandbox-escape checks proper: an ordinary sandboxed call is
         # the OS's problem, not ours. Only inspect the ones that opted out.
