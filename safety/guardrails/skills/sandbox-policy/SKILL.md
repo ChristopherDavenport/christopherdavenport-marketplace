@@ -72,6 +72,37 @@ Defaults you get immediately:
   included. So `git clone` into the workspace just works with no exemption,
   and the clone it produces is **not** protected the way an in-project repo is.
 
+  **The `.git/config` deny breaks branch creation, and does it half-way.**
+  Creating a branch from a remote-tracking ref writes `branch.<name>.remote`
+  and `.merge`, so inside a project dir it fails on `could not lock config
+  file .git/config`. Measured on 2.1.233:
+
+  | command | |
+  |---|---|
+  | `git checkout -b X origin/main` | fails |
+  | `git switch -c X origin/main` | fails |
+  | `git branch X origin/main` | fails |
+  | `git worktree add -b X <path> origin/main` | fails |
+  | the same four with `--no-track` | work |
+  | `git worktree add --detach <path> origin/main` | works |
+
+  Worktrees do **not** avoid this — `worktree add -b` writes tracking config
+  into the main repo's `.git/config` like everything else. Use them for
+  parallel isolation, not as a fix for this.
+
+  What makes it cost time is that the failure is partial: the branch ref is
+  written *before* the config write fails, so the branch exists, HEAD does
+  not move, and the retry reports "already exists". It can also leave the
+  index and working tree half-switched. Two independent agents hit this on
+  the same machine within a day.
+
+  Use `--no-track`, then `git push -u` to set the upstream — push is normally
+  in `excludedCommands`, so it runs unsandboxed and can write the config.
+  Never chain a stash behind the checkout (`git stash && git checkout -b … &&
+  git stash pop`): the failing checkout short-circuits the `&&`, the pop never
+  runs, and the tree looks empty while the work sits in the stash. After any
+  branch-creation failure, check `git branch --show-current` before retrying.
+
 ## Close the read gap
 
 The default read policy is the biggest hole in a bare `enabled: true`. Two
