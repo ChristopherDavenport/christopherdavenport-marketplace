@@ -167,8 +167,8 @@
       "source": {
         "source": "github",
         "repo": "ChristopherDavenport/claude-local-telemetry",
-        "ref": "v0.2.1",
-        "sha": "77697897aed679b49be2a12c988c452d19992b21"
+        "ref": "v0.3.0",
+        "sha": "b2450138c97cc3b071cda8f6186c34a5b99a5067"
       },
       "category": "observability",
       "homepage": "https://github.com/ChristopherDavenport/claude-local-telemetry",
