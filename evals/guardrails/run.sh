@@ -67,7 +67,29 @@ for i in $(seq 0 $((n - 1))); do
     ".cases[$i].payload // empty | if type==\"object\" then . + {cwd:\$c} else . end" \
     "$CASES" | sed "s|@PROJECT@|$PROJECT|g; s|@OUTSIDE@|$OUTSIDE|g")
 
-  out=$(printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$PROJECT" python3 "$HOOK" 2>&1)
+  # Optional per-case env. Needed for anything whose behaviour depends on
+  # policy the hook reads from settings -- without it the case would assert
+  # against whatever the developer happens to have in ~/.claude, pass locally,
+  # and no-op in CI. Rendered as KEY=VALUE lines and applied with `env`.
+  # `mapfile` is bash 4+ and macOS ships 3.2, where it is not a builtin and
+  # not an error either -- the array just stays unset and `set -u` then kills
+  # the run on expansion. Same family as the `mktemp -t` note above. Read the
+  # lines instead, and guard the empty case, which `set -u` also rejects.
+  caseenv=()
+  while IFS= read -r kv; do
+    [ -n "$kv" ] && caseenv[${#caseenv[@]}]="$kv"
+  done < <(jq -r ".cases[$i].env // {} | to_entries[] | \"\(.key)=\(.value)\"" "$CASES" \
+    | sed "s|@PROJECT@|$PROJECT|g; s|@OUTSIDE@|$OUTSIDE|g")
+
+  # HOME points at the temp workspace so the suite is hermetic. escapes.py
+  # reads ~/.claude/settings.json for the sandbox policy, so without this the
+  # cases assert against whoever's laptop is running them: a case can pass
+  # locally, where GITHUB_TOKEN happens to be in credentials.envVars, and
+  # allow on a runner where no settings file exists. That is not hypothetical
+  # -- it is how excluded-mix-token-var reached CI green-on-my-machine.
+  # A case that needs policy present declares it in `env`.
+  out=$(printf '%s' "$payload" | env HOME="$SANDBOX" CLAUDE_PROJECT_DIR="$PROJECT" \
+    ${caseenv[@]+"${caseenv[@]}"} python3 "$HOOK" 2>&1)
   rc=$?
 
   ok=0
