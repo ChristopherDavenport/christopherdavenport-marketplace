@@ -439,6 +439,25 @@ TOKEN_PRINT = re.compile(
     r"\bgh\s+auth\s+(?:token\b|status\b[^;&|]*(?:--show-token|\s-t\b))"
 )
 
+# Names worth denying in an exempt call whether or not anyone enumerated them.
+# The sandbox has no built-in credential list -- it masks exactly what you name
+# in credentials.envVars and nothing else -- so a check that only knew the
+# configured names would be silent on precisely the machine that forgot to
+# configure one. It also made the CI failure that produced this list: the case
+# asserting `gh api user; echo "$GITHUB_TOKEN"` passed locally, where
+# GITHUB_TOKEN is masked in settings, and allowed on a runner where no settings
+# file exists. Reading one of these in a call that is exempt from masking is
+# the thing being guarded, not the fact that someone wrote it down.
+WELL_KNOWN_SECRET_VARS = [
+    "GITHUB_TOKEN", "GH_TOKEN", "GITHUB_PAT",
+    "NPM_TOKEN", "NODE_AUTH_TOKEN",
+    "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "SLACK_TOKEN", "SLACK_BOT_TOKEN",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "VAULT_TOKEN", "DOCKER_PASSWORD", "ARTIFACTORY_TOKEN",
+]
+
 HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
@@ -522,7 +541,7 @@ def sandbox_config() -> tuple[list[str], list[str], list[str]]:
     rather than "assume everything is".
     """
     excluded: list[str] = []
-    masked: list[str] = []
+    masked: list[str] = list(WELL_KNOWN_SECRET_VARS)
     files: list[str] = []
 
     # Env override, colon-separated, in the same idiom as
@@ -576,6 +595,7 @@ def check_excluded_mix(cmd: str) -> None:
     excluded, masked, cred_files = sandbox_config()
     if not excluded:
         return
+    configured_masked = set(masked) - set(WELL_KNOWN_SECRET_VARS)
 
     cmd = strip_heredocs(cmd)
     segments = split_segments(cmd)
@@ -607,11 +627,14 @@ def check_excluded_mix(cmd: str) -> None:
             )
         for name in masked:
             if re.search(r"\$\{?" + re.escape(name) + r"\b", seg):
+                why = ("which sandbox.credentials masks"
+                       if name in configured_masked
+                       else "a well-known credential variable")
                 emit_deny(
-                    f"{seg[:80]!r} reads ${name}, which sandbox.credentials "
-                    "masks -- but this call is exempt from the sandbox because "
-                    f"of its {exempt[0].split()[0]!r} segment, so the real "
-                    "value is present. Run it as its own tool call."
+                    f"{seg[:80]!r} reads ${name}, {why} -- but this call is "
+                    "exempt from the sandbox because of its "
+                    f"{exempt[0].split()[0]!r} segment, so the real value is "
+                    "present. Run it as its own tool call."
                 )
         for cf in cred_files:
             stem = os.path.expanduser(cf).rstrip("/")

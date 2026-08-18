@@ -81,7 +81,14 @@ for i in $(seq 0 $((n - 1))); do
   done < <(jq -r ".cases[$i].env // {} | to_entries[] | \"\(.key)=\(.value)\"" "$CASES" \
     | sed "s|@PROJECT@|$PROJECT|g; s|@OUTSIDE@|$OUTSIDE|g")
 
-  out=$(printf '%s' "$payload" | env CLAUDE_PROJECT_DIR="$PROJECT" \
+  # HOME points at the temp workspace so the suite is hermetic. escapes.py
+  # reads ~/.claude/settings.json for the sandbox policy, so without this the
+  # cases assert against whoever's laptop is running them: a case can pass
+  # locally, where GITHUB_TOKEN happens to be in credentials.envVars, and
+  # allow on a runner where no settings file exists. That is not hypothetical
+  # -- it is how excluded-mix-token-var reached CI green-on-my-machine.
+  # A case that needs policy present declares it in `env`.
+  out=$(printf '%s' "$payload" | env HOME="$SANDBOX" CLAUDE_PROJECT_DIR="$PROJECT" \
     ${caseenv[@]+"${caseenv[@]}"} python3 "$HOOK" 2>&1)
   rc=$?
 

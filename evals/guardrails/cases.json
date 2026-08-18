@@ -1048,15 +1048,12 @@
     {
       "id": "excluded-none-configured",
       "expect": "allow",
-      "why": "with no exemptions declared (isolated HOME) the branch is inert",
+      "why": "with no exemptions declared the branch is inert",
       "payload": {
         "tool_name": "Bash",
         "tool_input": {
           "command": "gh --version; env"
         }
-      },
-      "env": {
-        "HOME": "@PROJECT@"
       }
     },
     {
