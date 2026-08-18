@@ -158,9 +158,49 @@ policy keep that list short and specific.
 
 ### How entries actually match — the part that bites
 
-An entry is a **prefix glob over the Bash tool call as a whole**, not a lookup
-on the binary. Three consequences, all measured on 2.1.233 and all silent when
-you get them wrong:
+There are two rules and they operate at different levels. Getting either wrong
+is silent, and the second one is a containment hole rather than an
+inconvenience.
+
+**Within a segment, an entry is a prefix glob** — not a lookup on the binary.
+
+**Across the call, any single matching segment exempts the entire tool call.**
+Measured on 2.1.233 with `excludedCommands: ["gh", "gh *"]`, checking whether
+`GITHUB_TOKEN` was masked and whether a write outside `allowWrite` succeeded:
+
+| Tool call | Result |
+|---|---|
+| no `gh` anywhere | sandboxed |
+| `gh --version; <anything>` | **entire call unsandboxed** |
+| `<anything>; gh --version` | **entire call unsandboxed** |
+| `cd /tmp && <anything> && gh --version` | **entire call unsandboxed** |
+| `<anything>; curl --version` (not excluded) | sandboxed |
+| `<anything>; echo "gh api something"` | sandboxed |
+| `<anything>; bash -c 'gh --version'` | sandboxed |
+
+So the matcher is segment-aware — it does not fire on the string appearing
+inside a quoted argument, and it does not look inside a `bash -c` body — but
+position is irrelevant and the exemption is call-wide. `;` and `&&` behave
+identically.
+
+**This is the arbitrary-code-execution hole, reachable without a wildcard.**
+Prepend or append anything to an excluded command and the whole call runs on
+the host with the real environment: `gh --version; env` prints every
+credential that `credentials.envVars` was masking. No permission rule can
+catch it, because the rule matches the call's own prefix and the call begins
+with something innocuous.
+
+Consequences for how you write the list:
+
+- Read each entry as *"any tool call containing this command is unsandboxed"*,
+  not *"this command is unsandboxed"*. That is a much bigger grant, and it is
+  the sentence to put in front of whoever approves the policy.
+- Keep the list as small as the build allows, and prefer `allowWrite`.
+- Shape callers so an excluded command is **the only thing** in its tool call.
+  A hook is the only layer that can enforce that; see the mixed-call check in
+  the plugin's `escapes.py`.
+
+Three more consequences of the prefix rule itself, all measured and all silent:
 
 - **A bare command name matches nothing useful.** `"gh"` does not match
   `gh api user`; you need `"gh *"`. An entry that never fires looks identical
@@ -173,15 +213,18 @@ you get them wrong:
 - **A flag before the subcommand breaks the prefix.** `"git fetch *"` does not
   match `git -C /path fetch origin`, which is the idiomatic form. List both:
   `"git fetch *"` and `"git -C * fetch *"`. (`*` does span `/`.)
-- **Compound and scripted forms never match.** `cd x && git fetch`,
-  `( cd x && … )`, a loop body, or anything inside `bash script.sh` runs
-  sandboxed, because the tool call starts with something else.
+- **Scripted forms never match.** Anything inside `bash script.sh` or
+  `bash -c '…'` runs sandboxed, because the matcher does not parse the script
+  body. Compound forms *do* match, in any position — see the table above.
+  That is the one place an earlier version of this card was wrong: it claimed
+  `cd x && git fetch` stays sandboxed. It does not; the whole call is exempt.
 
-Do **not** fix that last one with a leading wildcard. `"*git fetch*"` matches
-any command *containing* the substring, so appending `&& git fetch` to
-anything exempts the entire call from the sandbox — an arbitrary-code-execution
-hole, and the reason prefix-only matching is worth keeping. Reshape the callers
-so each network command is its own tool call instead.
+Do **not** try to widen the reach with a leading wildcard. `"*git fetch*"`
+matches any command *containing* the substring, including inside a quoted
+argument, so `echo "git fetch"` would exempt the call. Segment matching
+already gives more reach than is comfortable; a substring match on top of it
+removes the last thing standing between an agent and an unsandboxed shell.
+Reshape the callers so each network command is its own tool call instead.
 
 Known cases that genuinely need `excludedCommands`:
 

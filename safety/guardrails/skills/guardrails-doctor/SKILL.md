@@ -40,12 +40,18 @@ Check for, and report each:
   Then check each entry two ways, because both failures are silent and they
   point in opposite directions:
 
-  1. **Does it match anything?** Entries are prefix globs over the whole Bash
-     call. `"gh"` does not match `gh api user`, and `"git fetch *"` does not
-     match `git -C /path fetch origin`. An entry that never fires reads as an
+  1. **Does it match anything?** Within a segment the entry is a prefix glob:
+     `"gh"` does not match `gh api user`, and `"git fetch *"` does not match
+     `git -C /path fetch origin`. An entry that never fires reads as an
      exemption and grants nothing — the symptom is the tool failing, never
      the policy looking wrong. Ask what the real invocations look like and
      compare them to the entries character by character.
+  1a. **How much does it exempt?** Far more than it looks. A match on **any**
+     segment exempts the **entire** tool call, in any position, across `;`
+     and `&&`. So one entry means "any tool call containing this command runs
+     unsandboxed" — `gh --version; env` prints every variable
+     `credentials.envVars` was masking. Report each entry that way, in those
+     words, rather than as the command name alone.
   2. **What did excluding it give up?** An excluded command escapes *every*
      layer, including `credentials`. If `gh` is excluded, the
      `GITHUB_TOKEN` deny no longer applies to it and gh prefers that variable
