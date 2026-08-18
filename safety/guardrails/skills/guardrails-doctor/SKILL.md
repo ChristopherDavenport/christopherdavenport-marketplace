@@ -36,6 +36,30 @@ Check for, and report each:
   failed command outside the sandbox with `dangerouslyDisableSandbox`.
 - **`excludedCommands`.** Each entry runs with no isolation. List them; a
   long list means the sandbox covers less than it appears to.
+
+  Then check each entry two ways, because both failures are silent and they
+  point in opposite directions:
+
+  1. **Does it match anything?** Within a segment the entry is a prefix glob:
+     `"gh"` does not match `gh api user`, and `"git fetch *"` does not match
+     `git -C /path fetch origin`. An entry that never fires reads as an
+     exemption and grants nothing — the symptom is the tool failing, never
+     the policy looking wrong. Ask what the real invocations look like and
+     compare them to the entries character by character.
+  1a. **How much does it exempt?** Far more than it looks. A match on **any**
+     segment exempts the **entire** tool call, in any position, across `;`
+     and `&&`. So one entry means "any tool call containing this command runs
+     unsandboxed" — `gh --version; env` prints every variable
+     `credentials.envVars` was masking. Report each entry that way, in those
+     words, rather than as the command name alone.
+  2. **What did excluding it give up?** An excluded command escapes *every*
+     layer, including `credentials`. If `gh` is excluded, the
+     `GITHUB_TOKEN` deny no longer applies to it and gh prefers that variable
+     over its keyring; if `docker` is excluded, so is the socket policy.
+     Report the specific credential rule each exclusion voids, and what
+     scope-limited credential could replace it. This is the finding people
+     miss, because the exemption and the credential rule usually live ten
+     lines apart in the same file and look like they compose.
 - **`filesystem.disabled`.** If true, there is no filesystem isolation at all,
   and a sandboxed command can widen its own access on the next run.
 - **Read policy.** The default is *the entire computer readable*. Unless you
@@ -77,6 +101,41 @@ Note that `escapes.py` is deliberately quiet in normal use: it only inspects
 Bash calls that set `dangerouslyDisableSandbox`, plus `WebFetch` and MCP
 payloads. Absence of denials is expected and is not evidence it is loaded —
 the audit log is the evidence.
+
+### Firing is not the same as succeeding
+
+A hook that *runs and errors* is a separate failure from one that never runs,
+and it is the more dangerous of the two: per the hooks contract, any exit
+that is not `2` is a **non-blocking error**, so the guarded tool call
+proceeds. The session looks completely normal. The audit log check above will
+not catch it — the hook fired, it just did not work.
+
+`escapes.py` routes every exception to `deny()` for exactly this reason, but
+that contract only holds **once the interpreter is running**. It cannot cover
+a hook that fails to start: a lost execute bit, a missing interpreter on a
+different machine, or the plugin directory being swapped underneath a running
+session by an auto-update. Those all present identically — one hook of two,
+non-blocking, tens of milliseconds, no output.
+
+You cannot see this from the filesystem. It needs the hook telemetry:
+
+```sh
+echo "${CLAUDE_CODE_ENABLE_TELEMETRY:-<unset — hook errors are invisible>}"
+```
+
+With the OTel sink running, `hook_execution_complete` carries the counts. Any
+non-zero error total is a guard that silently did not apply, so report the
+count and the window, not a pass/fail:
+
+```sql
+SELECT ts, hook_name, num_hooks, num_success, num_errors, duration_ms
+FROM hook_runs WHERE num_errors > 0 ORDER BY ts;
+```
+
+A tight burst across several sessions points at a plugin update rather than a
+code fault — check whether the installed version changed in that window.
+Without telemetry, say plainly in the report that this layer is unverifiable
+rather than marking it green.
 
 ## 3. What is covered outside the sandbox?
 
