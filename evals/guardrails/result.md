@@ -1,7 +1,7 @@
 # guardrails — assertion eval
 
-**40/40 hook cases** (24 deny, 16 allow), **46/46 template checks** across
-4 templates, **14/14 plugin manifests loadable**, and **3/3 hooks runnable**.
+**91/91 hook cases** (52 deny, 39 allow), **46/46 template checks** across
+4 templates, **15/15 plugin manifests loadable**, and **3/3 hooks runnable**.
 Mutation check passes.
 
 Deterministic and free: crafted `PreToolUse` payloads in, exit codes out, plus
@@ -12,7 +12,13 @@ rather than on a funded sweep.
 ```
 ./evals/guardrails/run.sh              # the suite
 ./evals/guardrails/run.sh --mutate     # prove the suite can fail
+./evals/guardrails/replay.py           # backtest against recorded audit data
 ```
+
+> These counts are regenerated from the suite rather than written by hand. An
+> earlier revision of this file reported 40 cases while `cases.json` held 91 —
+> a published result that undercounts its own suite invites exactly the wrong
+> question about what else is stale.
 
 ## What is under test
 
@@ -45,7 +51,7 @@ still reads as responsible.
 ### The allow cases carry as much weight as the deny cases
 
 A hook that blocks everything passes every deny test and also blocks the build.
-That is the whole reason 16 of the 40 assert `0`.
+That is the whole reason 39 of the 91 assert `0`.
 
 Three of them are load-bearing beyond that:
 
@@ -139,6 +145,43 @@ travel to a clone or an install), and execs cleanly when run directly the way
 the harness runs it. Verified in both directions — reverting one mode bit drops
 the run to 2/3 and names the file.
 
+## Replay: the non-synthetic tier
+
+`replay.py` feeds every call recorded by `audit.sh` back through the current
+hook and reports what it would decide now. It exists because the suite above,
+however green, cannot produce the number that decides whether a guard survives
+contact with users: **the false-positive rate on real traffic.** Its allow cases
+were written by whoever wrote the deny rules, and nobody writes an allow case
+for the idiom they did not think of.
+
+Two things it surfaces that the assertion suite structurally cannot:
+
+- **Denials on commands that really ran, and were fine.** Each one is either a
+  rule to narrow or an allow case to add to `cases.json`. Observed categories
+  worth triaging on any real corpus: redirects to a temp path outside the
+  project, publishes to an internal registry, and commands whose quoting the
+  resolver refuses to guess at (correct fail-closed behaviour, still a blocked
+  legitimate command).
+- **Whether a branch is exercised at all.** A guard on rare operations can sit
+  at zero real hits indefinitely. The MCP argument-inspection branch is a
+  standing example — a corpus can contain hundreds of MCP calls and *no*
+  attempt against a guarded tool, which means that branch is covered by its 19
+  synthetic cases and nothing else. Worth knowing before calling it tested.
+
+It is a reporting tool, not a gate: real traffic changes between runs, so a hard
+threshold would fail for reasons unrelated to the hook. `--fail-over N` is there
+for CI if a ceiling is wanted anyway, and `--json` for trend collection.
+
+Deny verdicts now land in the same audit log as the attempts (see
+`escapes.py::_audit_deny`), so the log is self-sufficient — attempts from
+`audit.sh`, verdicts from the hook that made them, joinable on
+`(session, ts, tool)`. Before that, the log recorded only what was *tried*, and
+answering "did the guard fire?" meant correlating with a separate telemetry
+store whose decision column is mostly null.
+
+Replay runs with `CLAUDE_GUARDRAILS_AUDIT_OFF=1` forced, so a dry run never
+writes verdict records back into the corpus it is reading.
+
 ## Not covered
 
 Stated rather than implied, because an eval's silence reads as coverage:
@@ -147,6 +190,11 @@ Stated rather than implied, because an eval's silence reads as coverage:
   asserted to be *runnable*, which is what was actually broken, but nothing
   checks that the audit log contains the right fields or that the Stop gate
   blocks on a red build. Both were exercised by hand.
+- **Replay depends on a corpus.** On a fresh install there is nothing to replay,
+  and the tier reports nothing rather than passing. It also cannot see calls the
+  audit hook never recorded — and hooks are only honoured in a *trusted* project
+  directory, so a fresh worktree silently contributes neither audit records nor
+  enforcement.
 - **The skills' prose** is not scored. `sandbox-policy`, `/guardrails-setup`,
   and `/guardrails-doctor` are judge-shaped work that has not been run — only
   the templates they ship are asserted.
