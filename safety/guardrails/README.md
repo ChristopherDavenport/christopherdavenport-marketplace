@@ -18,7 +18,7 @@ loaded, and covering the specific things the sandbox does not see.
 | `/guardrails-setup` | skill | Inspects the repo to learn what its build needs, proposes a minimal policy, writes it to the right scope, verifies it loaded |
 | `/guardrails-doctor` | skill | Reports what is **enforced**, not what is configured — sandbox state, whether hooks are firing, what's uncovered |
 | `escapes.py` | `PreToolUse` hook | Guards the two paths that leave the sandbox. **Fails closed** |
-| `audit.sh` | `PreToolUse` hook | Appends every tool call to JSONL. Never blocks, never crashes |
+| `audit.sh` | `PreToolUse` hook | Appends every tool call to JSONL. Never blocks, never crashes. `escapes.py` appends its deny verdicts to the same file, so the log carries attempts *and* outcomes |
 | `verify-gate.sh` | `Stop` hook | Refuses to let an agent finish on a red build. Inert until configured |
 
 ## Install
@@ -227,7 +227,7 @@ have been dropped; the files are only inputs to it.
 `evals/guardrails/run.sh` — deterministic and free (no model, no tokens), so it
 runs on every change rather than on a funded sweep. Two parts:
 
-- **40 hook cases.** The allow cases carry as much weight as the deny ones: a
+- **91 hook cases.** The allow cases carry as much weight as the deny ones: a
   hook that blocks everything passes every deny test and also blocks the build.
   The sandboxed-Bash allow cases matter most, since this hook's premise is that
   it stays out of the way.
@@ -240,3 +240,30 @@ runs on every change rather than on a funded sweep. Two parts:
 suite goes red, because a guardrail suite that cannot fail is not testing
 anything — and that failure is invisible, since a green run looks the same
 whether the hook works or is absent.
+
+### Replay — the non-synthetic tier
+
+`evals/guardrails/replay.py` feeds every call `audit.sh` recorded back through
+the current hook and reports what it would decide now.
+
+The suite above proves the hook still denies what it was written to deny. It
+cannot produce the number that actually decides whether a guard survives contact
+with users — **the false-positive rate on real traffic** — because its allow
+cases were written by whoever wrote the deny rules, and nobody writes an allow
+case for the idiom they did not think of. Replay finds the denials on commands
+that really ran and were fine; each is a rule to narrow or an allow case to add.
+
+It also shows which branches real traffic never reaches. A guard on rare
+operations can sit at zero hits indefinitely, which is worth knowing before
+describing it as tested.
+
+```sh
+python3 evals/guardrails/replay.py                # all recorded days
+python3 evals/guardrails/replay.py --since 2026-01-01
+python3 evals/guardrails/replay.py --json         # for trend collection
+python3 evals/guardrails/replay.py --fail-over 50 # CI ceiling, if wanted
+```
+
+Reporting tool, not a gate — real traffic changes between runs. Replay forces
+`CLAUDE_GUARDRAILS_AUDIT_OFF=1`, so a dry run never writes verdicts back into
+the corpus it is reading.

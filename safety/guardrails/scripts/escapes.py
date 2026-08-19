@@ -44,10 +44,17 @@ Configuration (environment):
                            cannot read, such as managed settings.
   CLAUDE_GUARDRAILS_OFF    "1" disables enforcement. Auditing is a separate
                            hook and keeps running.
+  CLAUDE_GUARDRAILS_AUDIT_OFF
+                           "1" also suppresses the deny record this hook writes
+                           to the audit log.
+  CLAUDE_GUARDRAILS_AUDIT_DIR
+                           where that record goes. Must match audit.sh, since
+                           the two write to the same file.
 """
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -55,6 +62,7 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 CWD = os.getcwd()
 
@@ -81,7 +89,57 @@ def _load_extra() -> list[Path]:
 
 # ---------------------------------------------------------------- deny/emit
 
-def emit_deny(reason: str) -> None:
+# audit.sh records every call as an *attempt*: it is a PreToolUse observer, so
+# it fires whether or not anything later blocks the call, and its record has no
+# verdict field. That leaves the audit log unable to answer the one question it
+# looks like it should -- "did the guard fire?" -- and pushes anyone auditing a
+# policy onto a separate telemetry store to find out.
+#
+# The hook that denies is the one that knows. So write the verdict here, into
+# the same file audit.sh uses, and the log becomes self-sufficient: attempts
+# from audit.sh, verdicts from this hook, joinable on (session, ts, tool).
+#
+# Deliberately NOT recorded: tool_input. audit.sh already logged it for this
+# call, so repeating it is redundant -- and on the credential-shape branch the
+# input is the secret. `reason` is safe by construction: emit_deny() callers
+# name the shape and never the matched text.
+
+# Set once in main(). Module state rather than a parameter on every emit_deny()
+# call: there are ~30 call sites and threading two arguments through all of them
+# would bury the change that matters in noise.
+CURRENT_TOOL = ""
+CURRENT_SESSION: str | None = None
+
+
+def _audit_deny(reason: str) -> None:
+    """Append the verdict to the audit log. Never raises, never blocks."""
+    if os.environ.get("CLAUDE_GUARDRAILS_AUDIT_OFF") == "1":
+        return
+    try:
+        base = os.environ.get("CLAUDE_GUARDRAILS_AUDIT_DIR") or os.environ.get(
+            "CLAUDE_PLUGIN_DATA"
+        ) or os.path.expanduser("~/.claude/guardrails")
+        out = Path(base) / "audit"
+        out.mkdir(parents=True, exist_ok=True)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        rec = {
+            "ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "session": CURRENT_SESSION,
+            "cwd": CWD,
+            "tool": CURRENT_TOOL,
+            "decision": "deny",
+            "source": "guardrails/escapes.py",
+            "reason": reason,
+        }
+        with (out / f"{now.strftime('%Y-%m-%d')}.jsonl").open("a") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        # An unwritable audit log must never convert a deny into anything else.
+        pass
+
+
+def emit_deny(reason: str) -> NoReturn:
+    _audit_deny(reason)
     payload = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -757,7 +815,7 @@ def main() -> None:
 
     data = json.loads(raw)
 
-    global CWD, ROOT, EXTRA
+    global CWD, ROOT, EXTRA, CURRENT_TOOL, CURRENT_SESSION
     payload_cwd = data.get("cwd")
     if isinstance(payload_cwd, str) and payload_cwd:
         CWD = payload_cwd
@@ -766,6 +824,11 @@ def main() -> None:
 
     tool = data.get("tool_name", "")
     ti = data.get("tool_input") or {}
+
+    # Recorded on any deny below. Set before the first check can fire.
+    CURRENT_TOOL = tool if isinstance(tool, str) else ""
+    sid = data.get("session_id")
+    CURRENT_SESSION = sid if isinstance(sid, str) else None
 
     if tool == "Bash":
         cmd = ti.get("command", "")
