@@ -1,0 +1,46 @@
+{
+  "entries": [
+    {
+      "path": "backend/go/skills"
+    },
+    {
+      "path": "backend/pubsub/skills"
+    },
+    {
+      "path": "backend/spanner/skills"
+    },
+    {
+      "path": "backend/sqlite/skills"
+    },
+    {
+      "path": "backend/typescript/skills"
+    },
+    {
+      "path": "frontend/jh-design-system/skills"
+    },
+    {
+      "path": "frontend/lit-router/skills"
+    },
+    {
+      "path": "frontend/lit/skills"
+    },
+    {
+      "path": "knowledge/financial-accounting/skills"
+    },
+    {
+      "path": "knowledge/financial-regs/skills"
+    },
+    {
+      "path": "safety/guardrails/skills"
+    },
+    {
+      "path": "workflow/commit-story/skills"
+    },
+    {
+      "path": "workflow/excalidraw/skills"
+    },
+    {
+      "path": "workflow/pr-description/skills"
+    }
+  ]
+}
