@@ -32,7 +32,7 @@ Every element — regardless of type — carries this base. Defaults shown are t
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `id` | string | *(random)* | Unique per element. Any unique string; Excalidraw uses a ~21-char nanoid. |
-| `type` | string | — | `rectangle` / `ellipse` / `diamond` / `text` / `arrow` / `line` / `freedraw` / `image` / `frame`. |
+| `type` | string | — | `rectangle` / `ellipse` / `diamond` / `text` / `arrow` / `line` / `freedraw` / `image` / `frame` / `magicframe` / `embeddable` / `iframe`. |
 | `x`, `y` | number | — | Top-left of the element's bounding box, in scene coordinates. |
 | `width`, `height` | number | — | Bounding-box size. For linear elements this must equal the bbox of `points`. |
 | `angle` | number | `0` | Rotation in **radians**. |
@@ -63,7 +63,9 @@ fillStyle    : solid | hachure | cross-hatch | zigzag
 strokeStyle  : solid | dashed | dotted
 strokeWidth  : 1 | 2 | 4
 roughness    : 0 | 1 | 2
-fontFamily   : 1 (Excalifont / hand-drawn) | 2 (Nunito / normal) | 3 (Comic Shanns / code)
+fontFamily   : 5 (Excalifont, hand-drawn — the default) | 6 (Nunito, normal) | 8 (Comic Shanns, code)
+               legacy, still readable: 1 (Virgil) | 2 (Helvetica) | 3 (Cascadia)
+               also valid: 7 (Lilita One) | 9 (Liberation Sans) | 10 (Assistant).  4 is unused.
 roundness    : null | {type: 3}  (rectangles) | {type: 2}  (linear/arrow)
 arrowhead    : null | "arrow" | "triangle" | "dot" | "bar" | "diamond"
 textAlign    : left | center | right
@@ -83,7 +85,7 @@ Fields each subtype adds on top of the base.
 | `text` | string | — | The displayed text. |
 | `originalText` | string | — | The unwrapped source text; keep in sync with `text`. |
 | `fontSize` | number | `20` | 16 (S) / 20 (M) / 28 (L) / 36 (XL) are the UI presets, but any number is valid. |
-| `fontFamily` | enum | `1` | See enum table. |
+| `fontFamily` | enum | `5` | Excalifont. Files written before the 2024 font change use `1` (Virgil); both still render. See enum table. |
 | `textAlign` | enum | `"left"` | `left` / `center` / `right`. |
 | `verticalAlign` | enum | `"top"` | `top` / `middle` / `bottom`. For a bound label use `middle`. |
 | `containerId` | string \| null | `null` | Id of the shape this text is a label *inside*. The other half is the container's `boundElements`. |
@@ -141,7 +143,7 @@ This is the **classic** binding shape and the most widely compatible. (Newer bui
 { "type": "rectangle", "id": "A", "boundElements": [{ "id": "t-1", "type": "text" }] }
 ```
 
-**Never** use a `"label": {...}` property on a shape — it is not a valid Excalidraw field, is silently ignored, and produces a blank shape. Always use the `containerId` + `boundElements` container binding. The factory's `addLabel` and `connect` helpers ([creating.md](creating.md), [layout-and-binding.md](layout-and-binding.md)) write both sides for you.
+**Never** use a `"label": {...}` property on a shape *in a `.excalidraw` file* — it is not a valid element field there, is silently ignored, and produces a blank shape. Always use the `containerId` + `boundElements` container binding. (`label` *is* valid in the other direction: it is the shorthand you feed to `convertToExcalidrawElements`, which expands it into exactly this two-element binding — see [skeleton-api.md](skeleton-api.md). If you see a `label` key in a saved file, the skeleton was never converted.) The factory's `addLabel` and `connect` helpers ([creating.md](creating.md), [layout-and-binding.md](layout-and-binding.md)) write both sides for you.
 
 ## The `index` field (usually omit)
 

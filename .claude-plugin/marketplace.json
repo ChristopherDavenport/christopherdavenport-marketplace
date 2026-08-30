@@ -135,7 +135,7 @@
         "name": "Chris Davenport",
         "url": "https://github.com/ChristopherDavenport"
       },
-      "description": "~250 tok always-on. Read, create, and edit Excalidraw (.excalidraw) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Not for rasterizing PNG/SVG in-process."
+      "description": "~250 tok always-on. Read, create, and edit Excalidraw (.excalidraw) diagrams as data — inspect/summarize, generate schema-valid diagrams and flowcharts from a zero-dep factory or Excalidraw's ExcalidrawElementSkeleton shape, add/move/restyle/connect shapes with bound arrows and labels, convert simple Mermaid, and validate. Not for rasterizing PNG/SVG in-process."
     },
     {
       "name": "pr-description",

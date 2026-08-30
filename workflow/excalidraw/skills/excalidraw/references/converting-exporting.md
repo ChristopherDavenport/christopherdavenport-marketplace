@@ -82,31 +82,17 @@ node /tmp/validate.js out.excalidraw
 
 Scope of this parser: `graph`/`flowchart` direction, node shapes `[rect]` / `(round)` / `{diamond}`, and `-->` / `-->|label|` edges. It lays nodes out in declaration order (column, or row for `LR`). It does **not** do real graph layout (crossing minimization, ranks) — for a handful of nodes it's fine; past that, or for other node shapes, use the official package below.
 
-### Higher fidelity: the official package
+### Higher fidelity: the official package — browser only
 
-For richer Mermaid (subgraphs, many node shapes, sequence/class/state/gantt), use Excalidraw's own converter. It needs a browser-like environment, so run it under `jsdom` — flag the heaviness to the user (network install, slower):
+For richer Mermaid (subgraphs, many node shapes, sequence/class/state/gantt), Excalidraw's own `@excalidraw/mermaid-to-excalidraw` is far better than the parser above. **It needs a real browser, not `jsdom`.** Verified on current versions: `jsdom` gets as far as importing `mermaid` (after shimming `navigator` and `CSSStyleSheet`) and then dies in mermaid's layout on `element.node().getBBox is not a function` — jsdom implements no SVG geometry. Its companion `convertToExcalidrawElements` doesn't load under Node at all ([skeleton-api.md](skeleton-api.md)).
 
-```sh
-npx --yes --package=@excalidraw/mermaid-to-excalidraw --package=@excalidraw/excalidraw \
-    --package=jsdom node -e '
-const { JSDOM } = require("jsdom");
-const dom = new JSDOM("<!doctype html><html><body></body></html>");
-global.window = dom.window; global.document = dom.window.document;
-const { parseMermaidToExcalidraw } = require("@excalidraw/mermaid-to-excalidraw");
-const { convertToExcalidrawElements } = require("@excalidraw/excalidraw");
-const fs = require("fs");
-(async () => {
-  const { elements } = await parseMermaidToExcalidraw(fs.readFileSync(process.argv[1],"utf8"));
-  const full = convertToExcalidrawElements(elements);
-  fs.writeFileSync(process.argv[2], JSON.stringify({
-    type:"excalidraw", version:2, source:"https://excalidraw.com",
-    elements: full, appState:{gridSize:null, viewBackgroundColor:"#ffffff"}, files:{}
-  }, null, 2));
-})();
-' /tmp/g.mmd out.excalidraw
-```
+So treat this exactly like export: an **out-of-process** step, not something to run inline.
 
-`convertToExcalidrawElements` backfills all the required fields (ids, seeds, bindings) from a compact skeleton — so its output is already schema-valid; still run the validator to be sure.
+- **Tell the user** to paste the Mermaid into excalidraw.com → the Mermaid-to-Excalidraw dialog, and save the result — this is what that dialog is.
+- **Or run it in headless Chromium** (Playwright/puppeteer) if the user wants it automated, and say up front that it needs a browser.
+- **Otherwise** use the in-skill parser above, which covers `graph`/`flowchart` with a handful of nodes and needs nothing.
+
+Worth knowing about the shape of its output: `parseMermaidToExcalidraw` returns **skeletons**, not finished elements — so whatever runs it must still expand them (`convertToExcalidrawElements` in the browser, or the [local expander](skeleton-api.md#skeleton-shape-without-the-dependency) if you have skeleton JSON in hand and need a file). Never write skeletons straight to a `.excalidraw` file; the `label` keys are the tell, and [validate.js](validating.md) fails on them.
 
 ## Exporting to SVG / PNG — out of process
 
@@ -118,6 +104,6 @@ const fs = require("fs");
 
 If the user's actual deliverable is an image, produce and validate the `.excalidraw`, then hand them one of the above and stop — that's the correct completion of an export request, not a rendered file from this skill.
 
-## Acceptance via the real library (strongest check)
+## Acceptance via the real library
 
-When the environment allows a network install, the highest-confidence proof that a generated file will open is to feed it through Excalidraw's own `restore()` + `exportToSvg()` under `jsdom`: if the official code accepts and renders it without throwing, the schema is good — a stronger signal than the hand-rolled [validator](validating.md). This is optional and heavy; the validator is the everyday gate.
+The strongest possible proof that a generated file will open is to feed it through Excalidraw's own `restore()` + `exportToSvg()`. Like everything else in this section, that only runs where the package runs — a browser or a bundler, not `node` + `jsdom` ([skeleton-api.md](skeleton-api.md)). In practice that means the same manual check as export: open the file at excalidraw.com and look at it. The [validator](validating.md) is the everyday gate, and it is the one you must actually run.

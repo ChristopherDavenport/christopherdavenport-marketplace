@@ -7,7 +7,7 @@ What each plugin costs you in context, so you can decide before installing.
 | Plugin | Category | Always-on | On-invoke | Lazy | Components |
 | --- | --- | ---: | ---: | ---: | --- |
 | [`guardrails`](safety/guardrails) | safety | 404 | 8532 | 16k | guardrails-doctor, guardrails-setup, sandbox-policy + hooks |
-| [`excalidraw`](workflow/excalidraw) | workflow | 250 | 3778 | 54k | excalidraw |
+| [`excalidraw`](workflow/excalidraw) | workflow | 250 | 4312 | 74k | excalidraw |
 | [`commit-story`](workflow/commit-story) | workflow | 201 | 4541 | 43k | commit-story |
 | [`pr-description`](workflow/pr-description) | workflow | 193 | 2944 | 16k | pr-description |
 | [`typescript`](backend/typescript) | backend | 114 | 4093 | 174k | typescript |
@@ -23,7 +23,7 @@ What each plugin costs you in context, so you can decide before installing.
 | [`go`](backend/go) | backend | 52 | 2758 | 132k | go |
 | [`github-twin`](https://github.com/ChristopherDavenport/github-twin) † | workflow | 0 | 0 | — | mcpServers |
 | [`deep-research`](workflow/deep-research) | workflow | 0 | 0 | — | — |
-| **All 17 together** | | **2067** | 52398 | | |
+| **All 17 together** | | **2067** | 52932 | | |
 
 † Lives in its own repo. Measured at [`claude-local-telemetry` v0.3.0](https://github.com/ChristopherDavenport/claude-local-telemetry/tree/b245013), [`github-twin`](https://github.com/ChristopherDavenport/github-twin/tree/a078be8) and cached in [`scripts/remote-costs.json`](scripts/remote-costs.json); refresh with `python3 scripts/plugin_costs.py --refresh-remote`. The marketplace entry for `claude-local-telemetry` pins that exact commit, so the number describes the tree you install; `--check` fails if the pin and the measurement drift apart.
 
