@@ -1,7 +1,7 @@
 {
   "name": "pr-description",
   "description": "Write a PR title and body a reviewer can act on in under a minute, sized to the change and to whatever pull-request template the repo ships. Sources facts from the diff rather than the commit log, requires a 15-60 word lead before the first heading, holds the body to a measured density budget tiered on diff size, and moves the record of how the work went into a follow-up comment instead of the body. Ships a scorer the skill runs on its own draft before presenting it, so the budget is checked rather than asserted. Not for splitting work into commits (that is commit-story), reviewing code, merging, or ticking the author's attestation checkboxes.",
-  "version": "0.1.0",
+  "version": "2026.830.0",
   "author": {
     "name": "Chris Davenport"
   },

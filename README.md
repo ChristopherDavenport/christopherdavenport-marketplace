@@ -79,6 +79,22 @@ Each suite has 6-8 positive cases plus an adversarial case (a prompt that invite
 
 Run a plugin's eval locally with `cd evals && uv run python -m evals <plugin>`.
 
+## Releases
+
+One version for the whole repo, cut automatically on every merge to `main`. **Nothing in a pull request touches a version** — add or edit a skill and stop there; the [`release`](.github/workflows/release.yml) job stamps the new version into every plugin manifest plus `package.json` and the marketplace manifest, tags it, and cuts the GitHub release.
+
+Per-plugin versions were the alternative, and they failed in the ordinary way: every manifest sat at `0.1.x` while the skills under them were rewritten, no tag was ever cut, and the numbers read as a claim nobody was maintaining. Dropping the field instead is not available — `claude plugin validate --strict` warns on a plugin manifest with no version, and wants semver.
+
+So the scheme is CalVer shaped as valid semver, `YYYY.MMDD.N`: `2026.830.0` is the first release on 30 Aug 2026, `2026.830.1` the second that day. `MMDD` carries no leading zero because semver forbids one, and still orders correctly as an integer (`104 < 829 < 1103`). A date says the one thing a version can honestly say about a repo of skills — how fresh it is — and never asks anyone to rule on whether a rewritten reference file was breaking.
+
+`/plugin marketplace add` tracks the default branch, so a release is a record rather than an install target: it is what makes the version `/plugin` reports true, and a point to refer back to.
+
+```
+python3 scripts/version.py           # what the repo is at now
+python3 scripts/version.py --next    # what the next merge will publish
+python3 scripts/version.py --check   # manifests that disagree, if any
+```
+
 ## License
 
 [MIT](LICENSE)
