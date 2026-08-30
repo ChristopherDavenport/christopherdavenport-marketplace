@@ -2,6 +2,8 @@
 
 Track B — generate a valid diagram from nothing. The whole track rests on one rule: **never hand-type element JSON.** Build every element through the factory below, which fills the correct defaults and randomizes the identity fields, then run [the validator](validating.md) before you finish.
 
+There are two generators that satisfy that rule. This file documents the **factory**: a few dozen lines of plain `node`, no dependencies, works offline — the default. The alternative is Excalidraw's own **Skeleton API**, `convertToExcalidrawElements`, which takes a compact `{type, x, y, label, start, end}` description and expands it using upstream's code; it needs a network install and a DOM shim, and it is documented in [skeleton-api.md](skeleton-api.md). Prefer it when you want Excalidraw itself to size text containers, fit frames to their children, or place arrow endpoints from real text metrics. Either way, finish at the validator.
+
 ## The element factory
 
 Write this to `/tmp/exc.js`. Other scripts `require('/tmp/exc.js')`.
@@ -42,7 +44,7 @@ function text(str, x, y, o = {}) {
   return base({
     type: 'text', x, y, width, height,
     text: str, originalText: str,
-    fontSize, fontFamily: o.fontFamily ?? 1,
+    fontSize, fontFamily: o.fontFamily ?? 5,   // 5 = Excalifont, Excalidraw's current default
     textAlign: o.textAlign ?? 'left', verticalAlign: o.verticalAlign ?? 'top',
     containerId: o.containerId ?? null, lineHeight, autoResize: true,
     ...o,

@@ -29,6 +29,7 @@ for (const e of els) {
   for (const k of REQ) if (!(k in e)) errors.push(`${at}: missing required field "${k}"`);
   for (const [k, ok] of Object.entries(ENUMS))
     if (k in e && !ok.includes(e[k])) errors.push(`${at}: ${k}=${JSON.stringify(e[k])} not in {${ok.join(',')}}`);
+  if ('label' in e) errors.push(`${at}: has a "label" property — that is a Skeleton-only field; run convertToExcalidrawElements or bind a text element via containerId`);
   if (typeof e.seed !== 'number')         errors.push(`${at}: seed must be a number`);
   if (typeof e.versionNonce !== 'number') errors.push(`${at}: versionNonce must be a number`);
   if (!Array.isArray(e.groupIds))         errors.push(`${at}: groupIds must be an array`);
@@ -80,6 +81,7 @@ Errors (file is wrong; fix before shipping):
 - **Closed enums** — `fillStyle` / `strokeStyle` / `strokeWidth` / `roughness` are in range.
 - **Numeric identity** — `seed` and `versionNonce` are numbers; `groupIds` is an array.
 - **Linear points** — arrows/lines have ≥2 points.
+- **No unconverted skeletons** — no element carries a `label` property (valid as *input* to `convertToExcalidrawElements`, never valid in a saved file; see [skeleton-api.md](skeleton-api.md)).
 - **Text↔container bidirectional** — a text's `containerId` resolves *and* that container lists the text in `boundElements`.
 - **`boundElements` reciprocate** — every entry resolves, and the target actually points back (text via `containerId`, arrow via one of its bindings).
 - **Arrow bindings reciprocate** — every `startBinding`/`endBinding.elementId` resolves *and* that shape lists the arrow in `boundElements`.
@@ -103,6 +105,7 @@ Each error names the offending element and the exact broken invariant. The most 
 |---|---|
 | `…not bidirectional` (arrow or text) | Add the missing back-reference — push `{id, type}` into the shape's `boundElements`, or set the text's `containerId`. Prefer regenerating via `connect`/`addLabel`, which never leave one side out. |
 | `duplicate id` | Re-mint the id (and `seed`/`versionNonce`) with the factory; never copy an element without minting fresh identity. |
+| `has a "label" property` | The skeleton was written straight to disk. Run it through `convertToExcalidrawElements` ([skeleton-api.md](skeleton-api.md)), or replace the `label` with an `addLabel` text binding. |
 | `…not in {…}` (enum) | Snap the value to a legal enum member ([schema.md](schema.md)). |
 | `boundElements references missing id` / `elementId not found` | A dangling reference — the target was deleted. Strip the stale entry (see [modifying.md](modifying.md) delete rules). |
 | `first point … should be [0,0]` (warning) | Rebase `points` so the first is `[0,0]` and `x`/`y` absorb the offset. |
