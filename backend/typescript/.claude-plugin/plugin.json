@@ -1,7 +1,7 @@
 {
   "name": "typescript",
   "description": "TypeScript best practices — covering the structural type system, generics & constraints, utility & advanced types, discriminated unions & exhaustiveness, classes & OOP (constructors, access modifiers, abstract, getters/setters, #fields), error handling with throw / try / catch and typed Error subclasses, async with AbortSignal cancellation and AsyncIterable, immutability with readonly / as const / satisfies, ESM modules, strict tsconfig, naming, and testing patterns. Includes a dedicated section on functional patterns (pure functions, hand-rolled pipe, Result<T, E>) for codebases that lean that way. Stdlib-only — no library recommendations.",
-  "version": "2026.830.0",
+  "version": "2026.830.1",
   "author": {
     "name": "Chris Davenport"
   }

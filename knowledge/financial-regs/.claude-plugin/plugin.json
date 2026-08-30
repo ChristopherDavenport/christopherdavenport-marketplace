@@ -1,6 +1,6 @@
 {
   "name": "financial-regs",
   "description": "US financial regulation lookup and compliance analysis (Reg DD, Reg E, Reg Z, Reg CC, BSA/AML, Dodd-Frank).",
-  "version": "2026.830.0",
+  "version": "2026.830.1",
   "author": { "name": "Chris Davenport" }
 }

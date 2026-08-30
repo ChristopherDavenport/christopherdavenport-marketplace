@@ -1,7 +1,7 @@
 {
   "name": "commit-story",
   "description": "Take a batch of uncommitted work, understand what it accomplishes, and split it into a sequence of meaningful commits with reviewer-grade messages — while guaranteeing the final tree is byte-identical to the starting tree. Plans the commit sequence, presents it for approval, then executes whole-file or hunk-level splits via git apply --cached, and verifies the final state with diff and tree-hash comparisons. Snapshots the baseline as a stash up front so any failure can be safely rolled back. Not for rewriting already-committed history, opening PRs, or resolving merge conflicts.",
-  "version": "2026.830.0",
+  "version": "2026.830.1",
   "author": {
     "name": "Chris Davenport"
   }

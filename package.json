@@ -1,6 +1,6 @@
 {
   "name": "christopherdavenport-marketplace",
-  "version": "2026.830.0",
+  "version": "2026.830.1",
   "private": true,
   "description": "Chris Davenport's skills, shared as a pi package. Mirrors the Claude Code marketplace.",
   "keywords": ["pi-package"],

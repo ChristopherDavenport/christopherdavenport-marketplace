@@ -1,7 +1,7 @@
 {
   "name": "deep-research",
   "description": "A multi-source web research workflow that verifies before it reports. Decomposes a question into search angles, fans out parallel searches, deduplicates by URL authority, extracts falsifiable claims from the sources it fetches, then puts every claim to a three-vote adversarial panel that must be refuted twice to be dropped — so what survives into the cited report is what three independent skeptics failed to kill. Ships as a workflow rather than a skill because the verification is a fan-out the model cannot reliably drive by hand. Not a codebase search: it reads the web, and for exploring a repository the built-in Explore agent is the right tool.",
-  "version": "2026.830.0",
+  "version": "2026.830.1",
   "author": {
     "name": "Chris Davenport"
   },
