@@ -1,7 +1,7 @@
 {
   "name": "spanner",
   "description": "Google Cloud Spanner best practices — schema design (primary keys, hotspots, UUID/bit-reversed sequences, hash sharding), interleaved tables, secondary indexes (STORING, NULL_FILTERED), transactions (read-only, read-write, partitioned DML), query optimization, schema evolution pitfalls, and the Go client SDK (cloud.google.com/go/spanner).",
-  "version": "0.1.2",
+  "version": "2026.830.0",
   "author": {
     "name": "Chris Davenport"
   }

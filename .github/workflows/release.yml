@@ -1,0 +1,86 @@
+name: release
+
+# One version for the whole repo, cut on every merge to main.
+#
+# Nothing in a pull request touches a version. Whoever -- or whatever -- edits
+# a skill edits the skill and stops; this job computes the next CalVer, stamps
+# it into every manifest, tags it and cuts the release. That division is the
+# whole point: fifteen plugins sat at 0.1.x with no tag and no release ever
+# cut, because per-plugin versioning is a step every contributor is expected
+# to remember and nobody does.
+#
+# The push below uses GITHUB_TOKEN, and pushes made with GITHUB_TOKEN do not
+# start new workflow runs -- so this cannot loop on its own commit, and
+# checks.yml does not re-run for it either. That is fine: the content was
+# already checked on the pull request and the only delta is version strings.
+# The HEAD guard is belt and braces for the day someone swaps in a PAT.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Serialized, never cancelled: two merges landing close together must release
+# in order, and a cancelled run would leave a tag without its release.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # main, not the event SHA. A queued second run has to build on the
+          # first run's release commit, or its push is rejected as
+          # non-fast-forward. fetch-depth: 0 brings the tags, which is how
+          # version.py counts today's releases.
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Is there anything to release?
+        id: guard
+        run: |
+          # Two merges can queue behind one release run that already picked
+          # both up. Releasing again would cut a version whose only content
+          # is the version.
+          if git log -1 --pretty=%s | grep -q '^chore(release):'; then
+            echo "HEAD is already a release commit — nothing to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stamp the next version into every manifest
+        if: steps.guard.outputs.skip != 'true'
+        id: version
+        run: |
+          version="$(python3 scripts/version.py --release)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          python3 scripts/version.py --check
+
+      - name: Commit, tag, push
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          version='${{ steps.version.outputs.version }}'
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -u
+          git commit -m "chore(release): v$version"
+          git tag -a "v$version" -m "v$version"
+          git push origin HEAD:main
+          git push origin "v$version"
+
+      - name: Cut the GitHub release
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version='${{ steps.version.outputs.version }}'
+          gh release create "v$version" --title "v$version" --generate-notes

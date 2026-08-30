@@ -1,7 +1,7 @@
 {
   "name": "excalidraw",
   "description": "Read, create, and edit Excalidraw (.excalidraw) diagrams programmatically — parse and summarize a drawing, generate schema-valid diagrams and flowcharts, add/move/restyle/connect shapes with correctly bound arrows and labels, convert simple Mermaid to Excalidraw, and validate the result. Keeps element identity randomized, bindings bidirectional, and points relative. Not for rasterizing PNG/SVG in-process or the excalidraw.com web UI.",
-  "version": "0.2.0",
+  "version": "2026.830.0",
   "author": {
     "name": "Chris Davenport"
   }
