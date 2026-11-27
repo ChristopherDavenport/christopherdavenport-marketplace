@@ -43,12 +43,12 @@ The following must be available by the next business day after the banking day o
 - **State and local government checks** (deposited in person at staffed teller station)
 - **Cashier's checks, certified checks, teller's checks** (deposited in person at staffed teller station)
 - **Federal Reserve Bank and Federal Home Loan Bank checks**
-- **First $225** of a day's total deposits (aggregate across all check deposits that day)
+- **First $275** of a day's total deposits (aggregate across all check deposits that day)
 
-The $225 must be available at start of business on next business day. Remaining amounts subject to availability schedule.
+The $275 must be available at start of business on next business day. Remaining amounts subject to availability schedule.
 
 #### 229.12 — Availability Schedule
-After the $225 next-day rule:
+After the $275 next-day rule:
 - **Local checks**: funds must be available by the second business day after the banking day of deposit
 - **Nonlocal checks**: funds must be available by the fifth business day
 - Note: the local/nonlocal distinction was largely eliminated by regulatory updates but the maximum hold periods remain
@@ -57,12 +57,12 @@ For deposits at nonproprietary ATMs: next-day availability rules do not apply; m
 
 #### 229.13 — Exception Holds (CRITICAL)
 Institutions may extend hold periods beyond the standard schedule for:
-1. **Large deposits**: aggregate deposits exceeding **$5,525** on any one banking day (extension applies to amount over $5,525)
+1. **Large deposits**: aggregate deposits exceeding **$6,725** on any one banking day (extension applies to amount over $6,725)
 2. **Redeposited checks**: checks that have been returned unpaid and redeposited
-3. **Repeated overdrafts**: account overdrawn 6+ banking days in previous 6 months, or would have been overdrawn on 2+ banking days for $5,525+ if checks had been paid
+3. **Repeated overdrafts**: account overdrawn 6+ banking days in previous 6 months, or would have been overdrawn on 2+ banking days for $6,725+ if checks had been paid
 4. **Reasonable cause to doubt collectibility**: specific, articulable facts (not general suspicion) — large check relative to account activity, check from account with repeated overdrafts, etc.
 5. **Emergency conditions**: interruption of communications, suspension of payments, war, other beyond the institution's control
-6. **New accounts**: accounts open less than **30 calendar days** (first $5,525 of next-day items still get next-day availability)
+6. **New accounts**: accounts open less than **30 calendar days** (first $6,725 of next-day items still get next-day availability)
 
 **Exception hold notice**: must be provided if institution invokes an exception. Notice must state reason for hold, expected date of availability, and if already set, the time of day funds will be available.
 
@@ -117,7 +117,7 @@ Similar to consumer recredit but between banks. Claim must be made within 120 ca
 ## Common Compliance Questions
 
 1. When must a check deposit be made available? → Fetch 229.10, 229.12
-2. What is the $225 next-day rule? → Fetch 229.10(c)(1)(vii)
+2. What is the $275 next-day rule? → Fetch 229.10(c)(1)(vii)
 3. What are the exception hold thresholds? → Fetch 229.13
 4. What notice is required for exception holds? → Fetch 229.13, 229.18
 5. What defines a "new account"? → Fetch 229.13(a) + 229.2
@@ -132,8 +132,10 @@ Similar to consumer recredit but between banks. Claim must be made within 120 ca
 
 ## Key Thresholds & Timelines
 
-- **$225**: first $225 of a day's deposits available next business day (229.10)
-- **$5,525**: large deposit exception threshold (229.13(b))
+> Dollar amounts in 229.10 and 229.13 are inflation-adjusted periodically. Values below ($275 / $6,725) were verified against the eCFR in Nov 2026; re-fetch 229.10 and 229.13 before quoting them.
+
+- **$275**: first $275 of a day's deposits available next business day (229.10)
+- **$6,725**: large deposit exception threshold (229.13(b))
 - **$2,500**: initial consumer expedited recredit amount (229.54)
 - **Next business day**: cash, wire transfers, government checks, cashier's/certified checks (229.10)
 - **2 business days**: local check availability (229.12)
