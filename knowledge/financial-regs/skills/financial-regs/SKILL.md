@@ -62,7 +62,7 @@ If a primary source fetch fails, try the alternate source. If all fetches fail, 
 | AML, BSA, CTR, SAR, CDD, beneficial ownership, KYC, CIP, 314a, 314b, correspondent banking, structuring, FBAR, FinCEN | BSA/AML | [references/bsa-aml.md](references/bsa-aml.md) |
 | Credit card, mortgage, APR, TILA, finance charge, rescission, TRID, Loan Estimate, Closing Disclosure, ATR/QM, HOEPA, CARD Act, billing error (credit) | Reg Z | [references/reg-z.md](references/reg-z.md) |
 | UDAAP, unfair deceptive abusive, CFPB authority, open banking, Section 1033, data access, consumer data rights | Dodd-Frank | [references/dodd-frank.md](references/dodd-frank.md) |
-| Check hold, funds availability, next-day availability, expedited funds, substitute check, Check 21, $225 rule, exception hold | Reg CC | [references/reg-cc.md](references/reg-cc.md) |
+| Check hold, funds availability, next-day availability, expedited funds, substitute check, Check 21, $275 rule, exception hold | Reg CC | [references/reg-cc.md](references/reg-cc.md) |
 | Multi-regulation, overlapping requirements, product launch review, error resolution comparison | Cross-regulation | [references/cross-references.md](references/cross-references.md) |
 
 ## Response Format
